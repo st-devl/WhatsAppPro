@@ -5,5 +5,4 @@ data/templates.json
 data/daily_stats.json
 data/recipient_history.json
 uploads/
-.env
 .DS_Store
