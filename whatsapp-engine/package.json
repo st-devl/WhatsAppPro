@@ -14,7 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
-    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "express": "^4.19.2",
     "express-session": "^1.19.0",
@@ -27,5 +27,5 @@
     "uuid": "^13.0.0",
     "xlsx": "^0.18.5"
   },
-  "version": "0.0.5"
+  "version": "0.0.6"
 }

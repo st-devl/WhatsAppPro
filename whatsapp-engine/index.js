@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -7,7 +8,7 @@ const { sendBulkWithProgress, stopCampaign, getCampaignStatus } = require('./lib
 const path = require('path');
 const multer = require('multer');
 const xlsx = require('xlsx');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./lib/db');
 const fs = require('fs-extra');
