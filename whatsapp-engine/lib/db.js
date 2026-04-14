@@ -1,23 +1,32 @@
-const sqlite3 = require('sqlite3').verbose();
+const initSqlJs = require('sql.js');
 const path = require('path');
 const fs = require('fs-extra');
 
-// Ensure data dir exists
-fs.ensureDirSync(path.join(__dirname, '../data'));
+const dataDir = path.join(__dirname, '../data');
+fs.ensureDirSync(dataDir);
 
-const dbFile = path.join(__dirname, '../data/database.sqlite');
-const db = new sqlite3.Database(dbFile);
+const dbFile = path.join(dataDir, 'database.sqlite');
+let db = null;
 
-// Initialization & Migration
-db.serialize(() => {
-    // Groups Table
+async function getDb() {
+    if (db) return db;
+
+    const SQL = await initSqlJs();
+
+    if (fs.existsSync(dbFile)) {
+        const buffer = fs.readFileSync(dbFile);
+        db = new SQL.Database(buffer);
+    } else {
+        db = new SQL.Database();
+    }
+
+    // Tablo oluştur
     db.run(`CREATE TABLE IF NOT EXISTS groups (
         id TEXT PRIMARY KEY,
         name TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Contacts Table (linked to a group)
     db.run(`CREATE TABLE IF NOT EXISTS contacts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         group_id TEXT,
@@ -27,7 +36,6 @@ db.serialize(() => {
         FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE CASCADE
     )`);
 
-    // Templates Table
     db.run(`CREATE TABLE IF NOT EXISTS templates (
         id TEXT PRIMARY KEY,
         name TEXT,
@@ -35,107 +43,106 @@ db.serialize(() => {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Optional: Migrate existing JSONs
-    migrateJSONs();
-});
+    // Migration: JSON varsa taşı
+    await migrateJSONs();
+    save();
+
+    return db;
+}
+
+function save() {
+    if (!db) return;
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(dbFile, buffer);
+}
 
 async function migrateJSONs() {
-    // 1. Templates
-    const tplPath = path.join(__dirname, '../data/templates.json');
+    const tplPath = path.join(dataDir, 'templates.json');
     if (fs.existsSync(tplPath)) {
         try {
-            const templates = await fs.readJson(tplPath);
+            const templates = fs.readJsonSync(tplPath);
             templates.forEach(t => {
-                 db.run(`INSERT OR IGNORE INTO templates (id, name, text) VALUES (?, ?, ?)`, [t.id.toString(), t.name, t.text]);
+                db.run(`INSERT OR IGNORE INTO templates (id, name, text) VALUES (?, ?, ?)`, [String(t.id), t.name, t.text]);
             });
             fs.renameSync(tplPath, tplPath + '.migrated');
             console.log("✅ Templates veritabanına taşındı.");
-        } catch(e) { console.error("Template migration error", e); }
+        } catch (e) { console.error("Template migration error", e); }
     }
 
-    // 2. Groups & Contacts
-    const grpPath = path.join(__dirname, '../data/groups.json');
+    const grpPath = path.join(dataDir, 'groups.json');
     if (fs.existsSync(grpPath)) {
         try {
-            const groups = await fs.readJson(grpPath);
+            const groups = fs.readJsonSync(grpPath);
             groups.forEach(g => {
-                 db.run(`INSERT OR IGNORE INTO groups (id, name) VALUES (?, ?)`, [g.id, g.name], (err) => {
-                     if (!err && g.contacts && g.contacts.length > 0) {
-                         const stmt = db.prepare(`INSERT INTO contacts (group_id, name, surname, phone) VALUES (?, ?, ?, ?)`);
-                         g.contacts.forEach(c => {
-                             stmt.run([g.id, c.name || '', c.surname || '', c.phone]);
-                         });
-                         stmt.finalize();
-                     }
-                 });
+                db.run(`INSERT OR IGNORE INTO groups (id, name) VALUES (?, ?)`, [g.id, g.name]);
+                if (g.contacts && g.contacts.length > 0) {
+                    g.contacts.forEach(c => {
+                        db.run(`INSERT INTO contacts (group_id, name, surname, phone) VALUES (?, ?, ?, ?)`,
+                            [g.id, c.name || '', c.surname || '', c.phone]);
+                    });
+                }
             });
-            setTimeout(() => { fs.renameSync(grpPath, grpPath + '.migrated'); }, 1000);
+            fs.renameSync(grpPath, grpPath + '.migrated');
             console.log("✅ Groups veritabanına taşındı.");
-        } catch(e) { console.error("Group migration error", e); }
+        } catch (e) { console.error("Group migration error", e); }
     }
 }
 
-const getGroups = () => new Promise((resolve, reject) => {
-    db.all(`SELECT * FROM groups`, [], (err, groups) => {
-        if(err) return reject(err);
-        db.all(`SELECT * FROM contacts`, [], (err, contacts) => {
-             if(err) return reject(err);
-             groups.forEach(g => {
-                 g.contacts = contacts.filter(c => c.group_id === g.id).map(c => ({
-                     name: c.name, surname: c.surname, phone: c.phone
-                 }));
-             });
-             resolve(groups);
-        });
-    });
-});
+// --- PUBLIC API ---
 
-const createGroup = (id, name) => new Promise((resolve, reject) => {
-    db.run(`INSERT INTO groups (id, name) VALUES (?, ?)`, [id, name], function(err) {
-        if(err) return reject(err);
-        resolve({ id, name, contacts: [] });
-    });
-});
+const getGroups = async () => {
+    const d = await getDb();
+    const groups = d.exec(`SELECT * FROM groups`);
+    const contacts = d.exec(`SELECT * FROM contacts`);
 
-const updateGroupContacts = (groupId, contactsList) => new Promise((resolve, reject) => {
-    db.run(`DELETE FROM contacts WHERE group_id = ?`, [groupId], (err) => {
-        if(err) return reject(err);
-        if (contactsList.length === 0) return resolve();
-        
-        const placeholders = contactsList.map(() => '(?, ?, ?, ?)').join(',');
-        const params = [];
-        contactsList.forEach(c => {
-            params.push(groupId, c.name || '', c.surname || '', c.phone);
-        });
-        
-        db.run(`INSERT INTO contacts (group_id, name, surname, phone) VALUES ${placeholders}`, params, (err) => {
-            if(err) return reject(err);
-            resolve();
-        });
-    });
-});
+    const groupRows = groups.length > 0 ? groups[0].values.map(r => ({ id: r[0], name: r[1], created_at: r[2] })) : [];
+    const contactRows = contacts.length > 0 ? contacts[0].values.map(r => ({ id: r[0], group_id: r[1], name: r[2], surname: r[3], phone: r[4] })) : [];
 
-const deleteGroup = (id) => new Promise((resolve, reject) => {
-    db.run(`DELETE FROM contacts WHERE group_id = ?`, [id], (err) => {
-        db.run(`DELETE FROM groups WHERE id = ?`, [id], (err) => {
-            if(err) return reject(err);
-            resolve();
-        });
+    groupRows.forEach(g => {
+        g.contacts = contactRows.filter(c => c.group_id === g.id).map(c => ({
+            name: c.name, surname: c.surname, phone: c.phone
+        }));
     });
-});
+    return groupRows;
+};
 
-const getTemplates = () => new Promise((resolve, reject) => {
-    db.all(`SELECT * FROM templates`, [], (err, rows) => {
-        if(err) return reject(err);
-        resolve(rows);
-    });
-});
+const createGroup = async (id, name) => {
+    const d = await getDb();
+    d.run(`INSERT INTO groups (id, name) VALUES (?, ?)`, [id, name]);
+    save();
+    return { id, name, contacts: [] };
+};
 
-const createTemplate = (id, name, text) => new Promise((resolve, reject) => {
-    db.run(`INSERT INTO templates (id, name, text) VALUES (?, ?, ?)`, [id, name, text], (err) => {
-        if(err) return reject(err);
-        resolve({ id, name, text });
+const updateGroupContacts = async (groupId, contactsList) => {
+    const d = await getDb();
+    d.run(`DELETE FROM contacts WHERE group_id = ?`, [groupId]);
+    contactsList.forEach(c => {
+        d.run(`INSERT INTO contacts (group_id, name, surname, phone) VALUES (?, ?, ?, ?)`,
+            [groupId, c.name || '', c.surname || '', c.phone]);
     });
-});
+    save();
+};
+
+const deleteGroup = async (id) => {
+    const d = await getDb();
+    d.run(`DELETE FROM contacts WHERE group_id = ?`, [id]);
+    d.run(`DELETE FROM groups WHERE id = ?`, [id]);
+    save();
+};
+
+const getTemplates = async () => {
+    const d = await getDb();
+    const result = d.exec(`SELECT * FROM templates`);
+    if (result.length === 0) return [];
+    return result[0].values.map(r => ({ id: r[0], name: r[1], text: r[2], created_at: r[3] }));
+};
+
+const createTemplate = async (id, name, text) => {
+    const d = await getDb();
+    d.run(`INSERT INTO templates (id, name, text) VALUES (?, ?, ?)`, [id, name, text]);
+    save();
+    return { id, name, text };
+};
 
 module.exports = { getGroups, createGroup, updateGroupContacts, deleteGroup, getTemplates, createTemplate };

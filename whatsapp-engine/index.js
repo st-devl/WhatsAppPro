@@ -5,7 +5,6 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { getSocketConfig } = require('./lib/connection');
 const { sendBulkWithProgress, stopCampaign, getCampaignStatus } = require('./lib/messenger');
-const path = require('path');
 const multer = require('multer');
 const xlsx = require('xlsx');
 const bcrypt = require('bcryptjs');
@@ -23,7 +22,7 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: { 
-        secure: process.env.NODE_ENV === 'production', 
+        secure: false, 
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000 
     }
@@ -110,7 +109,7 @@ app.get('/api/version', async (req, res) => {
         const pkg = await fs.readJson(path.join(__dirname, 'package.json'));
         res.json({ version: pkg.version });
     } catch (e) {
-        res.json({ version: '1.3.0' });
+        res.json({ version: '1.0.0' });
     }
 });
 
@@ -203,10 +202,7 @@ app.get('/api/download-sample', (req, res) => {
 
 // Campaign State Recovery
 app.get('/api/campaign-status', (req, res) => {
-    // Return all session campaigns that exist 
-    // Usually it's tied to session, but for now we just return the active campaign using user's session ID
-    const campaignId = req.session.id; // Or user's session
-    const status = getCampaignStatus(campaignId);
+    const status = getCampaignStatus('main_campaign');
     res.json({ campaign: status });
 });
 
@@ -235,11 +231,7 @@ io.on('connection', (socket) => {
     socket.emit('status', isConnected ? 'connected' : 'disconnected');
     if (!isConnected && lastQR) socket.emit('qr', lastQR);
     
-    // Auth bypass check for sockets could be added using cookie parser, assuming handled via frontend
-    // Fallback: Campaign uses socket.request.session if we attach session middleware
-    
     socket.on('stop-bulk', () => {
-        // We use a fixed campaign ID per user or session, here we just use 'main_campaign' for simplicity in single-tenant
         stopCampaign('main_campaign');
         socket.emit('log', { type: 'error', message: '🛑 İşlem durduruldu.' });
     });
@@ -327,8 +319,5 @@ server.listen(PORT, () => {
     console.log(`\n================================================`);
     console.log(`🌍 WhasAppC Pro Enterprise Aktif: http://localhost:${PORT}`);
     console.log(`================================================\n`);
-    io.engine.use(session({
-        secret: process.env.SESSION_SECRET || 'fallback-dev-secret', resave: false, saveUninitialized: false
-    })); // Link session to socketio for advanced usage later
     initWhatsApp();
 });
