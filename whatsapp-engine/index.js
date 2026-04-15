@@ -228,6 +228,28 @@ app.post('/api/upload-media', (req, res) => {
     });
 });
 
+app.delete('/api/upload-media/:index', async (req, res) => {
+    try {
+        const index = Number.parseInt(req.params.index, 10);
+        if (!Number.isInteger(index) || index < 0 || index >= currentMedia.length) {
+            return res.status(400).json({ error: 'Geçersiz medya seçimi' });
+        }
+
+        const [removed] = currentMedia.splice(index, 1);
+        if (removed?.path) {
+            const uploadsDir = path.resolve(__dirname, 'uploads');
+            const mediaPath = path.resolve(__dirname, removed.path);
+            if (mediaPath.startsWith(uploadsDir + path.sep)) {
+                await fs.remove(mediaPath);
+            }
+        }
+
+        res.json(currentMedia);
+    } catch (err) {
+        res.status(500).json({ error: 'Medya silinemedi: ' + err.message });
+    }
+});
+
 app.post('/api/upload-excel', (req, res) => {
     upload.single('excel')(req, res, function (err) {
         if (err) return res.status(400).json({ error: err.message });

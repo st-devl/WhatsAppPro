@@ -417,6 +417,36 @@
             button.classList.toggle('cursor-not-allowed', state === 'loading');
         }
 
+        function renderMediaPreview() {
+            document.getElementById('media-preview').innerHTML = mediaFiles.map((f, index) => {
+                const preview = f.mimetype.startsWith('video/')
+                    ? '<div class="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center text-xl border-2 border-slate-200">🎬</div>'
+                    : `<img src="/${f.path}" class="w-14 h-14 rounded-xl object-cover border-2 border-slate-200">`;
+
+                return `
+                    <div class="relative w-14 h-14 shrink-0">
+                        ${preview}
+                        <button type="button" onclick="removeMedia(${index})" aria-label="Medyayı kaldır" class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-600 text-white text-[10px] font-black leading-none shadow-lg hover:bg-red-700 transition-all">x</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function removeMedia(index) {
+            try {
+                const res = await fetch(`/api/upload-media/${index}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Medya kaldırılamadı');
+
+                mediaFiles = data;
+                renderMediaPreview();
+                updatePreview();
+                setMediaUploadStatus(mediaFiles.length > 0 ? 'success' : 'idle', mediaFiles.length > 0 ? `${mediaFiles.length} medya hazır` : '');
+            } catch (err) {
+                showToast('❌ ' + err.message, 'error');
+            }
+        }
+
         async function uploadMedia(input) {
             if (!input.files || input.files.length === 0) return;
 
@@ -430,10 +460,7 @@
                 if (!res.ok) throw new Error(data.error || 'Medya yüklenemedi');
 
                 mediaFiles = data;
-                document.getElementById('media-preview').innerHTML = mediaFiles.map(f => {
-                    if(f.mimetype.startsWith('video/')) return `<div class="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center text-xl border-2 border-slate-200">🎬</div>`;
-                    else return `<img src="/${f.path}" class="w-14 h-14 rounded-xl object-cover border-2 border-slate-200">`;
-                }).join('');
+                renderMediaPreview();
                 updatePreview();
                 setMediaUploadStatus('success', `${mediaFiles.length} medya yüklendi`);
                 setTimeout(() => setMediaUploadStatus('idle'), 3500);
