@@ -4,12 +4,12 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>WhasAppC PRO - Login</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <script id="tailwind-config">
-      tailwind.config = {
+      window.tailwind = window.tailwind || {};
+      window.tailwind.config = {
         darkMode: "class",
         theme: {
           extend: {
@@ -77,10 +77,27 @@
         },
       }
     </script>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <style>
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
         }
+        :root { --wc-primary: #091426; --wc-secondary: #006c49; --wc-error: #ba1a1a; --wc-on-primary: #ffffff; }
+        .bg-primary { background-color: var(--wc-primary); }
+        .bg-secondary { background-color: var(--wc-secondary); }
+        .bg-error { background-color: var(--wc-error); }
+        .text-primary { color: var(--wc-primary); }
+        .text-secondary { color: var(--wc-secondary); }
+        .text-error { color: var(--wc-error); }
+        .text-on-primary { color: var(--wc-on-primary); }
+        .text-white { color: var(--wc-on-primary); }
+        .border-error { border-color: var(--wc-error); }
+        .hover\:bg-primary\/90:hover { background-color: rgba(9, 20, 38, 0.9); }
+        .hover\:bg-secondary\/90:hover { background-color: rgba(0, 108, 73, 0.9); }
+        .hover\:bg-error:hover { background-color: var(--wc-error); }
+        .hover\:bg-error\/90:hover { background-color: rgba(186, 26, 26, 0.9); }
+        .group:hover .group-hover\:bg-primary { background-color: var(--wc-primary); }
+        .group:hover .group-hover\:text-white { color: var(--wc-on-primary); }
         body {
             font-family: 'Inter', sans-serif;
         }
