@@ -137,6 +137,7 @@ app.get('/healthz', (req, res) => {
 app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public/login.html')));
 app.use(requireAuth, express.static('public'));
 app.use('/uploads', requireAuth, express.static('uploads'));
+app.use('/api', requireAuth);
 
 let sock = null;
 let isConnected = false;
@@ -153,26 +154,14 @@ const runtimeStatus = {
     lastError: null
 };
 
-const normalizePhone = (value) => String(value || '').replace(/[^\d]/g, '');
+const normalizePhone = db.normalizePhone;
+const normalizeContacts = (list) => db.normalizeContactsDetailed(list).contacts;
 
-const normalizeContacts = (list) => {
-    if (!Array.isArray(list)) return [];
-    const seenPhones = new Set();
-    const normalized = [];
-
-    for (const item of list) {
-        const phone = normalizePhone(item?.phone);
-        if (phone.length < 5 || seenPhones.has(phone)) continue;
-        seenPhones.add(phone);
-        normalized.push({
-            name: String(item?.name || '').trim(),
-            surname: String(item?.surname || '').trim(),
-            phone
-        });
-    }
-
-    return normalized;
-};
+function sendApiError(res, err) {
+    const status = err.status || err.statusCode || 500;
+    if (status >= 500) console.error('API hatası:', err);
+    res.status(status).json({ error: err.message || 'Beklenmeyen hata' });
+}
 
 app.get('/api/version', async (req, res) => {
     try {
@@ -193,7 +182,7 @@ app.get('/api/templates', async (req, res) => {
     try {
         const data = await db.getTemplates();
         res.json(data);
-    } catch(e) { res.status(500).json({error: e.message}); }
+    } catch(e) { sendApiError(res, e); }
 });
 
 app.post('/api/templates', async (req, res) => {
@@ -202,14 +191,14 @@ app.post('/api/templates', async (req, res) => {
         if(!req.body.name || !req.body.text) return res.status(400).json({error: 'Bos isim veya içerik'});
         const newTpl = await db.createTemplate(id, req.body.name, req.body.text);
         res.json({ success: true, template: newTpl });
-    } catch(e) { res.status(500).json({error: e.message}); }
+    } catch(e) { sendApiError(res, e); }
 });
 
 app.get('/api/groups', async (req, res) => {
     try {
         const data = await db.getGroups();
         res.json(data);
-    } catch(e) { res.status(500).json({error: e.message}); }
+    } catch(e) { sendApiError(res, e); }
 });
 
 app.post('/api/groups', async (req, res) => {
@@ -219,23 +208,51 @@ app.post('/api/groups', async (req, res) => {
         const id = uuidv4();
         const newGroup = await db.createGroup(id, groupName);
         res.json(newGroup);
-    } catch(e) { res.status(500).json({error: e.message}); }
+    } catch(e) { sendApiError(res, e); }
 });
 
 app.put('/api/groups/:id', async (req, res) => {
     try {
         if (!Array.isArray(req.body?.contacts)) return res.status(400).json({error: 'Contacts gerekli'});
         const contacts = normalizeContacts(req.body.contacts);
-        await db.updateGroupContacts(req.params.id, contacts);
-        res.json({ success: true });
-    } catch(e) { res.status(500).json({error: e.message}); }
+        const result = await db.updateGroupContacts(req.params.id, contacts);
+        res.json(result);
+    } catch(e) { sendApiError(res, e); }
 });
 
 app.delete('/api/groups/:id', async (req, res) => {
     try {
-        await db.deleteGroup(req.params.id);
-        res.json({ success: true });
-    } catch(e) { res.status(500).json({error: e.message}); }
+        const result = await db.deleteGroup(req.params.id);
+        res.json(result);
+    } catch(e) { sendApiError(res, e); }
+});
+
+app.get('/api/groups/:groupId/contacts', async (req, res) => {
+    try {
+        const contacts = await db.getGroupContacts(req.params.groupId);
+        res.json(contacts);
+    } catch(e) { sendApiError(res, e); }
+});
+
+app.post('/api/groups/:groupId/contacts', async (req, res) => {
+    try {
+        const contact = await db.createContact(req.params.groupId, req.body || {});
+        res.status(201).json(contact);
+    } catch(e) { sendApiError(res, e); }
+});
+
+app.patch('/api/groups/:groupId/contacts/:contactId', async (req, res) => {
+    try {
+        const contact = await db.updateContact(req.params.groupId, req.params.contactId, req.body || {});
+        res.json(contact);
+    } catch(e) { sendApiError(res, e); }
+});
+
+app.delete('/api/groups/:groupId/contacts/:contactId', async (req, res) => {
+    try {
+        const result = await db.deleteContact(req.params.groupId, req.params.contactId);
+        res.json(result);
+    } catch(e) { sendApiError(res, e); }
 });
 
 // --- DOSYA API ---
@@ -297,13 +314,15 @@ app.post('/api/upload-excel', (req, res) => {
             const nameAliases = ['İsim', 'isim', 'name', 'Name', 'ad', 'Ad', 'AD', 'İSİM', 'first_name', 'firstName', 'Ad Soyad', 'ad soyad', 'adsoyad', 'AdSoyad', 'isim soyisim', 'İsim Soyisim'];
             const surnameAliases = ['Soyisim', 'soyisim', 'SOYİSİM', 'surname', 'Surname', 'soyad', 'Soyad', 'last_name', 'lastName'];
 
-            const data = normalizeContacts(rawData.map(row => ({
+            const normalizedResult = db.normalizeContactsDetailed(rawData.map(row => ({
                 phone: normalizePhone(findColumn(row, phoneAliases)),
                 name: findColumn(row, nameAliases),
                 surname: findColumn(row, surnameAliases)
             })));
+            const data = normalizedResult.contacts;
+            const summary = normalizedResult.summary;
 
-            console.log(`📊 Excel yüklendi: ${rawData.length} satır okundu, ${data.length} geçerli kişi bulundu. Sütunlar: ${Object.keys(rawData[0] || {}).join(', ')}`);
+            console.log(`📊 Excel yüklendi: ${rawData.length} satır okundu, ${data.length} geçerli kişi bulundu, ${summary.duplicate} duplicate, ${summary.invalid} hatalı. Sütunlar: ${Object.keys(rawData[0] || {}).join(', ')}`);
 
             if (data.length === 0) {
                 return res.status(400).json({ 
@@ -311,7 +330,7 @@ app.post('/api/upload-excel', (req, res) => {
                 });
             }
 
-            res.json(data);
+            res.json({ contacts: data, summary });
         } catch (e) { 
             console.error('Excel parse hatası:', e);
             res.status(500).json({ error: 'Excel okuma hatası: ' + e.message }); 

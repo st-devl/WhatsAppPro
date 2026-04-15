@@ -3,7 +3,8 @@
   "description": "Baileys based bulk messaging system",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "verify:data": "node scripts/verify-data-layer.js"
   },
   "keywords": [
     "whatsapp",
@@ -27,5 +28,5 @@
     "uuid": "^9.0.1",
     "xlsx": "^0.18.5"
   },
-  "version": "0.0.16"
+  "version": "0.0.17"
 }

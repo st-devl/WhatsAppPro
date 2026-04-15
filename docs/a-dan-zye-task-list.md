@@ -1,504 +1,409 @@
-# WhasAppC Pro A'dan Z'ye Task List
-
-Bu dokuman, sistemin rehber/grup kaliciligi, kampanya akisi, medya yonetimi ve frontend profesyonellestirme kapsaminda yapilmasi gerekenleri eksiksiz takip etmek icin hazirlanmistir.
-
-Temel kural: Mevcut calisan hicbir ozellik, buton, modal, form alani, API endpointi veya Socket.IO eventi kaybolmayacak. Yeni gelistirmeler sistemi daha guvenli, daha kalici, daha hizli ve daha anlasilir hale getirecek.
-
-## 1. Mevcut Sistemi Inceleme
-
-- [ ] Mevcut `whatsapp-engine/public/index.html` frontend yapisini buton buton incele.
-- [ ] Mevcut `whatsapp-engine/public/login.html` login akisini incele.
-- [ ] Mevcut `whatsapp-engine/index.js` API ve Socket.IO endpointlerini incele.
-- [ ] Mevcut `whatsapp-engine/lib/db.js` veritabani katmanini incele.
-- [ ] Mevcut `whatsapp-engine/lib/messenger.js` mesaj gonderim akisini incele.
-- [ ] Mevcut `whatsapp-engine/lib/connection.js` WhatsApp baglanti akisini incele.
-- [ ] Mevcut SQLite dosyasinin konumunu, schema yapisini ve deploy davranisini dogrula.
-- [ ] Veri kaybi riski olan tum noktalarin listesini cikar.
-- [ ] Mevcut frontend id, onclick, class ve JS fonksiyon bagimliliklarini not al.
-- [ ] Mevcut kullanici akislarini bozmadan hangi alanlarin refactor edilecegini belirle.
-
-## 2. Veri Kaliciligi ve Deploy Guvenligi
-
-- [ ] `whatsapp-engine/data/database.sqlite` dosyasinin deploy sirasinda silinmeyecek sekilde konumlandirildigini dogrula.
-- [ ] Veritabani dosyasinin Git tarafindan yanlislikla overwrite edilmesini engelle.
-- [ ] Gerekirse `whatsapp-engine/.gitignore` icine `data/database.sqlite` ve backup klasorlerini ekle.
-- [ ] Eger database dosyasi Git tarafindan takip ediliyorsa, dosyayi fiziksel olarak silmeden sadece Git takibinden cikarmak icin plan hazirla.
-- [ ] Deploy sonrasi rehber/grup verisinin kalip kalmadigini test et.
-- [ ] Veritabani dosyasinin uygulama restart sonrasi korundugunu test et.
-- [ ] Production ortamda kalici volume/disk kullanimi gerekip gerekmedigini dokumante et.
-- [ ] Kritik veri dosyalarinin `auth`, `uploads`, `data` ile birlikte deploy stratejisini belirle.
-
-## 3. Otomatik Yedekleme
-
-- [ ] `whatsapp-engine/data/backups/` gibi kalici bir backup klasoru olustur.
-- [ ] Grup olusturma, grup guncelleme, grup silme, kisi silme, toplu import gibi kritik islemlerden once otomatik backup al.
-- [ ] Backup dosya adina tarih/saat ekle.
-- [ ] Backup islemi basarisiz olursa kritik islemi durdur veya kullaniciya acik hata ver.
-- [ ] Backup sayisini sinirlayacak retention kuralini belirle.
-- [ ] Eski backuplari kontrollu sekilde temizle.
-- [ ] Backup dosyalarini uygulama loglarinda takip edilebilir yap.
-- [ ] Geri yukleme prosedurunu dokumante et.
-
-## 4. Veritabani Migration Sistemi
-
-- [ ] `schema_migrations` tablosu olustur.
-- [ ] Her migration icin benzersiz migration id kullan.
-- [ ] Migrationlar idempotent olmali, ayni migration ikinci kez calistiginda sistemi bozmamali.
-- [ ] Migrationlar uygulama baslangicinda guvenli sekilde calismali.
-- [ ] Migration basarisiz olursa uygulama hatayi saklamamali, acikca loglamali.
-- [ ] Migration oncesi otomatik backup alinmali.
-- [ ] Eski veri yeni schema'ya kayipsiz tasinmali.
-
-## 5. Profesyonel Grup Modeli
-
-- [ ] Gruplar icin kalici ve profesyonel tablo yapisi netlestir.
-- [ ] Her grup icin benzersiz `id` kullan.
-- [ ] Grup adi zorunlu olmali.
-- [ ] Grup adi bos string veya sadece bosluk olamamali.
-- [ ] Grup adlari normalize edilerek duplicate kontrolu yapilmali.
-- [ ] Grup icin `created_at` alani olmali.
-- [ ] Grup icin `updated_at` alani olmali.
-- [ ] Grup icin `deleted_at` soft delete alani olmali.
-- [ ] Kullanici kendi istemedikce grup fiziksel olarak silinmemeli.
-- [ ] Grup silme islemi soft delete ile yapilmali.
-- [ ] Soft deleted gruplar normal listede gorunmemeli.
-- [ ] Gerekirse ileride geri alma icin soft deleted veri korunmali.
-
-## 6. Profesyonel Kisi Modeli
-
-- [ ] Kisiler icin kalici ve profesyonel tablo yapisi netlestir.
-- [ ] Her kisi icin benzersiz `id` kullan.
-- [ ] Kisi bir `group_id` ile gruba bagli olmali.
-- [ ] Kisi adi opsiyonel ama temizlenmis string olmali.
-- [ ] Soyad ayrimi mevcut veriyle uyumlu sekilde desteklenmeli.
-- [ ] Telefon alani zorunlu olmali.
-- [ ] Telefon normalize edilmis `normalized_phone` alaniyla saklanmali.
-- [ ] Telefon duplicate kontrolu normalized phone uzerinden yapilmali.
-- [ ] Her kisi icin `created_at` alani olmali.
-- [ ] Her kisi icin `updated_at` alani olmali.
-- [ ] Her kisi icin `deleted_at` soft delete alani olmali.
-- [ ] Grup icinde ayni telefon numarasi ikinci kez eklenmemeli.
-- [ ] Kisi silme islemi soft delete ile yapilmali.
-- [ ] Kullanici istemedikce kisi verisi fiziksel olarak silinmemeli.
-
-## 7. Telefon Normalizasyonu
-
-- [ ] Telefon numaralarindan bosluk, tire, parantez, arti ve harf disi karakterleri temizle.
-- [ ] Sadece rakam kalan normalize degeri sakla.
-- [ ] Minimum telefon uzunlugu validasyonu uygula.
-- [ ] Turkiye numaralari icin `90` ile baslayan formati destekle.
-- [ ] Excel ve manuel giris ayni normalize fonksiyonunu kullanmali.
-- [ ] Kampanya hedef listesinde duplicate numaralar tekilleştirilmeli.
-- [ ] Hatali telefon formatlari kullaniciya acik mesajla bildirilmeli.
-
-## 8. Transaction ve Veri Butunlugu
-
-- [ ] Grup olusturma ve kisi ekleme islemlerinde transaction kullan.
-- [ ] Excel import islemini transaction icinde yap.
-- [ ] Toplu kisi guncelleme islemini transaction icinde yap.
-- [ ] Bir islem yarida kalirsa veritabani tutarsiz durumda kalmamali.
-- [ ] Basarisiz import sonucunda kismen eklenmis veri birakilmamali.
-- [ ] Duplicate ve validation hatalari transaction baslamadan mumkun oldugunca ayiklanmali.
-- [ ] Veritabani yazma hatalari kullaniciya saklanmadan acikca gosterilmeli.
-
-## 9. Audit Log
-
-- [ ] Kritik veri islemleri icin audit log tablosu olustur.
-- [ ] Grup olusturma audit log kaydi tut.
-- [ ] Grup guncelleme audit log kaydi tut.
-- [ ] Grup silme audit log kaydi tut.
-- [ ] Kisi ekleme audit log kaydi tut.
-- [ ] Kisi guncelleme audit log kaydi tut.
-- [ ] Kisi silme audit log kaydi tut.
-- [ ] Excel import audit log kaydi tut.
-- [ ] Audit log kaydinda tarih, aksiyon, hedef id, ozet bilgi tutulmali.
-- [ ] Audit log sistemi performansi sismirmemeli.
-
-## 10. DB Katmani Refactor
-
-- [ ] `lib/db.js` icinde veritabani sorumluluklarini temiz ayir.
-- [ ] Grup CRUD fonksiyonlarini tek yerde topla.
-- [ ] Kisi CRUD fonksiyonlarini tek yerde topla.
-- [ ] Template fonksiyonlarini mevcut davranisi bozmadan koru.
-- [ ] Kampanya durum/veri fonksiyonlarini mevcut davranisi bozmadan koru.
-- [ ] Raw SQL kullaniliyorsa parametreli query kullan.
-- [ ] DB fonksiyonlari controller icine dagilmamali.
-- [ ] Hatalar DB katmanindan anlamli sekilde yukari tasinmali.
-
-## 11. Grup API'leri
-
-- [ ] `GET /api/groups` aktif gruplari ve aktif kisileri dondurmeli.
-- [ ] `POST /api/groups` yeni grup olusturmali.
-- [ ] `PUT /api/groups/:id` mevcut grubu guncellemeli.
-- [ ] `DELETE /api/groups/:id` grubu soft delete yapmali.
-- [ ] Grup adi bos ise API hata dondurmeli.
-- [ ] Duplicate grup adi varsa API hata dondurmeli veya kontrollu davranmali.
-- [ ] Silinmis grup tekrar listelenmemeli.
-- [ ] Grup silindiginde kampanya hedef seciminde gorunmemeli.
-- [ ] API response formatlari frontend ile uyumlu kalmali.
-
-## 12. Kisi API'leri
-
-- [ ] Gerekirse `POST /api/groups/:id/contacts` kisi ekleme endpointi olustur.
-- [ ] Gerekirse `PUT /api/groups/:id/contacts/:contactId` kisi guncelleme endpointi olustur.
-- [ ] Gerekirse `DELETE /api/groups/:id/contacts/:contactId` kisi silme endpointi olustur.
-- [ ] Mevcut `PUT /api/groups/:id` davranisi bozulmadan geriye uyumluluk sagla.
-- [ ] Kisi silme soft delete olmali.
-- [ ] Kisi guncelleme ad, soyad, telefon alanlarini desteklemeli.
-- [ ] Telefon guncellenirse duplicate kontrolu yapilmali.
-- [ ] API hatalari frontend tarafinda anlasilir sekilde gosterilmeli.
-
-## 13. Excel Import
-
-- [ ] Excel yukleme mevcut `POST /api/upload-excel` endpointiyle calismaya devam etmeli.
-- [ ] Excel icindeki ad/soyad/telefon kolonlari esnek okunmali.
-- [ ] Bos satirlar yok sayilmali.
-- [ ] Hatali telefonlu satirlar raporlanmali.
-- [ ] Duplicate numaralar tekillestirilmeli.
-- [ ] Import sonucu kac yeni kisi eklendigi gosterilmeli.
-- [ ] Yeni kisi yoksa kullanici bilgilendirilmeli.
-- [ ] Excel import mevcut aktif listeyle merge edilmeli.
-- [ ] Import sonrasi kullanici grup adi vererek kaydedebilmeli.
-- [ ] Import direkt kalici gruba yapiliyorsa transaction kullanilmali.
-
-## 14. Grup Adi Ver ve Kaydet Akisi
-
-- [ ] Rehber ekranindaki "Grup Adi Ver & Kaydet" karti korunmali.
-- [ ] Kisi listesi bos ise hata gostermeli.
-- [ ] Modal acildiginda kac kisi kaydedilecegi gosterilmeli.
-- [ ] Grup adi zorunlu olmali.
-- [ ] Ayni isimde grup varsa kullanicidan onay alinmali.
-- [ ] Yeni grup gerekiyorsa grup olusturulmali.
-- [ ] Kisiler hedef gruba kaydedilmeli.
-- [ ] Kayit sonrasi grup listesi yenilenmeli.
-- [ ] Kaydedilen grup aktif secili hale gelmeli.
-- [ ] Kaydedilen grup kampanya hedeflerinde secilebilir olmali.
-- [ ] Basarili islem toast ile bildirilmeli.
-
-## 15. Rehber Grup Yonetimi
-
-- [ ] Rehber ekraninda "Gruplarim" sidebar korunmali.
-- [ ] Yeni grup "+" butonu korunmali.
-- [ ] Grup satiri tiklaninca grup secilmeli.
-- [ ] Aktif grup gorsel olarak ayirt edilmeli.
-- [ ] Grup satirinda kisi sayisi gosterilmeli.
-- [ ] Grup silme "X" butonu korunmali.
-- [ ] Grup silme oncesi confirm alinmali.
-- [ ] Grup silinirse aktif secim temizlenmeli.
-- [ ] Grup silinirse kampanya hedef seciminden de cikmali.
-- [ ] Grup listesi bos ise "Henuz grup yok" state'i korunmali.
-- [ ] Grup yuklenemezse hata state'i korunmali.
-
-## 16. Rehber Kisi Yonetimi
-
-- [ ] Rehber ekranindaki kisi tablosu korunmali.
-- [ ] Kolonlar korunmali: Sira, Ad Soyad, Telefon, Islem.
-- [ ] Grup secilmemisse "Lutfen Yandan Bir Grup Secin" state'i korunmali.
-- [ ] Grup bossa "Rehber Bos" state'i korunmali.
-- [ ] Kisi silme butonu korunmali.
-- [ ] Kisi silme islemi soft delete veya guvenli kayit guncelleme ile yapilmali.
-- [ ] Kullanici grup icindeki kisi adini guncelleyebilmeli.
-- [ ] Kullanici grup icindeki kisi telefonunu guncelleyebilmeli.
-- [ ] Kisi guncelleme duplicate telefon kontrolu yapmali.
-- [ ] Kisi guncelleme sonrasi tablo ve kampanya hedef sayilari yenilenmeli.
-- [ ] Kisi listesi buyudugunde UI sismemeli.
-
-## 17. Manuel Kisi Ekleme
-
-- [ ] "Manuel Ekle" karti korunmali.
-- [ ] "Yeni Kayit" modali korunmali.
-- [ ] "Ad Soyad" inputu korunmali.
-- [ ] "905xxxxxxxxx" telefon inputu korunmali.
-- [ ] "Iptal" butonu korunmali.
-- [ ] "Ekle" butonu korunmali.
-- [ ] Ad veya telefon gecersizse hata toast'i gosterilmeli.
-- [ ] Duplicate numara varsa bilgi toast'i gosterilmeli.
-- [ ] Basarili eklemede modal kapanmali.
-- [ ] Aktif grup varsa backend'e kaydedilmeli.
-- [ ] Aktif grup yoksa gecici listeye eklenmeli ve sonra grup olarak kaydedilebilmeli.
-
-## 18. Kampanya Hedef Grup Secimi
-
-- [ ] Kampanya ekranindaki "Hedef Gruplar" bolumu korunmali.
-- [ ] Her grup checkbox karti olarak gosterilmeli.
-- [ ] Kullanici birden fazla grup secebilmeli.
-- [ ] Secilen gruplardaki numaralar birlestirilmeli.
-- [ ] Duplicate telefonlar tekillestirilmeli.
-- [ ] Her grup kartinda grup adi ve numara sayisi gosterilmeli.
-- [ ] Grup yoksa "Henuz kayitli grup yok" state'i korunmali.
-- [ ] Grup yuklenirken "Gruplar yukleniyor..." state'i korunmali.
-- [ ] Secilen grup sayisi manuel numara bilgilendirme alaninda gosterilmeli.
-- [ ] "Toplam X numara secildi" sayaci dinamik calismali.
-
-## 19. Manuel Kampanya Numaralari
-
-- [ ] Kampanya ekraninda "Elle Numara Gir" alani korunmali.
-- [ ] Textarea sadece rakam ve virgule izin vermeli.
-- [ ] Placeholder korunmali: `905320000000,905330000000,905340000000`.
-- [ ] Virgulle ayrilan her numara hedef listeye eklenmeli.
-- [ ] Manuel numara sayaci dinamik guncellenmeli.
-- [ ] Manuel numaralar grup numaralariyla merge edilmeli.
-- [ ] Duplicate manuel numaralar tekillestirilmeli.
-- [ ] Gecersiz numaralar kampanya baslatmada engellenmeli veya temizlenmeli.
-
-## 20. Mesaj ve Sablon Akisi
-
-- [ ] Mesaj textarea'si korunmali.
-- [ ] `{{ad}}` etiketi korunmali.
-- [ ] `{A|B|C}` varyasyon placeholder mantigi korunmali.
-- [ ] Telefon onizlemesi mesaj yazildikca guncellenmeli.
-- [ ] "Sablonlar" dropdown korunmali.
-- [ ] `GET /api/templates` ile sablonlar yuklenmeli.
-- [ ] Sablon secilince mesaj alani dolmali.
-- [ ] "Sablon Kaydet" butonu korunmali.
-- [ ] "Sablon Kaydet" modali korunmali.
-- [ ] Sablon adi inputu korunmali.
-- [ ] Modal "Iptal" ve "Kaydet" butonlari korunmali.
-- [ ] `POST /api/templates` ile sablon kaydi yapilmali.
-- [ ] Kayit sonrasi sablon listesi yenilenmeli.
-
-## 21. Medya Upload Akisi
-
-- [ ] "MEDYA EKLE" butonu korunmali.
-- [ ] Coklu medya secimi korunmali.
-- [ ] `image/*` ve `video/*` kabul edilmeli.
-- [ ] Medya yuklenirken loading/spinner gosterilmeli.
-- [ ] Upload sirasinda medya butonu disabled olmali.
-- [ ] Upload basariliysa kac medya yuklendigi gosterilmeli.
-- [ ] Upload hatasi toast ve status alaniyla gosterilmeli.
-- [ ] Medya preview alani korunmali.
-- [ ] Her medyanin sag ustunde "x" kaldirma butonu olmali.
-- [ ] Kaldirma butonu ilgili medya path'i ile `DELETE /api/upload-media` cagirmali.
-- [ ] Kaldirilan medya listeden silinmeli.
-- [ ] Medya kalmazsa status idle hale donmeli.
-- [ ] Telefon onizlemesinde ilk medya gosterilmeli.
-- [ ] Gorsel ve video onizlemesi dogru ayrilmali.
-
-## 22. Mesaj Gonderim Motoru Entegrasyonu
-
-- [ ] Kampanya baslatirken hedef contacts dogru olusturulmali.
-- [ ] Payload icinde `contacts`, `message`, `delayRange`, `dailyLimit` olmali.
-- [ ] `start-bulk` Socket.IO eventi korunmali.
-- [ ] `stop-bulk` Socket.IO eventi korunmali.
-- [ ] Mesaj ve medya birlikte gonderilebilmeli.
-- [ ] Birden fazla medya varsa tum medyalar gonderilmeli.
-- [ ] Ilk medyaya caption/metin eklenmeli.
-- [ ] Sonraki medyalar metinsiz gonderilebilmeli.
-- [ ] Metin-only kampanya calismali.
-- [ ] Medya-only kampanya davranisi netlestirilmeli.
-- [ ] Gonderim hatalari loglara dusmeli.
-
-## 23. Kampanya Baslat/Durdur UI
-
-- [ ] "BASLAT" butonu korunmali.
-- [ ] WhatsApp bagli degilse buton disabled olmali.
-- [ ] QR bekleniyorsa buton metni "QR OKUTUN" olmali.
-- [ ] Bagli degilse buton metni "WHATSAPP BAGLI DEGIL" olmali.
-- [ ] Sunucu baglantisi yoksa buton metni "SUNUCU BAGLANTISI YOK" olmali.
-- [ ] WhatsApp bagliysa buton aktif ve "BASLAT" olmali.
-- [ ] Mesaj veya hedef yoksa kampanya baslatilmamali.
-- [ ] Baslatinca "BASLAT" gizlenmeli.
-- [ ] Baslatinca "DURDUR" gosterilmeli.
-- [ ] "DURDUR" butonu korunmali.
-- [ ] Durdurunca `stop-bulk` eventi gonderilmeli.
-- [ ] Durdurulunca "BASLAT" geri gosterilmeli.
-
-## 24. Progress ve Tamamlandi Modali
-
-- [ ] Progress kutusu baslangicta gizli olmali.
-- [ ] Kampanya baslayinca progress kutusu gosterilmeli.
-- [ ] Progress yuzdesi Socket.IO log eventinden guncellenmeli.
-- [ ] Progress bar genisligi yuzdelik degerle guncellenmeli.
-- [ ] Tum gonderim bitince progress kesin olarak `%100` olmali.
-- [ ] Tum gonderim bitince "Gonderiler tamamlandi" modali acilmali.
-- [ ] Modal ortada ve net gorunmeli.
-- [ ] Modal aciklamasi korunmali: "Tum hedefler islendi. Ilerleme %100 olarak tamamlandi."
-- [ ] "Tamam" butonu modali kapatmali.
-- [ ] Aktif kampanya recover edilirse progress ve loglar geri yuklenmeli.
-
-## 25. WhatsApp Baglanti UI
-
-- [ ] QR canvas alani korunmali.
-- [ ] "QR Bekleniyor..." loading metni korunmali.
-- [ ] Baglaninca yesil check gosterilmeli.
-- [ ] Baglanti status badge'i korunmali.
-- [ ] Sol panelde baglanti indikator noktasi korunmali.
-- [ ] `GET /api/runtime-status` periyodik olarak calismali.
-- [ ] Socket `qr` eventi QR'i render etmeli.
-- [ ] Socket `status` eventi UI durumunu guncellemeli.
-- [ ] Socket connect error durumunda hata state'i gosterilmeli.
-- [ ] "Baglantiyi Sifirla" butonu confirm ile calismali.
-
-## 26. Sistem Loglari
-
-- [ ] Sistem log paneli korunmali.
-- [ ] Baslik korunmali: "Sistem Loglari".
-- [ ] Kapatma "X" butonu korunmali.
-- [ ] Baslangic log metni korunmali: `>> Bekleniyor...`.
-- [ ] Error loglari kirmizi gosterilmeli.
-- [ ] Success loglari yesil gosterilmeli.
-- [ ] Wait loglari amber/sari gosterilmeli.
-- [ ] Info/default loglari gri gosterilmeli.
-- [ ] Loglar yeni gelen en ustte veya tutarli bir sirada gosterilmeli.
-- [ ] Log paneli buyuk log sayisinda performansi dusurmemeli.
-
-## 27. Frontend Profesyonel Tasarim
-
-- [ ] Login sayfasi daha kurumsal ve guven veren hale getirilmeli.
-- [ ] Dashboard layout'u daha modern ve okunabilir hale getirilmeli.
-- [ ] Navbar status alanlari daha net tasarlanmali.
-- [ ] Sol QR ve telefon onizleme paneli daha profesyonel olmali.
-- [ ] Kampanya hazirlama ekraninda aksiyon hiyerarsisi net olmali.
-- [ ] Rehber ekraninda grup ve kisi yonetimi daha kullanisli olmali.
-- [ ] Tum butonlar belirgin hit-area'ya sahip olmali.
-- [ ] Loading, disabled, success, error ve empty state'ler net olmali.
-- [ ] Tehlikeli islemler kirmizi/uyari diliyle ayrilmali.
-- [ ] Mobil uyumluluk saglanmali.
-- [ ] Tablet ve desktop layoutlari test edilmeli.
-- [ ] Gereksiz gorsel kalabalik azaltılmali.
-- [ ] Tipografi, renk ve spacing sistemi tutarli olmali.
-- [ ] Mevcut id ve JS bagimliliklari korunmali veya eksiksiz guncellenmeli.
-
-## 28. Login Akisi
-
-- [ ] E-posta inputu korunmali.
-- [ ] Sifre inputu korunmali.
-- [ ] "Giris Yap" butonu korunmali.
-- [ ] Login submit sirasinda buton disabled olmali.
-- [ ] Submit sirasinda metin "Giris yapiliyor..." olmali.
-- [ ] Basarili login sonrasi "Giris basarili! Oturum dogrulaniyor..." mesaji gosterilmeli.
-- [ ] `/api/check-auth` ile oturum dogrulamasi yapilmali.
-- [ ] Oturum hazirsa dashboard'a yonlendirmeli.
-- [ ] Oturum dogrulamasi gecikirse hata mesaji gosterilmeli.
-- [ ] Kullanici zaten login ise login sayfasi dashboard'a yonlendirmeli.
-- [ ] Hata durumunda buton tekrar aktif olmali.
-
-## 29. API Hata Yonetimi
-
-- [ ] Tum frontend fetch cagri hatalari yakalanmali.
-- [ ] Timeout gerektiren fetchlerde timeout korunmali.
-- [ ] API hata mesajlari kullaniciya toast veya inline state ile gosterilmeli.
-- [ ] JSON parse hatalari uygulamayi kitlememeli.
-- [ ] Offline/sunucu yok durumunda UI anlasilir hata vermeli.
-- [ ] Kritik islemlerde basarisiz cevap veri kaybina yol acmamali.
-- [ ] Backend hatalari loglanmali.
-
-## 30. Guvenlik ve Gizlilik
-
-- [ ] Auth gerektiren sayfalar session kontroluyle korunmali.
-- [ ] API endpointleri auth middleware arkasinda kalmali.
-- [ ] Kullanici inputlari sanitize edilmeli.
-- [ ] HTML injection riskleri escape edilmeli.
-- [ ] Telefon ve isim verileri gereksiz sekilde loglanmamali.
-- [ ] Upload edilen medya dosyalari sadece izinli tiplerde olmali.
-- [ ] Silme islemleri confirm veya net geri bildirimle korunmali.
-- [ ] Kritik veri aksiyonlari backup/audit ile izlenmeli.
-
-## 31. Performans ve Sismeme Kurallari
-
-- [ ] Buyuk grup listelerinde UI donmamali.
-- [ ] Buyuk kisi listelerinde tablo performansi dusmemeli.
-- [ ] Gerekirse pagination, virtual scroll veya arama planlanmali.
-- [ ] Gereksiz API cagrisindan kacınılmali.
-- [ ] Grup listesi ve kampanya hedef listesi ayni kaynaktan tutarli beslenmeli.
-- [ ] Medya preview'leri gereksiz buyuk dosya transferi yaratmamali.
-- [ ] Log listesi sinirsiz buyuyup DOM'u sismirmemeli.
-- [ ] Veritabani sorgularinda gerekli indexler eklenmeli.
-- [ ] Normalized phone ve group_id icin index planlanmali.
-
-## 32. Test Senaryolari
-
-- [ ] Login basarili akisi test edilmeli.
-- [ ] Login hatali sifre akisi test edilmeli.
-- [ ] Login sonrasi yonlendirme test edilmeli.
-- [ ] WhatsApp QR bekleme state'i test edilmeli.
-- [ ] WhatsApp connected state'i test edilmeli.
-- [ ] Baglantiyi sifirla akisi test edilmeli.
-- [ ] Yeni grup olusturma test edilmeli.
-- [ ] Duplicate grup adi test edilmeli.
-- [ ] Grup silme test edilmeli.
-- [ ] Excel import test edilmeli.
-- [ ] Duplicate numarali Excel import test edilmeli.
-- [ ] Manuel kisi ekleme test edilmeli.
-- [ ] Duplicate manuel kisi test edilmeli.
-- [ ] Kisi silme test edilmeli.
-- [ ] Kisi guncelleme test edilmeli.
-- [ ] Grup olarak kaydetme test edilmeli.
-- [ ] Mevcut grup uzerine yazma onayi test edilmeli.
-- [ ] Kampanyada tek grup secme test edilmeli.
-- [ ] Kampanyada coklu grup secme test edilmeli.
-- [ ] Kampanyada manuel numara girme test edilmeli.
-- [ ] Grup + manuel numara merge/dedupe test edilmeli.
-- [ ] Sablon kaydetme test edilmeli.
-- [ ] Sablon secme test edilmeli.
-- [ ] Medya upload test edilmeli.
-- [ ] Birden fazla medya upload test edilmeli.
-- [ ] Medya kaldirma test edilmeli.
-- [ ] Metin-only gonderim test edilmeli.
-- [ ] Metin + gorsel gonderim test edilmeli.
-- [ ] Metin + iki gorsel gonderim test edilmeli.
-- [ ] Video medya gonderimi test edilmeli.
-- [ ] Kampanya durdurma test edilmeli.
-- [ ] Progress %100 tamamlanma test edilmeli.
-- [ ] Tamamlandi modali test edilmeli.
-- [ ] Uygulama restart sonrasi gruplar kaldi mi test edilmeli.
-- [ ] Deploy sonrasi gruplar kaldi mi test edilmeli.
-
-## 33. Dokumantasyon
-
-- [ ] Rehber/grup veri modelini dokumante et.
-- [ ] Backup stratejisini dokumante et.
-- [ ] Deployda korunmasi gereken klasorleri dokumante et.
-- [ ] API endpointlerini dokumante et.
-- [ ] Frontend buton ve ekran akislarini dokumante et.
-- [ ] Kampanya gonderim akisinda hedeflerin nasil secildigini dokumante et.
-- [ ] Excel import formatini dokumante et.
-- [ ] Veri kaybi durumunda geri yukleme adimlarini dokumante et.
-- [ ] Test edilen senaryolari dokumante et.
-
-## 34. Uygulama Sirasi
-
-- [ ] Once mevcut veri ve schema yedeklenmeli.
-- [ ] Sonra deploy veri kaliciligi garanti altina alinmali.
-- [ ] Sonra migration sistemi eklenmeli.
-- [ ] Sonra grup ve kisi modelinin kalici/profesyonel hali uygulanmali.
-- [ ] Sonra API katmani guclendirilmeli.
-- [ ] Sonra Excel/manual import akislarina veri butunlugu eklenmeli.
-- [ ] Sonra frontend rehber yonetimi guncellenmeli.
-- [ ] Sonra kampanya hedef grup secimi dogrulanmali.
-- [ ] Sonra medya ve mesaj gonderim akisi tekrar test edilmeli.
-- [ ] Sonra frontend profesyonel tasarim uygulanmali.
-- [ ] En sonda tam regresyon testleri yapilmali.
-
-## 35. Teslim Kriterleri
+# WhasAppC Pro Profesyonel Uygulama Task List
+
+Bu dokuman, WhasAppC Pro sisteminde rehber/grup verilerinin guvenli, kalici, olceklenebilir ve profesyonel sekilde yonetilmesi icin uygulanacak teknik plandir.
+
+Ana hedef: Kullanici tarafindan eklenen gruplar ve kisiler, kullanici bilerek silmedikce kaybolmayacak. Deploy, restart, import, duzenleme veya kampanya islemleri veri kaybina yol acmayacak.
+
+## Kapsam Kurallari
+
+- Mevcut calisan API endpointleri geriye uyumlu kalacak.
+- Mevcut frontend akislar bozulmayacak.
+- Veritabani dosyasi fiziksel olarak silinmeyecek.
+- Veri kaybi riski olan hicbir islem backupsiz ve onaysiz yapilmayacak.
+- Frontend tasarimi tekrar komple yikilmeyecek; sadece veri yonetimi icin gerekli UI eklemeleri yapilacak.
+- Audit/log icinde telefon, isim ve mesaj gibi kisisel veriler gereksiz yere acik yazilmayacak.
+- Kisa vadeli yama yerine kok neden cozulmus olacak.
+
+---
+
+## Faz 1 - Kritik Veri Guvenligi
+
+Bu faz ilk tamamlanacak bolumdur. Amac deploy veya restart sonrasi rehber/grup verisinin kaybolma riskini kapatmaktir.
+
+### 1. Mevcut Durum Analizi
+
+- [ ] `whatsapp-engine/lib/db.js` mevcut schema ve yazma mantigi incelenecek.
+- [ ] `whatsapp-engine/index.js` grup, kisi, excel ve template API akislari incelenecek.
+- [ ] `whatsapp-engine/data/database.sqlite` dosyasinin mevcut durumu kontrol edilecek.
+- [ ] Mevcut production/deploy ortaminda `data`, `auth` ve `uploads` klasorlerinin nasil korundugu dogrulanacak.
+- [ ] Mevcut gruplar, kisiler ve template verileri backup alinmadan degistirilmeyecek.
+
+### 2. Git ve Deploy Veri Kaliciligi
+
+- [ ] `whatsapp-engine/data/database.sqlite` Git takibinden fiziksel dosya silinmeden cikarilacak.
+- [ ] `whatsapp-engine/.gitignore` icine `data/database.sqlite`, `data/backups/` ve gerekirse diger runtime DB dosyalari eklenecek.
+- [ ] Root `.gitignore` runtime verilerini yanlislikla takip etmeyecek sekilde kontrol edilecek.
+- [ ] Production ortamda kalici disk/volume kullanimi netlestirilecek.
+- [ ] Deploy sonrasi mevcut DB'nin repo icindeki bos/ eski dosyayla overwrite edilmedigi dogrulanacak.
+- [ ] Restart sonrasi gruplar ve kisiler korunuyor mu test edilecek.
+
+### 3. Backup Stratejisi
+
+- [ ] `whatsapp-engine/data/backups/` klasoru olusturulacak.
+- [ ] Migration oncesi otomatik DB backup alinacak.
+- [ ] Excel import oncesi otomatik DB backup alinacak.
+- [ ] Grup silme ve grup temizleme gibi riskli islemlerden once otomatik DB backup alinacak.
+- [ ] Backup dosya adinda tarih, saat ve islem tipi bulunacak.
+- [ ] Backup yazilamazsa riskli islem durdurulacak ve hata acikca gosterilecek.
+- [ ] Backup retention kuralı uygulanacak: ornegin son 30 backup veya son 14 gun.
+- [ ] Tekil kisi ekleme gibi dusuk riskli islemlerde sinirsiz backup alinmayacak.
+
+### 4. Atomic DB Save
+
+- [ ] Mevcut `save()` fonksiyonu incelenecek.
+- [ ] DB yazimi dogrudan asil dosyanin uzerine degil, once gecici dosyaya yapilacak.
+- [ ] Gecici dosya basarili yazildiktan sonra atomic rename ile asil DB dosyasi guncellenecek.
+- [ ] Yazma hatasinda eski DB dosyasi korunacak.
+- [ ] DB save hatalari swallow edilmeyecek, loglanacak ve yukari tasinacak.
+
+---
+
+## Faz 2 - Veritabani Modeli ve Migration
+
+Bu fazda mevcut veri kayipsiz korunarak profesyonel schema'ya gecilecek.
+
+### 5. Migration Altyapisi
+
+- [ ] `schema_migrations` tablosu eklenecek.
+- [ ] Her migration benzersiz id ile kaydedilecek.
+- [ ] Migrationlar idempotent olacak; ayni migration ikinci kez sistemi bozmayacak.
+- [ ] Migration baslamadan once backup alinacak.
+- [ ] Migration basarisiz olursa hata acikca loglanacak ve uygulama tutarsiz schema ile devam etmeyecek.
+- [ ] Eski veri yeni kolonlara kayipsiz tasinacak.
+
+### 6. Grup Schema Revizyonu
+
+- [ ] `groups.id` benzersiz ve kalici kalacak.
+- [ ] `groups.name` zorunlu olacak.
+- [ ] `groups.name_normalized` veya esdeger duplicate kontrol mekanizmasi eklenecek.
+- [ ] `groups.created_at` korunacak.
+- [ ] `groups.updated_at` eklenecek.
+- [ ] `groups.deleted_at` eklenecek.
+- [ ] Normal listeleme sadece `deleted_at IS NULL` gruplari dondurecek.
+- [ ] Grup adi bos veya sadece bosluk ise API hata dondurecek.
+- [ ] Aktif gruplar icinde duplicate grup adi engellenecek.
+
+### 7. Kisi Schema Revizyonu
+
+- [ ] `contacts.id` benzersiz ve kalici kimlik olarak kullanilacak.
+- [ ] `contacts.group_id` ile grup baglantisi korunacak.
+- [ ] `contacts.name` temizlenmis string olarak saklanacak.
+- [ ] `contacts.surname` mevcut veriyle uyumlu sekilde korunacak.
+- [ ] `contacts.phone` orijinal/okunabilir telefon olarak saklanacak.
+- [ ] `contacts.normalized_phone` eklenecek.
+- [ ] `contacts.created_at` eklenecek.
+- [ ] `contacts.updated_at` eklenecek.
+- [ ] `contacts.deleted_at` eklenecek.
+- [ ] Aktif ayni grup icinde ayni `normalized_phone` ikinci kez eklenmeyecek.
+- [ ] Normal listeleme sadece `deleted_at IS NULL` kisileri dondurecek.
+
+### 8. Index ve Constraintler
+
+- [ ] `groups.deleted_at` icin listeleme performansini destekleyen index eklenecek.
+- [ ] `contacts.group_id` icin index eklenecek.
+- [ ] `contacts.normalized_phone` icin index eklenecek.
+- [ ] Aktif grup icindeki duplicate telefonlari engelleyen mantik kurulacak.
+- [ ] Constraint eklenemeyen durumlarda DB katmaninda guvenli validation uygulanacak.
+
+---
+
+## Faz 3 - Telefon Normalizasyonu ve Validation
+
+Bu faz tum import, manuel giris ve kampanya hedef seciminde ayni telefon kurallarini kullanmayi saglar.
+
+### 9. Tek Normalize Fonksiyonu
+
+- [ ] Telefon normalizasyonu tek merkezi fonksiyondan yapilacak.
+- [ ] Bosluk, tire, parantez ve `+` gibi karakterler temizlenecek.
+- [ ] Harf ve gecersiz karakterler reddedilecek veya temizlenecek.
+- [ ] `+90 5xx...`, `90 5xx...`, `05xx...` gibi formatlar tek standart formata donusturulecek.
+- [ ] Standart format olarak `905xxxxxxxxx` kullanilacak.
+- [ ] Minimum ve maksimum uzunluk kurallari net uygulanacak.
+- [ ] Hatali numaralar kullaniciya anlasilir sekilde bildirilecek.
+
+### 10. Duplicate Kurallari
+
+- [ ] Excel import duplicate numaralari tekillestirecek.
+- [ ] Manuel kisi ekleme duplicate numarayi engelleyecek.
+- [ ] Kisi telefon guncelleme duplicate numarayi engelleyecek.
+- [ ] Kampanya hedef listesinde grup + manuel numara birlestirilirken duplicate numaralar tekillestirilecek.
+- [ ] Soft deleted kisi tekrar eklenirse davranis net olacak: yeniden aktiflestirme veya yeni kayit stratejisi secilecek.
+
+---
+
+## Faz 4 - DB Katmani ve Transaction
+
+Bu faz veritabani islemlerinin kismen tamamlanip veri bozmasini engeller.
+
+### 11. DB Katmani Sorumluluklari
+
+- [ ] `lib/db.js` icinde grup islemleri tek yerde toplanacak.
+- [ ] `lib/db.js` icinde kisi islemleri tek yerde toplanacak.
+- [ ] Template fonksiyonlari mevcut davranisi bozmadan korunacak.
+- [ ] DB fonksiyonlari controller icine dagilmayacak.
+- [ ] Raw SQL parametreli calisacak.
+- [ ] DB hatalari anlamli hata mesajlariyla yukari tasinacak.
+
+### 12. Transaction Wrapper
+
+- [ ] Toplu import transaction icinde calisacak.
+- [ ] Grup silme ve grup temizleme transaction icinde calisacak.
+- [ ] Toplu kisi replace islemi transaction icinde calisacak.
+- [ ] Transaction basarisiz olursa rollback yapilacak.
+- [ ] Transaction tamamlanmadan DB save yapilmayacak.
+- [ ] Transaction sonrasi atomic save calisacak.
+
+### 13. Riskli Mevcut Davranisin Degistirilmesi
+
+- [ ] Tek kisi ekleme/guncelleme/silme icin tum grubu silip yeniden yazan yapi kullanilmayacak.
+- [ ] `updateGroupContacts` geriye uyumluluk icin kalabilir, ancak yeni kisi CRUD akisi icin ana yol olmayacak.
+- [ ] Contact ID surekliligi korunacak.
+- [ ] Grup icindeki tek kiside hata olursa tum grup kaybolmayacak.
+
+---
+
+## Faz 5 - API Katmani
+
+Bu faz frontend ve ilerideki entegrasyonlar icin temiz, anlasilir ve geriye uyumlu API saglar.
+
+### 14. Grup API'leri
+
+- [ ] `GET /api/groups` aktif gruplari dondurmeye devam edecek.
+- [ ] `GET /api/groups` mevcut frontend uyumlulugu icin contacts alanini koruyacak.
+- [ ] `POST /api/groups` yeni grup olusturacak.
+- [ ] `POST /api/groups` duplicate aktif grup adini engelleyecek.
+- [ ] `PUT /api/groups/:id` mevcut toplu kayit davranisini geriye uyumlu koruyacak.
+- [ ] `DELETE /api/groups/:id` fiziksel delete yerine soft delete yapacak.
+- [ ] Grup silindiginde kampanya hedef listesine dahil edilmeyecek.
+- [ ] Grup silindiginde aktif kisileri de soft delete veya grup kapsaminda pasif hale getirilecek.
+
+### 15. Kisi API'leri
+
+- [ ] `POST /api/groups/:groupId/contacts` yeni kisi ekleyecek.
+- [ ] `PATCH /api/groups/:groupId/contacts/:contactId` kisi ad, soyad ve telefon guncelleyecek.
+- [ ] `DELETE /api/groups/:groupId/contacts/:contactId` kisiyi soft delete yapacak.
+- [ ] Kisi ekleme/guncelleme telefon validation ve duplicate kontrolunden gececek.
+- [ ] Silinmis kisi normal listeye ve kampanya hedeflerine dahil edilmeyecek.
+- [ ] API response formatlari frontend'in kolay guncelleme yapabilecegi sekilde tutarli olacak.
+
+### 16. Excel Import API
+
+- [ ] `POST /api/upload-excel` mevcut endpoint olarak calismaya devam edecek.
+- [ ] Excel kolon aliaslari korunacak ve gerekirse genisletilecek.
+- [ ] Bos satirlar yok sayilacak.
+- [ ] Hatali telefonlu satirlar import raporunda sayi olarak bildirilecek.
+- [ ] Gecerli kisiler normalize edilmis telefonla dondurulecek.
+- [ ] Duplicate satirlar tekillestirilecek.
+- [ ] Import sonucu yeni kisi sayisi, duplicate sayisi ve hatali satir sayisi dondurulecek.
+- [ ] Import mevcut aktif listeyle merge edilecek veya secili gruba kontrollu eklenecek.
+
+### 17. API Hata Standardi
+
+- [ ] Validation hatalari `400` ile donecek.
+- [ ] Bulunamayan grup/kisi `404` ile donecek.
+- [ ] Duplicate hatalari `409` ile donecek.
+- [ ] Sunucu/DB hatalari `500` ile donecek.
+- [ ] Hata response formatinda `error` alani her zaman olacak.
+- [ ] Frontend bu hata mesajlarini toast veya inline state ile gosterecek.
+
+---
+
+## Faz 6 - Frontend Fonksiyonel Eklemeler
+
+Frontend tasarimi yeniden yapildi. Bu fazda sadece veri yonetimi icin eksik fonksiyonlar eklenecek; tasarim tekrar komple degistirilmeyecek.
+
+### 18. Kisi Duzenleme UI
+
+- [ ] Kisisel satirda silme butonuna ek olarak duzenleme butonu eklenecek.
+- [ ] Duzenleme modali veya inline editor tasarim sistemine uygun olacak.
+- [ ] Ad, soyad ve telefon alanlari duzenlenebilecek.
+- [ ] Telefon degisirse duplicate validation sonucu kullaniciya gosterilecek.
+- [ ] Basarili guncelleme sonrasi tablo, grup sayisi ve kampanya hedef sayaci guncellenecek.
+
+### 19. Kisi Silme UI
+
+- [ ] Kisi silme islemi yanlislikla basmaya karsi net aksiyon olacak.
+- [ ] Silme sonrasi kisi tabloda gorunmeyecek.
+- [ ] Silme sonrasi grup sayisi guncellenecek.
+- [ ] Silme sonrasi kampanya hedef sayaci guncellenecek.
+- [ ] API hatasi olursa UI eski duruma geri donecek veya hata acikca gosterilecek.
+
+### 20. Grup Yonetimi UI
+
+- [ ] Yeni grup olusturma mevcut akisi korunacak.
+- [ ] Grup silme soft delete API ile calisacak.
+- [ ] Grup silme oncesi confirm korunacak.
+- [ ] Grup silinirse aktif secim temizlenecek.
+- [ ] Grup silinirse kampanya hedef seciminden kaldirilacak.
+- [ ] Grup adi duplicate hatasi anlasilir sekilde gosterilecek.
+
+### 21. Import Sonucu UI
+
+- [ ] Excel import sonrasi yeni kisi sayisi gosterilecek.
+- [ ] Duplicate sayisi gosterilecek.
+- [ ] Hatali satir sayisi gosterilecek.
+- [ ] Gerekirse kullaniciya "grup olarak kaydet" akisi net yonlendirilecek.
+- [ ] Import sirasinda loading durumu gosterilecek.
+
+---
+
+## Faz 7 - Kampanya ve Medya Regresyonu
+
+Bu faz mevcut kampanya ve medya ozelliklerinin veri modeli degisikliginden sonra bozulmadigini dogrular.
+
+### 22. Kampanya Hedefleri
+
+- [ ] Kampanya ekraninda birden fazla grup checkbox ile secilebilecek.
+- [ ] Secilen gruplarin aktif kisileri hedef listesine dahil edilecek.
+- [ ] Soft deleted grup ve kisiler hedef listesine dahil edilmeyecek.
+- [ ] Manuel numaralar grup numaralariyla merge edilecek.
+- [ ] Duplicate hedef numaralar tekillestirilecek.
+- [ ] `Toplam X numara secildi` sayaci dogru calisacak.
+
+### 23. Mesaj, Sablon ve Medya
+
+- [ ] Mesaj textarea ve telefon onizleme calismaya devam edecek.
+- [ ] `{{ad}}` etiketi onizlemede korunacak.
+- [ ] Sablon secme ve sablon kaydetme calisacak.
+- [ ] Medya upload loading durumu gorunecek.
+- [ ] Eklenen medyalar preview olarak gorunecek.
+- [ ] Medya uzerindeki X butonu ilgili medyayi kaldiracak.
+- [ ] Mesaj + coklu medya gonderimi bozulmayacak.
+
+### 24. Progress ve Gonderim Durumu
+
+- [ ] Kampanya baslayinca progress alani gorunecek.
+- [ ] Progress Socket.IO log eventleriyle guncellenecek.
+- [ ] Gonderim bitince progress kesin olarak `%100` olacak.
+- [ ] Gonderim bitince "Gonderiler tamamlandi" modali acilacak.
+- [ ] Durdur butonu `stop-bulk` eventi gonderecek.
+- [ ] Aktif kampanya recover akisi bozulmayacak.
+
+---
+
+## Faz 8 - Guvenlik, Gizlilik ve Audit
+
+Bu faz sistemin profesyonel ve denetlenebilir kalmasini saglar. Ilk surumde minimal tutulmali, gereksiz agirlastirilmamali.
+
+### 25. Auth ve Input Guvenligi
+
+- [ ] Auth gerektiren sayfalar session kontroluyle korunmaya devam edecek.
+- [ ] API endpointleri auth middleware arkasinda kalacak.
+- [ ] Frontend'e basilan grup/kisi isimleri HTML escape ile korunacak.
+- [ ] Upload edilen medya dosyalarinda izinli tip ve boyut kurallari korunacak.
+- [ ] Kritik silme islemleri confirm veya net geri bildirimle korunacak.
+
+### 26. Minimal Audit Log
+
+- [ ] Audit log ilk fazda sadece kritik veri islemlerini kapsayacak.
+- [ ] Loglanacak aksiyonlar: grup olusturma, grup silme, kisi ekleme, kisi guncelleme, kisi silme, Excel import.
+- [ ] Audit kaydinda `action`, `entity_type`, `entity_id`, `created_at`, `metadata` bulunacak.
+- [ ] Metadata icinde telefon ve isim gibi kisisel veri tam acik yazilmayacak.
+- [ ] Gerekirse telefon maskelenecek veya hash kullanilacak.
+- [ ] Audit log sistemi kampanya sistem loglariyla karistirilmeyecek.
+
+---
+
+## Faz 9 - Performans ve Olceklenebilirlik
+
+Bu faz veri sayisi arttiginda sistemin sismemesini saglar.
+
+### 27. Listeleme Performansi
+
+- [ ] `GET /api/groups` cok buyuk veri setlerinde sistemi sismirmeyecek sekilde izlenecek.
+- [ ] Gerekirse gruplar sadece `contact_count` ile dondurulecek, kisi listesi secili grup icin ayrica alinacak.
+- [ ] Kisa vadede mevcut frontend uyumlulugu korunacak.
+- [ ] Uzun vadede `GET /api/groups/:id/contacts` endpointiyle sayfalama desteklenecek.
+- [ ] Kisi tablosu buyuk listelerde arama veya pagination ile desteklenecek.
+
+### 28. Log ve Backup Sisme Kontrolu
+
+- [ ] Frontend sistem loglari DOM'da sinirsiz buyumeyecek.
+- [ ] DB backup klasoru retention ile kontrol edilecek.
+- [ ] Audit log icin ileride arsivleme/temizleme stratejisi belirlenecek.
+
+---
+
+## Faz 10 - Test ve Kabul Kriterleri
+
+Bu faz tamamlanmadan is bitmis sayilmaz.
+
+### 29. Otomatik veya Teknik Testler
+
+- [ ] Telefon normalizasyon fonksiyonu test edilecek.
+- [ ] Duplicate telefon kontrolu test edilecek.
+- [ ] Grup create/update/delete test edilecek.
+- [ ] Kisi create/update/delete test edilecek.
+- [ ] Soft deleted kayitlarin listeden ve kampanyadan haric tutuldugu test edilecek.
+- [ ] Excel import merge ve duplicate davranisi test edilecek.
+- [ ] Migration mevcut veriyi kayipsiz tasiyor mu test edilecek.
+- [ ] Atomic save hata durumunda eski DB'yi koruyor mu test edilecek.
+
+### 30. Manuel Regresyon Testleri
+
+- [ ] Login basarili ve hatali giris test edilecek.
+- [ ] Login sonrasi yonlendirme test edilecek.
+- [ ] WhatsApp QR bekleme ve connected state test edilecek.
+- [ ] Yeni grup olusturma test edilecek.
+- [ ] Grup silme test edilecek.
+- [ ] Excel import test edilecek.
+- [ ] Manuel kisi ekleme test edilecek.
+- [ ] Kisi duzenleme test edilecek.
+- [ ] Kisi silme test edilecek.
+- [ ] Grup olarak kaydetme test edilecek.
+- [ ] Kampanyada tek grup secme test edilecek.
+- [ ] Kampanyada coklu grup secme test edilecek.
+- [ ] Manuel kampanya numarasi girme test edilecek.
+- [ ] Medya upload ve medya kaldirma test edilecek.
+- [ ] Metin-only gonderim test edilecek.
+- [ ] Metin + coklu medya gonderim test edilecek.
+- [ ] Kampanya durdurma test edilecek.
+- [ ] Progress %100 ve tamamlandi modali test edilecek.
+- [ ] Uygulama restart sonrasi gruplar/kisiler korunuyor mu test edilecek.
+- [ ] Deploy sonrasi gruplar/kisiler korunuyor mu test edilecek.
+
+### 31. Teslim Kriterleri
 
 - [ ] Kullanici istedigi adette grup ekleyebiliyor.
 - [ ] Kullanici grup icinden herhangi bir kisiyi silebiliyor.
 - [ ] Kullanici grup icindeki isim ve telefonu guncelleyebiliyor.
-- [ ] Gruplar kullanici silmedikce silinmiyor.
-- [ ] Kisiler kullanici silmedikce silinmiyor.
+- [ ] Gruplar kullanici silmedikce kaybolmuyor.
+- [ ] Kisiler kullanici silmedikce kaybolmuyor.
+- [ ] Silinen grup/kisiler kampanya hedeflerine dahil edilmiyor.
 - [ ] Deploy/restart sonrasi rehber ve gruplar korunuyor.
 - [ ] Excel'den aktarilan kisiler grup adiyla kalici kaydedilebiliyor.
-- [ ] Kampanya ekraninda birden fazla grup checkbox ile secilebiliyor.
-- [ ] Secilen toplam numara sayisi dinamik gosteriliyor.
+- [ ] Kampanya ekraninda birden fazla grup secilebiliyor.
+- [ ] Secilen toplam numara sayisi dogru gosteriliyor.
 - [ ] Manuel numara girisi grup secimiyle birlikte calisiyor.
-- [ ] Medya upload loading durumu net gorunuyor.
-- [ ] Eklenen medyalar X ile kaldirilabiliyor.
 - [ ] Mesaj + coklu medya gonderimi calisiyor.
 - [ ] Progress bar tum gonderim bitince %100 oluyor.
 - [ ] Gonderim bitince "Gonderiler tamamlandi" modali cikiyor.
-- [ ] Login ve dashboard loading/redirect sorunlari tekrar olusmuyor.
+- [ ] Login ve dashboard sonsuz loading durumuna dusmuyor.
 - [ ] Site deploy sonrasi 503 veya sonsuz loading durumuna dusmuyor.
 - [ ] Kod okunabilir, surdurulebilir ve gereksiz karmasiklik icermiyor.
 
-## 36. Final Kontrol
+---
 
-- [ ] Bu cozum sadece patch degil, kok neden cozumudur.
-- [ ] Bu cozum bir yil sonra da dogru kalacak sekilde tasarlanmistir.
-- [ ] Sistem buyudugunde veri modeli ve UI sismeyecek sekildedir.
-- [ ] Gereksiz komplekslik veya duplicate kod yoktur.
-- [ ] Kod okunabilir ve bakimi kolaydir.
-- [ ] Guvenlik ve veri butunlugu korunmustur.
-- [ ] Performans darboğazi olusturacak tasarimlardan kacinilmistir.
-- [ ] Kullanici verisi istenmeden silinmeyecek sekilde korunmustur.
-- [ ] Mevcut butonlar, modallar, formlar ve akislar eksiksiz korunmustur.
+## Yapilmamasi Gerekenler
+
+- [ ] `database.sqlite` fiziksel olarak silinmeyecek.
+- [ ] Mevcut production verisi backupsiz degistirilmeyecek.
+- [ ] Her kucuk islem icin sinirsiz backup alinmayacak.
+- [ ] Tek kisi guncellemek icin tum grup silinip yeniden yazilmayacak.
+- [ ] Eski API endpointleri bir anda kaldirilmeyecek.
+- [ ] Frontend tasarimi tekrar komple yikilmeyecek.
+- [ ] Audit log'a tam telefon, tam isim veya mesaj icerigi gereksiz sekilde yazilmayacak.
+- [ ] Soft deleted kisiler kampanya hedeflerine dahil edilmeyecek.
+- [ ] Medya gonderim motoru veri kaliciligi fazinda gereksiz refactor edilmeyecek.
+- [ ] Destructive Git veya dosya islemleri kullanici onayi olmadan yapilmayacak.
+
+## Final Kontrol Sorulari
+
+- Bu cozum veri kaybinin kok nedenini kapatiyor mu?
+- Bu cozum bir yil sonra da bakimi kolay kalacak mi?
+- Deploy ve restart sonrasi kullanici verisi korunuyor mu?
+- Kisi ve grup islemleri tek kaydi etkileyebilecek kadar guvenli mi?
+- Soft delete edilen kayitlar normal akislardan tamamen haric mi?
+- Backup ve audit sistemi performansi sismirmeden calisiyor mu?
+- Kod mevcut API ve frontend akislariyla geriye uyumlu mu?
+- Guvenlik ve gizlilik gereksiz veri ifsasi olmadan saglaniyor mu?

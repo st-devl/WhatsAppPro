@@ -1,5 +1,8 @@
 node_modules/
 auth/
+data/database.sqlite
+data/database.sqlite.*
+data/backups/
 data/groups.json
 data/templates.json
 data/daily_stats.json

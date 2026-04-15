@@ -486,6 +486,26 @@
         </div>
     </div>
 
+    <div id="edit-contact-modal" class="fixed inset-0 bg-primary/40 z-[100] hidden flex items-center justify-center backdrop-blur-md p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl p-8 shadow-2xl space-y-6">
+            <div>
+                <h3 class="text-xl font-bold font-headline text-primary">Kişiyi Düzenle</h3>
+                <p class="text-sm text-slate-500 mt-1">Ad, soyad ve telefon bilgisini güncelleyin.</p>
+            </div>
+            <input type="hidden" id="edit-contact-id">
+            <input type="hidden" id="edit-contact-index">
+            <div class="space-y-4">
+                <input type="text" id="edit-contact-name" placeholder="Ad" class="w-full bg-surface-container-low border-0 rounded-xl p-4 font-medium focus:ring-2 focus:ring-secondary/20">
+                <input type="text" id="edit-contact-surname" placeholder="Soyad" class="w-full bg-surface-container-low border-0 rounded-xl p-4 font-medium focus:ring-2 focus:ring-secondary/20">
+                <input type="text" id="edit-contact-phone" placeholder="905xxxxxxxxx" class="w-full bg-surface-container-low border-0 rounded-xl p-4 font-mono focus:ring-2 focus:ring-secondary/20">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="closeEditContactModal()" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
+                <button onclick="saveEditedContact()" class="py-3 rounded-xl font-bold text-xs text-white bg-primary hover:bg-primary/90 uppercase">Güncelle</button>
+            </div>
+        </div>
+    </div>
+
     <div id="save-group-modal" class="fixed inset-0 bg-primary/40 z-[100] hidden flex items-center justify-center backdrop-blur-md p-4">
         <div class="bg-white w-full max-w-md rounded-2xl p-8 shadow-2xl space-y-6">
             <div>
@@ -652,7 +672,10 @@
         }
 
         function normalizePhone(phone) {
-            return String(phone || '').replace(/[^\d]/g, '');
+            let digits = String(phone || '').replace(/[^\d]/g, '');
+            if (digits.length === 10 && digits.startsWith('5')) digits = `90${digits}`;
+            if (digits.length === 11 && digits.startsWith('05')) digits = `90${digits.slice(1)}`;
+            return digits;
         }
 
         function dedupeContacts(list) {
@@ -660,13 +683,19 @@
             const seen = new Set();
             for (const item of list || []) {
                 const phone = normalizePhone(item?.phone);
-                if (phone.length < 5 || seen.has(phone)) continue;
+                if (phone.length < 10 || seen.has(phone)) continue;
                 seen.add(phone);
-                unique.push({
+                const normalized = {
                     name: String(item?.name || '').trim(),
                     surname: String(item?.surname || '').trim(),
                     phone
-                });
+                };
+                if (item?.id !== undefined && item?.id !== null) normalized.id = item.id;
+                if (item?.group_id) normalized.group_id = item.group_id;
+                if (item?.normalized_phone) normalized.normalized_phone = item.normalized_phone;
+                if (item?.created_at) normalized.created_at = item.created_at;
+                if (item?.updated_at) normalized.updated_at = item.updated_at;
+                unique.push(normalized);
             }
             return unique;
         }
@@ -809,6 +838,7 @@
             div.className = colorClass;
             div.innerText = `> ${data.message}`;
             logs.prepend(div);
+            while (logs.children.length > 300) logs.removeChild(logs.lastChild);
 
             if (data.progress !== undefined) {
                 document.getElementById('prog-box').classList.remove('hidden');
@@ -966,14 +996,17 @@
                     showToast(data.error || 'Excel yüklenemedi', 'error');
                     return;
                 }
-                const merged = dedupeContacts([...currentContacts, ...data]);
+                const importedContacts = Array.isArray(data) ? data : (data.contacts || []);
+                const summary = Array.isArray(data) ? null : data.summary;
+                const merged = dedupeContacts([...currentContacts, ...importedContacts]);
                 const addedCount = merged.length - currentContacts.length;
                 currentContacts = merged;
                 visibleContacts = currentContacts;
                 updateContactsTable();
                 saveCurrentContactsToBackend();
                 if (addedCount > 0) {
-                    showToast(`${addedCount} yeni kişi yüklendi`, 'success');
+                    const details = summary ? ` (${summary.duplicate || 0} duplicate, ${summary.invalid || 0} hatalı satır)` : '';
+                    showToast(`${addedCount} yeni kişi yüklendi${details}`, 'success');
                 } else {
                     showToast('Yeni kişi eklenmedi. Numaralar zaten listede.', 'info');
                 }
@@ -1081,13 +1114,40 @@
             }
         }
 
-        function saveManualContact() {
+        async function saveManualContact() {
             const name = document.getElementById('manual-name').value.trim();
             const phone = normalizePhone(document.getElementById('manual-phone').value);
 
-            if (!name || phone.length < 5) {
+            if (!name || phone.length < 10) {
                 showToast('Geçerli ad ve telefon girin', 'error');
                 return;
+            }
+
+            if (activeGroupId) {
+                try {
+                    const res = await fetch(`/api/groups/${activeGroupId}/contacts`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, phone })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'Kişi eklenemedi');
+                    currentContacts = dedupeContacts([...currentContacts, data]);
+                    visibleContacts = currentContacts;
+                    const group = groups.find(g => g.id === activeGroupId);
+                    if (group) group.contacts = [...currentContacts];
+                    document.getElementById('manual-modal').classList.add('hidden');
+                    updateContactsTable();
+                    renderGroupsSidebar();
+                    renderCampaignGroupChecklist();
+                    document.getElementById('manual-name').value = '';
+                    document.getElementById('manual-phone').value = '';
+                    showToast('Kişi eklendi', 'success');
+                    return;
+                } catch (err) {
+                    showToast(err.message, 'error');
+                    return;
+                }
             }
 
             const merged = dedupeContacts([...currentContacts, { name, phone }]);
@@ -1123,9 +1183,30 @@
             }
         }
 
-        function removeContact(index) {
+        async function removeContact(index) {
             const contact = visibleContacts[index];
             if (!contact) return;
+
+            if (activeGroupId && contact.id) {
+                try {
+                    const res = await fetch(`/api/groups/${activeGroupId}/contacts/${contact.id}`, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || 'Kişi silinemedi');
+                    currentContacts = currentContacts.filter(item => String(item.id) !== String(contact.id));
+                    visibleContacts = contactFilterQuery ? visibleContacts.filter(item => String(item.id) !== String(contact.id)) : currentContacts;
+                    const group = groups.find(g => g.id === activeGroupId);
+                    if (group) group.contacts = [...currentContacts];
+                    updateContactsTable();
+                    renderGroupsSidebar();
+                    renderCampaignGroupChecklist();
+                    showToast('Kişi silindi', 'success');
+                    return;
+                } catch (err) {
+                    showToast(err.message, 'error');
+                    return;
+                }
+            }
+
             const targetPhone = normalizePhone(contact.phone);
             currentContacts = currentContacts.filter(item => normalizePhone(item.phone) !== targetPhone);
             visibleContacts = currentContacts;
@@ -1133,8 +1214,72 @@
             saveCurrentContactsToBackend();
         }
 
+        function openEditContact(index) {
+            const contact = visibleContacts[index];
+            if (!contact) return;
+            document.getElementById('edit-contact-id').value = contact.id || '';
+            document.getElementById('edit-contact-index').value = String(index);
+            document.getElementById('edit-contact-name').value = contact.name || '';
+            document.getElementById('edit-contact-surname').value = contact.surname || '';
+            document.getElementById('edit-contact-phone').value = contact.phone || '';
+            document.getElementById('edit-contact-modal').classList.remove('hidden');
+        }
+
+        function closeEditContactModal() {
+            document.getElementById('edit-contact-modal').classList.add('hidden');
+        }
+
+        async function saveEditedContact() {
+            const contactId = document.getElementById('edit-contact-id').value;
+            const index = Number.parseInt(document.getElementById('edit-contact-index').value, 10);
+            const original = visibleContacts[index];
+            const payload = {
+                name: document.getElementById('edit-contact-name').value.trim(),
+                surname: document.getElementById('edit-contact-surname').value.trim(),
+                phone: normalizePhone(document.getElementById('edit-contact-phone').value)
+            };
+
+            if (!payload.phone || payload.phone.length < 10) {
+                showToast('Geçerli telefon girin', 'error');
+                return;
+            }
+
+            if (activeGroupId && contactId) {
+                try {
+                    const res = await fetch(`/api/groups/${activeGroupId}/contacts/${contactId}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const updated = await res.json();
+                    if (!res.ok) throw new Error(updated.error || 'Kişi güncellenemedi');
+                    currentContacts = currentContacts.map(item => String(item.id) === String(contactId) ? updated : item);
+                    visibleContacts = contactFilterQuery ? visibleContacts.map(item => String(item.id) === String(contactId) ? updated : item) : currentContacts;
+                    const group = groups.find(g => g.id === activeGroupId);
+                    if (group) group.contacts = [...currentContacts];
+                    closeEditContactModal();
+                    updateContactsTable();
+                    renderGroupsSidebar();
+                    renderCampaignGroupChecklist();
+                    showToast('Kişi güncellendi', 'success');
+                    return;
+                } catch (err) {
+                    showToast(err.message, 'error');
+                    return;
+                }
+            }
+
+            if (!original) return;
+            currentContacts = currentContacts.map(item => normalizePhone(item.phone) === normalizePhone(original.phone) ? { ...item, ...payload } : item);
+            visibleContacts = currentContacts;
+            closeEditContactModal();
+            updateContactsTable();
+            saveCurrentContactsToBackend();
+        }
+
         window.clearList = clearList;
         window.removeContact = removeContact;
+        window.openEditContact = openEditContact;
 
         function updateContactsTable() {
             const tbody = document.getElementById('contacts-table-body');
@@ -1160,9 +1305,14 @@
                     </td>
                     <td class="px-6 py-4 text-sm text-slate-600 font-mono">${escapeHtml(c.phone)}</td>
                     <td class="px-6 py-4 text-right">
-                        <button onclick="removeContact(${i})" class="p-1.5 rounded-lg text-slate-400 hover:text-error hover:bg-error/5 transition-all" title="Kişiyi sil">
-                            <span class="material-symbols-outlined text-lg">delete</span>
-                        </button>
+                        <div class="inline-flex items-center gap-1">
+                            <button onclick="openEditContact(${i})" class="p-1.5 rounded-lg text-slate-400 hover:text-secondary hover:bg-secondary/5 transition-all" title="Kişiyi düzenle">
+                                <span class="material-symbols-outlined text-lg">edit</span>
+                            </button>
+                            <button onclick="removeContact(${i})" class="p-1.5 rounded-lg text-slate-400 hover:text-error hover:bg-error/5 transition-all" title="Kişiyi sil">
+                                <span class="material-symbols-outlined text-lg">delete</span>
+                            </button>
+                        </div>
                     </td>
                 </tr>
             `).join('');
@@ -1384,11 +1534,7 @@
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Grup güncellenemedi');
-                const group = groups.find(g => g.id === activeGroupId);
-                if (group) {
-                    group.contacts = [...currentContacts];
-                    renderGroupsSidebar();
-                }
+                await loadGroups();
             } catch (err) {
                 showToast(err.message, 'error');
             }
@@ -1408,7 +1554,7 @@
 
                     const logContainer = document.getElementById('logs');
                     logContainer.innerHTML = '';
-                    data.campaign.logs.forEach(log => {
+                    data.campaign.logs.slice(-300).forEach(log => {
                         const div = document.createElement('div');
                         div.className = log.type === 'error' ? 'text-red-300' : log.type === 'success' ? 'text-secondary-fixed-dim' : log.type === 'wait' ? 'text-amber-300' : 'text-slate-300';
                         div.innerHTML = `[${new Date(log.timestamp).toLocaleTimeString()}] ${escapeHtml(log.message)}`;
