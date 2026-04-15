@@ -104,6 +104,27 @@ let currentMedia = [];
 let lastQR = null;
 let initLock = false; // Multiple init WhatsApp Shield
 
+const normalizePhone = (value) => String(value || '').replace(/[^\d]/g, '');
+
+const normalizeContacts = (list) => {
+    if (!Array.isArray(list)) return [];
+    const seenPhones = new Set();
+    const normalized = [];
+
+    for (const item of list) {
+        const phone = normalizePhone(item?.phone);
+        if (phone.length < 5 || seenPhones.has(phone)) continue;
+        seenPhones.add(phone);
+        normalized.push({
+            name: String(item?.name || '').trim(),
+            surname: String(item?.surname || '').trim(),
+            phone
+        });
+    }
+
+    return normalized;
+};
+
 app.get('/api/version', async (req, res) => {
     try {
         const pkg = await fs.readJson(path.join(__dirname, 'package.json'));
@@ -140,17 +161,19 @@ app.get('/api/groups', async (req, res) => {
 
 app.post('/api/groups', async (req, res) => {
     try {
-        if(!req.body.name) return res.status(400).json({error: 'İsim gerekli'});
+        const groupName = String(req.body?.name || '').trim();
+        if (!groupName) return res.status(400).json({error: 'İsim gerekli'});
         const id = uuidv4();
-        const newGroup = await db.createGroup(id, req.body.name);
+        const newGroup = await db.createGroup(id, groupName);
         res.json(newGroup);
     } catch(e) { res.status(500).json({error: e.message}); }
 });
 
 app.put('/api/groups/:id', async (req, res) => {
     try {
-        if(!req.body.contacts) return res.status(400).json({error: 'Contacts gerekli'});
-        await db.updateGroupContacts(req.params.id, req.body.contacts);
+        if (!Array.isArray(req.body?.contacts)) return res.status(400).json({error: 'Contacts gerekli'});
+        const contacts = normalizeContacts(req.body.contacts);
+        await db.updateGroupContacts(req.params.id, contacts);
         res.json({ success: true });
     } catch(e) { res.status(500).json({error: e.message}); }
 });
@@ -200,11 +223,11 @@ app.post('/api/upload-excel', (req, res) => {
             const nameAliases = ['İsim', 'isim', 'name', 'Name', 'ad', 'Ad', 'AD', 'İSİM', 'first_name', 'firstName', 'Ad Soyad', 'ad soyad', 'adsoyad', 'AdSoyad', 'isim soyisim', 'İsim Soyisim'];
             const surnameAliases = ['Soyisim', 'soyisim', 'SOYİSİM', 'surname', 'Surname', 'soyad', 'Soyad', 'last_name', 'lastName'];
 
-            const data = rawData.map(row => ({
-                phone: findColumn(row, phoneAliases),
+            const data = normalizeContacts(rawData.map(row => ({
+                phone: normalizePhone(findColumn(row, phoneAliases)),
                 name: findColumn(row, nameAliases),
                 surname: findColumn(row, surnameAliases)
-            })).filter(row => row.phone && row.phone.length >= 5);
+            })));
 
             console.log(`📊 Excel yüklendi: ${rawData.length} satır okundu, ${data.length} geçerli kişi bulundu. Sütunlar: ${Object.keys(rawData[0] || {}).join(', ')}`);
 
