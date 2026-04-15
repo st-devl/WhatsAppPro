@@ -345,12 +345,34 @@
         }
 
         async function uploadExcel(input) {
-            const fd = new FormData(); fd.append('excel', input.files[0]);
-            const res = await fetch('/api/upload-excel', { method: 'POST', body: fd });
-            const adds = await res.json();
-            currentContacts = [...currentContacts, ...adds];
-            updateContactsTable();
-            saveCurrentContactsToBackend();
+            if (!input.files[0]) return;
+            showToast('Excel yükleniyor...', 'info');
+            const fd = new FormData();
+            fd.append('excel', input.files[0]);
+            input.value = ''; // Aynı dosyayı tekrar seçmeye izin ver
+            try {
+                const res = await fetch('/api/upload-excel', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok) {
+                    showToast('❌ ' + (data.error || 'Excel yüklenemedi'), 'error');
+                    return;
+                }
+                currentContacts = [...currentContacts, ...data];
+                updateContactsTable();
+                saveCurrentContactsToBackend();
+                showToast(`✅ ${data.length} kişi başarıyla yüklendi`, 'success');
+            } catch (e) {
+                showToast('❌ Bağlantı hatası: ' + e.message, 'error');
+            }
+        }
+
+        function showToast(msg, type = 'info') {
+            const colors = { info: 'bg-blue-600', success: 'bg-green-600', error: 'bg-red-600' };
+            const t = document.createElement('div');
+            t.className = `fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] px-8 py-4 rounded-2xl text-white text-[11px] font-black shadow-2xl transition-all ${colors[type]}`;
+            t.innerText = msg;
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 4000);
         }
 
         function saveManualContact() {

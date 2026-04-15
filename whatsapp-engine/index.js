@@ -179,13 +179,46 @@ app.post('/api/upload-excel', (req, res) => {
             const workbook = xlsx.readFile(req.file.path);
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const rawData = xlsx.utils.sheet_to_json(sheet);
+
+            if (!rawData || rawData.length === 0) {
+                return res.status(400).json({ error: 'Excel dosyası boş veya okunamadı.' });
+            }
+
+            // Case-insensitive ve çoklu alias destekli sütun eşleştirme
+            const findColumn = (row, aliases) => {
+                const keys = Object.keys(row);
+                for (const alias of aliases) {
+                    const found = keys.find(k => k.trim().toLowerCase() === alias.toLowerCase());
+                    if (found && row[found] !== undefined && row[found] !== null) {
+                        return String(row[found]).trim();
+                    }
+                }
+                return '';
+            };
+
+            const phoneAliases = ['Numara', 'numara', 'phone', 'Phone', 'telefon', 'Telefon', 'tel', 'Tel', 'cep', 'Cep', 'mobile', 'Mobile', 'no', 'No', 'number', 'Number', 'PhoneNumber', 'phone_number', 'telefon_no'];
+            const nameAliases = ['İsim', 'isim', 'name', 'Name', 'ad', 'Ad', 'AD', 'İSİM', 'first_name', 'firstName', 'Ad Soyad', 'ad soyad', 'adsoyad', 'AdSoyad', 'isim soyisim', 'İsim Soyisim'];
+            const surnameAliases = ['Soyisim', 'soyisim', 'SOYİSİM', 'surname', 'Surname', 'soyad', 'Soyad', 'last_name', 'lastName'];
+
             const data = rawData.map(row => ({
-                phone: String(row['Numara'] || row['phone'] || ''),
-                name: String(row['İsim'] || row['name'] || ''),
-                surname: String(row['Soyisim'] || '')
-            })).filter(row => row.phone);
+                phone: findColumn(row, phoneAliases),
+                name: findColumn(row, nameAliases),
+                surname: findColumn(row, surnameAliases)
+            })).filter(row => row.phone && row.phone.length >= 5);
+
+            console.log(`📊 Excel yüklendi: ${rawData.length} satır okundu, ${data.length} geçerli kişi bulundu. Sütunlar: ${Object.keys(rawData[0] || {}).join(', ')}`);
+
+            if (data.length === 0) {
+                return res.status(400).json({ 
+                    error: `Excel'de geçerli kişi bulunamadı. Algılanan sütunlar: [${Object.keys(rawData[0] || {}).join(', ')}]. Beklenen: Numara, İsim, Soyisim` 
+                });
+            }
+
             res.json(data);
-        } catch (e) { res.status(500).json({ error: 'Excel okuma hatası' }); }
+        } catch (e) { 
+            console.error('Excel parse hatası:', e);
+            res.status(500).json({ error: 'Excel okuma hatası: ' + e.message }); 
+        }
     });
 });
 
