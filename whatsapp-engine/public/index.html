@@ -107,7 +107,7 @@
         body { min-height: max(884px, 100dvh); }
     </style>
 </head>
-<body class="bg-background min-h-screen flex flex-col overflow-hidden">
+<body class="bg-background min-h-screen flex flex-col overflow-x-hidden">
     <header class="flex justify-between items-center px-4 lg:px-8 py-4 w-full sticky top-0 z-50 backdrop-blur-md bg-[#f7f9fb]/95">
         <div class="flex items-center gap-4 lg:gap-8 min-w-0">
             <div class="flex items-center gap-3 min-w-0">
@@ -135,8 +135,8 @@
         </div>
     </header>
 
-    <main class="flex flex-1 overflow-hidden h-[calc(100vh-72px)]">
-        <aside class="hidden lg:flex left-0 top-18 h-full z-40 flex-col p-4 bg-slate-50 w-80 shadow-xl space-y-6 overflow-y-auto no-scrollbar pb-24">
+    <main class="flex flex-1 min-h-[calc(100dvh-72px)]">
+        <aside class="hidden lg:sticky lg:top-[72px] lg:flex lg:max-h-[calc(100dvh-72px)] z-40 flex-col p-4 bg-slate-50 w-80 shadow-xl space-y-6 overflow-y-auto no-scrollbar pb-24">
             <section class="space-y-4">
                 <div class="flex justify-between items-center px-2">
                     <h3 id="qr-status-text" class="text-xs font-bold text-on-surface-variant tracking-widest uppercase">WhatsApp Connection</h3>
@@ -217,7 +217,7 @@
             </section>
         </aside>
 
-        <section class="flex-1 lg:ml-0 p-4 lg:p-8 overflow-y-auto bg-surface-bright">
+        <section class="flex-1 min-w-0 p-4 lg:p-8 bg-surface-bright">
             <div id="view-campaign" class="max-w-6xl mx-auto space-y-8 pb-24">
                 <div class="grid grid-cols-12 gap-8">
                     <div class="col-span-12 lg:col-span-7 space-y-6">
@@ -353,9 +353,9 @@
                 </div>
             </div>
 
-            <div id="view-contacts" class="hidden h-full -m-4 lg:-m-8">
-                <div class="h-full flex flex-col md:flex-row overflow-hidden">
-                    <section class="w-full md:w-80 bg-surface-container-low flex flex-col h-full border-r border-outline-variant/10">
+            <div id="view-contacts" class="hidden min-h-[calc(100dvh-72px)] -m-4 lg:-m-8">
+                <div class="min-h-[calc(100dvh-72px)] flex flex-col md:flex-row">
+                    <section class="w-full md:w-80 bg-surface-container-low flex flex-col md:sticky md:top-[72px] md:h-[calc(100dvh-72px)] border-r border-outline-variant/10">
                         <div class="p-6 flex items-center justify-between">
                             <div>
                                 <h3 class="font-headline font-bold text-slate-900">Gruplarım</h3>
@@ -370,7 +370,7 @@
                         </div>
                     </section>
 
-                    <section class="flex-1 overflow-y-auto bg-surface p-6 md:p-8">
+                    <section class="flex-1 min-w-0 bg-surface p-6 md:p-8">
                         <div class="flex items-center justify-between gap-4 mb-8">
                             <div>
                                 <h2 class="font-headline font-bold text-2xl text-slate-900">Rehberim &amp; Kişi Listesi</h2>

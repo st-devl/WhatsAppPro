@@ -124,7 +124,7 @@
         }
     </style>
 </head>
-<body class="bg-background min-h-screen flex flex-col overflow-hidden">
+<body class="bg-background min-h-screen flex flex-col overflow-x-hidden">
 <!-- TopAppBar Shell -->
 <header class="flex justify-between items-center px-8 py-4 w-full sticky top-0 z-50 backdrop-blur-md bg-[#f7f9fb] dark:bg-[#091426]">
 <div class="flex items-center gap-8">
@@ -152,9 +152,9 @@
 </div>
 </div>
 </header>
-<main class="flex flex-1 overflow-hidden h-[calc(100vh-72px)]">
+<main class="flex flex-1 min-h-[calc(100dvh-72px)]">
 <!-- NavigationDrawer / Sidebar Shell -->
-<aside class="fixed left-0 top-18 h-full z-40 flex flex-col p-4 bg-slate-50 dark:bg-[#091426] w-80 shadow-xl dark:shadow-none space-y-6 overflow-y-auto no-scrollbar pb-24">
+<aside class="sticky top-[72px] max-h-[calc(100dvh-72px)] z-40 flex flex-col p-4 bg-slate-50 dark:bg-[#091426] w-80 shadow-xl dark:shadow-none space-y-6 overflow-y-auto no-scrollbar pb-24">
 <!-- WhatsApp Connection Section -->
 <section class="space-y-4">
 <div class="flex justify-between items-center px-2">
@@ -242,7 +242,7 @@
 </section>
 </aside>
 <!-- Main Content Area / Canvas -->
-<section class="flex-1 ml-80 p-8 overflow-y-auto bg-surface-bright">
+<section class="flex-1 min-w-0 p-8 bg-surface-bright">
 <div class="max-w-6xl mx-auto space-y-8 pb-20">
 <!-- Tab 01 Content: Kampanya Hazırla -->
 <div class="grid grid-cols-12 gap-8">

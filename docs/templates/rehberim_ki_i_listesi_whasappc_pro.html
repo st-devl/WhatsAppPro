@@ -109,7 +109,7 @@
     }
   </style>
   </head>
-<body class="bg-background font-body text-on-background antialiased overflow-hidden">
+<body class="bg-background font-body text-on-background antialiased overflow-x-hidden">
 <!-- Navigation Drawer (Shared) -->
 <aside class="h-screen w-72 fixed left-0 top-0 bg-slate-100 flex flex-col gap-2 py-8 pr-4 z-40 hidden md:flex">
 <div class="px-8 mb-8">
@@ -163,9 +163,9 @@
 </div>
 </header>
 <!-- Main Content Layout -->
-<main class="md:ml-72 pt-20 h-screen flex flex-col md:flex-row overflow-hidden">
+<main class="md:ml-72 pt-20 min-h-screen flex flex-col md:flex-row">
 <!-- Sidebar: Gruplarım -->
-<section class="w-full md:w-80 bg-surface-container-low flex flex-col h-full border-r border-outline-variant/10">
+<section class="w-full md:w-80 bg-surface-container-low flex flex-col md:sticky md:top-20 md:h-[calc(100dvh-5rem)] border-r border-outline-variant/10">
 <div class="p-6 flex items-center justify-between">
 <h3 class="font-headline font-bold text-slate-900">Gruplarım</h3>
 <button class="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700 transition-colors">
@@ -215,7 +215,7 @@
 </div>
 </section>
 <!-- Main Workspace Area -->
-<section class="flex-1 overflow-y-auto bg-surface p-6 md:p-8">
+<section class="flex-1 min-w-0 bg-surface p-6 md:p-8">
 <!-- Action Cards Grid (Bento Style) -->
 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
 <!-- Excel Import -->
