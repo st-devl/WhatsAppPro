@@ -1,0 +1,13 @@
+{
+  "name": "WhasAppC",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Deployment wrapper for whatsapp-engine",
+  "scripts": {
+    "postinstall": "npm --prefix whatsapp-engine install --omit=dev",
+    "start": "npm --prefix whatsapp-engine start"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
