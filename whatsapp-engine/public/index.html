@@ -102,9 +102,13 @@
                             </select>
                         </div>
                         <div class="mb-6">
-                            <select id="campaign-target-group" class="w-full p-4 bg-blue-50/50 border-2 border-blue-100 hover:border-blue-300 rounded-2xl text-[11px] font-black text-blue-900 outline-none uppercase tracking-widest focus:border-blue-500 transition-all cursor-pointer">
-                                <option value="temp">Manuel Numara / Geçici Liste</option>
-                            </select>
+                            <div class="flex items-center justify-between mb-3">
+                                <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Hedef Gruplar</h3>
+                                <span id="campaign-selected-count" class="text-[10px] font-black text-green-600 uppercase tracking-widest">Toplam 0 numara seçildi</span>
+                            </div>
+                            <div id="campaign-group-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div class="p-4 rounded-2xl bg-slate-50 text-[10px] font-black text-slate-300 uppercase tracking-widest">Gruplar yükleniyor...</div>
+                            </div>
                         </div>
                         <div class="mb-6">
                             <label for="manual-campaign-numbers" class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Elle Numara Gir</label>
@@ -285,6 +289,7 @@
         let mediaFiles = [];
         let groups = [];
         let activeGroupId = null;
+        let selectedCampaignGroupIds = new Set();
 
         function setPanelConnectionError(message) {
             const btn = document.getElementById('send-btn');
@@ -373,15 +378,81 @@
             return unique;
         }
 
+        function escapeHtml(value) {
+            return String(value || '').replace(/[&<>"']/g, char => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[char]));
+        }
+
         function getManualCampaignContacts() {
             const input = document.getElementById('manual-campaign-numbers');
             if (!input) return [];
             return dedupeContacts(input.value.split(',').map(phone => ({ phone })));
         }
 
+        function getSelectedCampaignContacts() {
+            const groupContacts = groups
+                .filter(group => selectedCampaignGroupIds.has(group.id))
+                .flatMap(group => group.contacts || []);
+            return dedupeContacts([...groupContacts, ...getManualCampaignContacts()]);
+        }
+
+        function updateCampaignTargetSummary() {
+            const total = getSelectedCampaignContacts().length;
+            const selectedCount = selectedCampaignGroupIds.size;
+            const countEl = document.getElementById('campaign-selected-count');
+            if (countEl) countEl.innerText = `Toplam ${total} numara seçildi`;
+
+            const manualCountEl = document.getElementById('manual-campaign-count');
+            if (manualCountEl) {
+                const manualCount = getManualCampaignContacts().length;
+                manualCountEl.innerText = `Virgül ile ayırın. ${manualCount} manuel numara hazır. ${selectedCount} grup seçili.`;
+            }
+        }
+
+        function toggleCampaignGroup(groupId, checked) {
+            if (checked) selectedCampaignGroupIds.add(groupId);
+            else selectedCampaignGroupIds.delete(groupId);
+            renderCampaignGroupChecklist();
+        }
+
+        function renderCampaignGroupChecklist() {
+            const container = document.getElementById('campaign-group-list');
+            if (!container) return;
+
+            selectedCampaignGroupIds = new Set([...selectedCampaignGroupIds].filter(id => groups.some(group => group.id === id)));
+
+            if (groups.length === 0) {
+                container.innerHTML = '<div class="p-4 rounded-2xl bg-slate-50 text-[10px] font-black text-slate-300 uppercase tracking-widest">Henüz kayıtlı grup yok</div>';
+                updateCampaignTargetSummary();
+                return;
+            }
+
+            container.innerHTML = groups.map(group => {
+                const count = (group.contacts || []).length;
+                const checked = selectedCampaignGroupIds.has(group.id) ? 'checked' : '';
+                return `
+                    <label class="flex items-center justify-between gap-3 p-4 rounded-2xl border-2 ${checked ? 'border-green-200 bg-green-50' : 'border-slate-100 bg-white'} cursor-pointer hover:border-green-200 transition-all">
+                        <span class="flex items-center gap-3 min-w-0">
+                            <input type="checkbox" class="w-4 h-4 accent-green-600" ${checked} onchange="toggleCampaignGroup('${group.id}', this.checked)">
+                            <span class="min-w-0">
+                                <span class="block text-[11px] font-black text-slate-800 truncate" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
+                                <span class="block text-[9px] font-black text-slate-400 uppercase tracking-widest">${count} numara</span>
+                            </span>
+                        </span>
+                        <span class="text-[10px] font-black text-green-600 uppercase tracking-widest">Seç</span>
+                    </label>
+                `;
+            }).join('');
+            updateCampaignTargetSummary();
+        }
+
         function updateManualCampaignCount() {
-            const count = getManualCampaignContacts().length;
-            document.getElementById('manual-campaign-count').innerText = `Virgül ile ayırın. ${count} numara hazır.`;
+            updateCampaignTargetSummary();
         }
 
         function handleManualNumbersInput(input) {
@@ -395,9 +466,6 @@
                 input.setSelectionRange(Math.max(cursorPosition - 1, 0), Math.max(cursorPosition - 1, 0));
             }
 
-            if (cleaned.trim()) {
-                document.getElementById('campaign-target-group').value = 'temp';
-            }
             updateManualCampaignCount();
         }
 
@@ -661,7 +729,8 @@
 
                 await loadGroups();
                 selectGroup(targetGroupId);
-                document.getElementById('campaign-target-group').value = targetGroupId;
+                selectedCampaignGroupIds.add(targetGroupId);
+                renderCampaignGroupChecklist();
                 closeGroupSaveModal();
                 showToast(`✅ "${groupName}" grubuna ${currentContacts.length} kişi kaydedildi`, 'success');
             } catch (err) {
@@ -770,18 +839,7 @@
         function startCampaign() {
             if (!socket) return alert("Sunucu bağlantısı kurulamadı. Sayfayı yenileyin veya sunucu loglarını kontrol edin.");
             const text = document.getElementById('message').value;
-            const targetGroupId = document.getElementById('campaign-target-group').value;
-            
-            let targetContacts = currentContacts;
-            if (targetGroupId !== 'temp') {
-                const selectedObj = groups.find(g => g.id === targetGroupId);
-                if (selectedObj) {
-                    targetContacts = dedupeContacts(selectedObj.contacts || []);
-                }
-            } else {
-                const manualContacts = getManualCampaignContacts();
-                targetContacts = manualContacts.length > 0 ? manualContacts : dedupeContacts(currentContacts);
-            }
+            const targetContacts = getSelectedCampaignContacts();
 
             if (!text || targetContacts.length === 0) return alert("Mesaj içeriği ve hedef numara/grup boş olamaz.");
             document.getElementById('send-btn').classList.add('hidden');
@@ -828,6 +886,7 @@
             } catch (err) {
                 groups = [];
                 document.getElementById('groups-list').innerHTML = '<div class="p-4 text-center text-[10px] text-red-400 font-bold uppercase tracking-widest">Gruplar yüklenemedi</div>';
+                renderCampaignGroupChecklist();
                 showToast('❌ Gruplar yüklenemedi: ' + err.message, 'error');
             }
         }
@@ -847,16 +906,7 @@
                     </div>
                 `).join('');
             }
-
-            let targetSelect = document.getElementById('campaign-target-group');
-            if (targetSelect) {
-                let currentVal = targetSelect.value;
-                targetSelect.innerHTML = `<option value="temp">Manuel Numara / Geçici Liste</option>` +
-                    groups.map(g => `<option value="${g.id}">Grup: ${g.name} (${(g.contacts || []).length} Kişi)</option>`).join('');
-                if ([...targetSelect.options].some(o => o.value === currentVal)) {
-                    targetSelect.value = currentVal;
-                }
-            }
+            renderCampaignGroupChecklist();
         }
 
         async function createGroup() {
@@ -872,7 +922,8 @@
                 if (!res.ok) throw new Error(newGroup.error || 'Grup oluşturulamadı');
                 groups.push(newGroup);
                 selectGroup(newGroup.id);
-                document.getElementById('campaign-target-group').value = newGroup.id;
+                selectedCampaignGroupIds.add(newGroup.id);
+                renderCampaignGroupChecklist();
             } catch (err) {
                 showToast('❌ ' + err.message, 'error');
             }
@@ -885,6 +936,7 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Grup silinemedi');
                 groups = groups.filter(g => g.id !== id);
+                selectedCampaignGroupIds.delete(id);
                 if (activeGroupId === id) {
                     activeGroupId = null;
                     currentContacts = [];
