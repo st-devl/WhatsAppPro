@@ -117,32 +117,86 @@
     </div>
 
     <script>
+        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        function getDashboardPath() {
+            // login.html ile aynı dizindeki ana sayfaya yönlendir
+            return new URL('./', window.location.href).pathname;
+        }
+
+        async function isAuthenticated() {
+            try {
+                const response = await fetch('/api/check-auth', {
+                    method: 'GET',
+                    cache: 'no-store',
+                    credentials: 'same-origin'
+                });
+                if (!response.ok) return false;
+                const data = await response.json();
+                return !!data.authenticated;
+            } catch {
+                return false;
+            }
+        }
+
+        async function redirectWhenSessionReady(maxTry = 10) {
+            for (let i = 0; i < maxTry; i++) {
+                const ok = await isAuthenticated();
+                if (ok) {
+                    window.location.assign(getDashboardPath());
+                    return true;
+                }
+                await delay(250);
+            }
+            return false;
+        }
+
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             const messageEl = document.getElementById('message');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Giriş yapılıyor...';
 
             try {
                 const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
                     body: JSON.stringify({ email, password })
                 });
 
                 const data = await response.json();
 
                 if (response.ok) {
-                    messageEl.textContent = 'Giriş başarılı! Yönlendiriliyorsunuz...';
+                    messageEl.textContent = 'Giriş başarılı! Oturum doğrulanıyor...';
                     messageEl.className = 'success';
-                    setTimeout(() => window.location.href = '/', 1000);
+                    const redirected = await redirectWhenSessionReady();
+                    if (!redirected) {
+                        messageEl.textContent = 'Oturum doğrulaması gecikti. Sayfayı yenileyip tekrar deneyin.';
+                        messageEl.className = 'error';
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Giriş Yap';
+                    }
                 } else {
                     messageEl.textContent = data.error || 'Giriş başarısız.';
                     messageEl.className = 'error';
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Giriş Yap';
                 }
             } catch (err) {
                 messageEl.textContent = 'Bir hata oluştu.';
                 messageEl.className = 'error';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Giriş Yap';
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (await isAuthenticated()) {
+                window.location.replace(getDashboardPath());
             }
         });
     </script>

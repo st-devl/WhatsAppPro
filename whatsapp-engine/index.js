@@ -17,12 +17,19 @@ const server = http.createServer(app);
 const io = new Server(server);
 const session = require('express-session');
 
+app.set('trust proxy', 1);
+
+const secureCookies = process.env.COOKIE_SECURE === 'true';
+
 app.use(session({
+    name: 'whasappc.sid',
     secret: process.env.SESSION_SECRET || 'fallback-dev-secret',
     resave: false,
     saveUninitialized: false,
+    proxy: true,
     cookie: { 
-        secure: false, 
+        secure: secureCookies,
+        sameSite: secureCookies ? 'none' : 'lax',
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000 
     }
@@ -74,15 +81,41 @@ const upload = multer({
 app.use(express.json({ limit: '10mb' })); // Payload Limit 
 
 app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body;
-    if (email === ADMIN_EMAIL) {
-        const match = await bcrypt.compare(password, ADMIN_PASS_HASH);
-        if(match) {
-            req.session.user = { email };
-            return res.json({ success: true });
+    try {
+        const email = String(req.body?.email || '').trim();
+        const password = String(req.body?.password || '');
+        if (!ADMIN_EMAIL || !ADMIN_PASS_HASH) {
+            return res.status(500).json({ error: 'Sunucu giriş yapılandırması eksik.' });
         }
+
+        if (email !== ADMIN_EMAIL) {
+            return res.status(401).json({ error: 'Geçersiz e-posta veya şifre' });
+        }
+
+        const match = await bcrypt.compare(password, ADMIN_PASS_HASH);
+        if (!match) {
+            return res.status(401).json({ error: 'Geçersiz e-posta veya şifre' });
+        }
+
+        req.session.regenerate((regenErr) => {
+            if (regenErr) {
+                console.error('Session regenerate hatası:', regenErr);
+                return res.status(500).json({ error: 'Oturum başlatılamadı.' });
+            }
+
+            req.session.user = { email };
+            req.session.save((saveErr) => {
+                if (saveErr) {
+                    console.error('Session save hatası:', saveErr);
+                    return res.status(500).json({ error: 'Oturum kaydedilemedi.' });
+                }
+                res.json({ success: true });
+            });
+        });
+    } catch (err) {
+        console.error('Login endpoint hatası:', err);
+        res.status(500).json({ error: 'Giriş sırasında beklenmeyen bir hata oluştu.' });
     }
-    res.status(401).json({ error: 'Geçersiz e-posta veya şifre' });
 });
 
 app.post('/api/logout', (req, res) => {
