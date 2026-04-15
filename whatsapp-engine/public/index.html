@@ -595,6 +595,7 @@
         let activeGroupId = null;
         let selectedCampaignGroupIds = new Set();
         let contactFilterQuery = '';
+        const unsavedContactsDraftKey = 'whatsappc.unsavedContacts.v1';
 
         const navActive = 'text-secondary font-bold border-b-2 border-secondary py-1 text-sm font-headline tracking-wide';
         const navInactive = 'text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm';
@@ -803,6 +804,53 @@
 
         function updateManualCampaignCount() {
             updateCampaignTargetSummary();
+        }
+
+        function saveUnsavedContactsDraft() {
+            try {
+                if (activeGroupId || currentContacts.length === 0) {
+                    localStorage.removeItem(unsavedContactsDraftKey);
+                    return;
+                }
+
+                localStorage.setItem(unsavedContactsDraftKey, JSON.stringify({
+                    savedAt: new Date().toISOString(),
+                    contacts: dedupeContacts(currentContacts)
+                }));
+            } catch (err) {
+                console.warn('Kaydedilmemiş kişi taslağı saklanamadı:', err);
+            }
+        }
+
+        function clearUnsavedContactsDraft() {
+            try {
+                localStorage.removeItem(unsavedContactsDraftKey);
+            } catch (err) {
+                console.warn('Kaydedilmemiş kişi taslağı temizlenemedi:', err);
+            }
+        }
+
+        function restoreUnsavedContactsDraft() {
+            if (activeGroupId || currentContacts.length > 0) return false;
+
+            try {
+                const draft = JSON.parse(localStorage.getItem(unsavedContactsDraftKey) || 'null');
+                const draftContacts = dedupeContacts(draft?.contacts || []);
+                if (draftContacts.length === 0) {
+                    clearUnsavedContactsDraft();
+                    return false;
+                }
+
+                currentContacts = draftContacts;
+                visibleContacts = currentContacts;
+                document.getElementById('active-group-name').innerText = 'Kaydedilmemiş Liste';
+                updateContactsTable();
+                showToast('Kaydedilmemiş liste geri yüklendi. Kalıcı olması için grup adı verip kaydedin.', 'info');
+                return true;
+            } catch {
+                clearUnsavedContactsDraft();
+                return false;
+            }
         }
 
         function handleManualNumbersInput(input) {
@@ -1021,9 +1069,11 @@
                 visibleContacts = currentContacts;
                 updateContactsTable();
                 saveCurrentContactsToBackend();
+                saveUnsavedContactsDraft();
                 if (addedCount > 0) {
                     const details = summary ? ` (${summary.duplicate || 0} duplicate, ${summary.invalid || 0} hatalı satır)` : '';
-                    showToast(`${addedCount} yeni kişi yüklendi${details}`, 'success');
+                    const saveHint = activeGroupId ? '' : '. Kalıcı olması için grup olarak kaydedin';
+                    showToast(`${addedCount} yeni kişi yüklendi${details}${saveHint}`, 'success');
                 } else {
                     showToast('Yeni kişi eklenmedi. Numaralar zaten listede.', 'info');
                 }
@@ -1125,6 +1175,7 @@
                 renderCampaignGroupChecklist();
                 closeGroupSaveModal();
                 document.getElementById('quick-group-name').value = '';
+                clearUnsavedContactsDraft();
                 showToast(`"${groupName}" grubuna ${currentContacts.length} kişi kaydedildi`, 'success');
             } catch (err) {
                 showToast(err.message, 'error');
@@ -1178,8 +1229,10 @@
             document.getElementById('manual-modal').classList.add('hidden');
             updateContactsTable();
             saveCurrentContactsToBackend();
+            saveUnsavedContactsDraft();
             document.getElementById('manual-name').value = '';
             document.getElementById('manual-phone').value = '';
+            showToast('Kişi geçici listeye eklendi. Kalıcı olması için grup adı verip kaydedin.', 'info');
         }
 
         async function resetConnection() {
@@ -1197,6 +1250,7 @@
                 visibleContacts = [];
                 updateContactsTable();
                 saveCurrentContactsToBackend();
+                if (!activeGroupId) clearUnsavedContactsDraft();
             }
         }
 
@@ -1229,6 +1283,7 @@
             visibleContacts = currentContacts;
             updateContactsTable();
             saveCurrentContactsToBackend();
+            saveUnsavedContactsDraft();
         }
 
         function openEditContact(index) {
@@ -1292,6 +1347,7 @@
             closeEditContactModal();
             updateContactsTable();
             saveCurrentContactsToBackend();
+            saveUnsavedContactsDraft();
         }
 
         window.clearList = clearList;
@@ -1445,6 +1501,7 @@
                     }
                 }
                 renderGroupsSidebar();
+                restoreUnsavedContactsDraft();
             } catch (err) {
                 groups = [];
                 document.getElementById('groups-list').innerHTML = '<div class="p-4 text-center text-[10px] text-error font-bold uppercase tracking-widest">Gruplar yüklenemedi</div>';
@@ -1521,6 +1578,7 @@
         }
 
         function selectGroup(id) {
+            saveUnsavedContactsDraft();
             activeGroupId = id;
             const group = groups.find(g => g.id === id);
             if (!group) {
@@ -1540,7 +1598,10 @@
         }
 
         async function saveCurrentContactsToBackend() {
-            if (!activeGroupId) return;
+            if (!activeGroupId) {
+                saveUnsavedContactsDraft();
+                return;
+            }
             currentContacts = dedupeContacts(currentContacts);
             visibleContacts = currentContacts;
             try {
