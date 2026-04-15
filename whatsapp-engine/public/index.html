@@ -103,23 +103,24 @@
                         </div>
                         <div class="mb-6">
                             <select id="campaign-target-group" class="w-full p-4 bg-blue-50/50 border-2 border-blue-100 hover:border-blue-300 rounded-2xl text-[11px] font-black text-blue-900 outline-none uppercase tracking-widest focus:border-blue-500 transition-all cursor-pointer">
-                                <option value="temp">Manuel / Geçici Liste (Rehberim Sekmesindeki)</option>
+                                <option value="temp">Manuel Numara / Geçici Liste</option>
                             </select>
                         </div>
-                        <textarea id="message" oninput="updatePreview()" rows="8" class="w-full p-8 rounded-3xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-green-500 text-slate-700 shadow-inner outline-none text-lg transition-all" placeholder="Merhaba {{ad}}! {Nasılsınız|İyi günler|Size bir teklifimiz var}{.|!|..}"></textarea>
-                        
-                        <div class="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-start gap-3">
-                            <span class="text-lg">🛡️</span>
-                            <div>
-                                <h4 class="text-[10px] font-black text-slate-800 uppercase tracking-widest mb-1">Müşteri İletişim İlkeleri</h4>
-                                <p class="text-[10px] text-slate-600 leading-relaxed font-bold italic uppercase">Mesajlarınızı kişiselleştirmek için {{ad}} etiketini kullanabilirsiniz. Sistem, insan davranışlarını taklit eden dinamik zamanlama motoru ile çalışmaktadır.</p>
-                            </div>
+                        <div class="mb-6">
+                            <label for="manual-campaign-numbers" class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Elle Numara Gir</label>
+                            <textarea id="manual-campaign-numbers" oninput="handleManualNumbersInput(this)" rows="2" inputmode="numeric" class="w-full p-5 rounded-2xl bg-white border-2 border-slate-100 focus:border-green-500 text-slate-700 outline-none font-mono text-sm transition-all" placeholder="905320000000,905330000000,905340000000"></textarea>
+                            <div id="manual-campaign-count" class="mt-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Virgül ile ayırın. 0 numara hazır.</div>
                         </div>
+                        <textarea id="message" oninput="updatePreview()" rows="8" class="w-full p-8 rounded-3xl bg-slate-50 border-2 border-transparent focus:bg-white focus:border-green-500 text-slate-700 shadow-inner outline-none text-lg transition-all" placeholder="Merhaba {{ad}}! {Nasılsınız|İyi günler|Size bir teklifimiz var}{.|!|..}"></textarea>
 
-                        <div class="flex items-center gap-4 mt-8">
+                        <div class="flex items-center gap-4 mt-8 flex-wrap">
                             <button onclick="document.getElementById('template-modal').classList.remove('hidden')" class="px-8 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Şablon Kaydet</button>
-                            <button onclick="document.getElementById('media-input').click()" class="px-8 py-4 bg-white border-2 border-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:border-slate-300 transition-all flex items-center gap-2">🖼️ MEDYA EKLE</button>
+                            <button id="media-upload-btn" onclick="document.getElementById('media-input').click()" class="px-8 py-4 bg-white border-2 border-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:border-slate-300 transition-all flex items-center gap-2">🖼️ MEDYA EKLE</button>
                             <input type="file" id="media-input" multiple accept="image/*,video/*" class="hidden" onchange="uploadMedia(this)">
+                            <div id="media-upload-status" class="hidden items-center gap-2 px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl">
+                                <span id="media-upload-spinner" class="w-4 h-4 border-2 border-slate-200 border-t-green-500 rounded-full animate-spin"></span>
+                                <span id="media-upload-text" class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Medya yükleniyor...</span>
+                            </div>
                             <div id="media-preview" class="flex gap-2 h-14 items-center pl-4 border-l"></div>
                         </div>
                     </section>
@@ -292,6 +293,34 @@
             return unique;
         }
 
+        function getManualCampaignContacts() {
+            const input = document.getElementById('manual-campaign-numbers');
+            if (!input) return [];
+            return dedupeContacts(input.value.split(',').map(phone => ({ phone })));
+        }
+
+        function updateManualCampaignCount() {
+            const count = getManualCampaignContacts().length;
+            document.getElementById('manual-campaign-count').innerText = `Virgül ile ayırın. ${count} numara hazır.`;
+        }
+
+        function handleManualNumbersInput(input) {
+            const cleaned = input.value
+                .replace(/[^\d,]/g, '')
+                .replace(/,{2,}/g, ',');
+
+            if (input.value !== cleaned) {
+                const cursorPosition = input.selectionStart;
+                input.value = cleaned;
+                input.setSelectionRange(Math.max(cursorPosition - 1, 0), Math.max(cursorPosition - 1, 0));
+            }
+
+            if (cleaned.trim()) {
+                document.getElementById('campaign-target-group').value = 'temp';
+            }
+            updateManualCampaignCount();
+        }
+
         function switchTab(tab) {
             document.getElementById('view-campaign').classList.toggle('hidden', tab !== 'campaign');
             document.getElementById('view-contacts').classList.toggle('hidden', tab !== 'contacts');
@@ -370,16 +399,50 @@
             } else inner.classList.add('hidden');
         }
 
+        function setMediaUploadStatus(state, message) {
+            const status = document.getElementById('media-upload-status');
+            const spinner = document.getElementById('media-upload-spinner');
+            const text = document.getElementById('media-upload-text');
+            const button = document.getElementById('media-upload-btn');
+
+            status.classList.toggle('hidden', state === 'idle');
+            status.classList.toggle('flex', state !== 'idle');
+            spinner.classList.toggle('hidden', state !== 'loading');
+            text.innerText = message || '';
+            text.className = 'text-[10px] font-black uppercase tracking-widest ' + (
+                state === 'error' ? 'text-red-500' : state === 'success' ? 'text-green-600' : 'text-slate-500'
+            );
+            button.disabled = state === 'loading';
+            button.classList.toggle('opacity-50', state === 'loading');
+            button.classList.toggle('cursor-not-allowed', state === 'loading');
+        }
+
         async function uploadMedia(input) {
+            if (!input.files || input.files.length === 0) return;
+
             const fd = new FormData();
             for (let f of input.files) fd.append('media', f);
-            const res = await fetch('/api/upload-media', { method: 'POST', body: fd });
-            mediaFiles = await res.json();
-            document.getElementById('media-preview').innerHTML = mediaFiles.map(f => {
-                if(f.mimetype.startsWith('video/')) return `<div class="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center text-xl border-2 border-slate-200">🎬</div>`;
-                else return `<img src="/${f.path}" class="w-14 h-14 rounded-xl object-cover border-2 border-slate-200">`;
-            }).join('');
-            updatePreview();
+            setMediaUploadStatus('loading', 'Medya yükleniyor...');
+
+            try {
+                const res = await fetch('/api/upload-media', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Medya yüklenemedi');
+
+                mediaFiles = data;
+                document.getElementById('media-preview').innerHTML = mediaFiles.map(f => {
+                    if(f.mimetype.startsWith('video/')) return `<div class="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center text-xl border-2 border-slate-200">🎬</div>`;
+                    else return `<img src="/${f.path}" class="w-14 h-14 rounded-xl object-cover border-2 border-slate-200">`;
+                }).join('');
+                updatePreview();
+                setMediaUploadStatus('success', `${mediaFiles.length} medya yüklendi`);
+                setTimeout(() => setMediaUploadStatus('idle'), 3500);
+            } catch (err) {
+                setMediaUploadStatus('error', err.message);
+                showToast('❌ ' + err.message, 'error');
+            } finally {
+                input.value = '';
+            }
         }
 
         async function uploadExcel(input) {
@@ -592,10 +655,11 @@
                     targetContacts = dedupeContacts(selectedObj.contacts || []);
                 }
             } else {
-                targetContacts = dedupeContacts(currentContacts);
+                const manualContacts = getManualCampaignContacts();
+                targetContacts = manualContacts.length > 0 ? manualContacts : dedupeContacts(currentContacts);
             }
 
-            if (!text || targetContacts.length === 0) return alert("Mesaj içeriği ve seçili hedef grup boş olamaz.");
+            if (!text || targetContacts.length === 0) return alert("Mesaj içeriği ve hedef numara/grup boş olamaz.");
             document.getElementById('send-btn').classList.add('hidden');
             document.getElementById('stop-btn').classList.remove('hidden');
             
@@ -655,7 +719,7 @@
             let targetSelect = document.getElementById('campaign-target-group');
             if (targetSelect) {
                 let currentVal = targetSelect.value;
-                targetSelect.innerHTML = `<option value="temp">Manuel / Geçici Liste (Rehberim Sekmesi)</option>` +
+                targetSelect.innerHTML = `<option value="temp">Manuel Numara / Geçici Liste</option>` +
                     groups.map(g => `<option value="${g.id}">Grup: ${g.name} (${(g.contacts || []).length} Kişi)</option>`).join('');
                 if ([...targetSelect.options].some(o => o.value === currentVal)) {
                     targetSelect.value = currentVal;

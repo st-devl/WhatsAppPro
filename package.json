@@ -5,7 +5,7 @@
   "description": "Deployment wrapper for whatsapp-engine",
   "scripts": {
     "postinstall": "npm --prefix whatsapp-engine install --omit=dev",
-    "start": "npm --prefix whatsapp-engine start"
+    "start": "node index.js"
   },
   "engines": {
     "node": ">=18"
