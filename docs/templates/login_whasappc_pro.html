@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+
+<html class="light" lang="tr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>WhasAppC PRO - Login</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "primary-container": "#1e293b",
+                    "surface-dim": "#d8dadc",
+                    "on-tertiary": "#ffffff",
+                    "on-surface-variant": "#45474c",
+                    "surface-container-lowest": "#ffffff",
+                    "secondary": "#006c49",
+                    "tertiary-container": "#3c2300",
+                    "inverse-primary": "#bcc7de",
+                    "on-error": "#ffffff",
+                    "error": "#ba1a1a",
+                    "surface-container-low": "#f2f4f6",
+                    "background": "#f7f9fb",
+                    "on-secondary-fixed-variant": "#005236",
+                    "inverse-surface": "#2d3133",
+                    "on-primary": "#ffffff",
+                    "outline-variant": "#c5c6cd",
+                    "on-background": "#191c1e",
+                    "inverse-on-surface": "#eff1f3",
+                    "secondary-container": "#6cf8bb",
+                    "secondary-fixed": "#6ffbbe",
+                    "outline": "#75777d",
+                    "on-secondary-container": "#00714d",
+                    "on-primary-fixed-variant": "#3c475a",
+                    "on-tertiary-fixed": "#2a1700",
+                    "surface-container": "#eceef0",
+                    "primary-fixed": "#d8e3fb",
+                    "on-tertiary-container": "#c88000",
+                    "primary": "#091426",
+                    "tertiary": "#201100",
+                    "surface-bright": "#f7f9fb",
+                    "surface-container-highest": "#e0e3e5",
+                    "on-secondary-fixed": "#002113",
+                    "on-primary-container": "#8590a6",
+                    "on-error-container": "#93000a",
+                    "tertiary-fixed": "#ffddb8",
+                    "on-surface": "#191c1e",
+                    "on-tertiary-fixed-variant": "#653e00",
+                    "surface-container-high": "#e6e8ea",
+                    "error-container": "#ffdad6",
+                    "primary-fixed-dim": "#bcc7de",
+                    "on-primary-fixed": "#111c2d",
+                    "surface-variant": "#e0e3e5",
+                    "on-secondary": "#ffffff",
+                    "surface-tint": "#545f73",
+                    "surface": "#f7f9fb",
+                    "tertiary-fixed-dim": "#ffb95f",
+                    "secondary-fixed-dim": "#4edea3"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        h1, h2, h3 {
+            font-family: 'Manrope', sans-serif;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background min-h-screen flex items-center justify-center p-4">
+<!-- Login Container -->
+<main class="w-full max-w-[1200px] grid md:grid-cols-12 overflow-hidden bg-surface-container-lowest rounded-xl shadow-[0_32px_64px_-12px_rgba(9,20,38,0.08)] border border-outline-variant/10">
+<!-- Left Side: Visual/Branding -->
+<section class="hidden md:flex md:col-span-7 bg-primary relative p-12 flex-col justify-between overflow-hidden">
+<!-- Decorative Gradient Background -->
+<div class="absolute inset-0 opacity-20 pointer-events-none" style="background: radial-gradient(circle at 0% 0%, #006c49 0%, transparent 50%), radial-gradient(circle at 100% 100%, #c88000 0%, transparent 50%);">
+</div>
+<div class="relative z-10">
+<span class="text-secondary text-sm font-label tracking-widest uppercase mb-4 block">Enterprise Access</span>
+<h1 class="text-surface-bright text-5xl font-extrabold tracking-tight leading-tight">
+                    WhasAppC PRO
+                </h1>
+<p class="text-on-primary-container mt-6 text-lg max-w-md font-body leading-relaxed">
+                    Sovereign control for your global communication infrastructure. High-tier automation meets military-grade reliability.
+                </p>
+</div>
+<div class="relative z-10">
+<div class="flex gap-4 items-center">
+<div class="flex -space-x-3">
+<img class="w-10 h-10 rounded-full border-2 border-primary object-cover" data-alt="Professional headshot of a businessman in a dark blue suit looking confident and calm" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAS1ynp9KvaKp1018grgefHkIvWoOSzSOYNIb4n-a_ivE_f2grfs078hrOR0YFIjUxR7-RhlkzhYUjcJ7Oocv8yg8s-u3Q9BpH8R6uW_Fy3D1Wa2j0aYf-yRqm0HIehmusgmu6rf-RTFL5iU8GLDsb08s8md3i5JNRo20XnmI7dhqKMLI7LobZ8bvR5bd7SOWUaQkT03W_dOUnhxzTcbkKS65LyG-9PloFqs4NjF_HmodX0Br7LDOXo6r3K6kfK6-qNCE71kx_o_iQ"/>
+<img class="w-10 h-10 rounded-full border-2 border-primary object-cover" data-alt="Professional headshot of a smiling female executive with a focused expression" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDq3XRdIUXmmD0ZkY7j25vOYI9YzvO8o3cbUGWRxVyvF0jpJEgS_ObZi72LYepF7m17qINzrV2VH3VrpKvispVUIAdD4aYoqXpAPSnZFgkZgV3x54Qx0pxZ9C1jN_zCqD6AV_xHITTvsw0sNvyY8tAmv7pdlIu7ObRY8--rv6hb7eJOE7Yk_Ihe47WV-UC73tBA9DVJRJjz5DYatTpsNwaF5tkWeVB06-EQPYOJGTpo4JZJPQBO_UPliGSKamLx2HH2emejp41KZJg"/>
+<img class="w-10 h-10 rounded-full border-2 border-primary object-cover" data-alt="Portrait of a male specialist in high-end tech environment soft blurred lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAvwFdapjvjEGCdPgpN_yVAEKYreKNDKsTxQSgzmrcwNoWF2oy6BH-37vfZyYSUUVuo5NXMBGTvVJwDUdCd_Oqo_Is_Dj-6u3wq1FTFKyoQqjsS5ijfDhpF0p2Ild9koSNe-XQmApxBAXJqICqxPrVBpBMh8lZRz4Nlp025x_Tt_ei1P8TYMbkfbQkyxTXaf-ymsJDUCmzJuuDHo4j6AAFXjzF-o04mVIFLlrb2HbdXMzxuDxz38zISeYpKxbI_jTbmGEC5hxdgHA"/>
+</div>
+<span class="text-on-primary-container text-sm font-label">Join 2,400+ enterprises managing connections.</span>
+</div>
+</div>
+<!-- Abstract Visual -->
+<div class="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] opacity-10">
+<img class="w-full h-full object-contain" data-alt="Abstract 3D crystalline structure with emerald and slate blue reflections on a dark background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDKYOz-0mS4dBwVR7nWtRhQaNxP1b4_jC8L-woCrYmc8s6fbzX83xPWd_em2CTcujwD-y9tpamtI2RVwtZVGHtV9ECpSxspF17CSjaa6KUBX-onhj_F51YeqoUI660KRABDEps33j_dI2CjpFymOcYPgdEi0bhQs0uZ-JMt7-QCQIUyHvLmJELrWSAaYEBDeLZf_Y8_XXK2Mq25aGBo80-WTpXPy3QtnppOFF3zFt_cN661Jw46yVuhASO4VpXByS0HjqrqpHfHe4c"/>
+</div>
+</section>
+<!-- Right Side: Login Form -->
+<section class="md:col-span-5 p-8 md:p-16 flex flex-col justify-center bg-surface">
+<div class="max-w-sm mx-auto w-full">
+<!-- Mobile Branding -->
+<div class="md:hidden mb-12">
+<h2 class="text-primary text-2xl font-black">WhasAppC PRO</h2>
+</div>
+<div class="mb-10">
+<h3 class="text-primary text-3xl font-bold tracking-tight mb-2">Hoş Geldiniz</h3>
+<p class="text-on-surface-variant font-body">Devam etmek için hesabınıza giriş yapın.</p>
+</div>
+<!-- Form Area -->
+<form class="space-y-6">
+<div class="space-y-2">
+<label class="text-sm font-semibold text-primary/80 ml-1" for="email">E-posta Adresi</label>
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-secondary transition-colors">
+                                mail
+                            </span>
+<input class="w-full pl-12 pr-4 py-4 bg-surface-container-highest border-none rounded-xl focus:ring-2 focus:ring-secondary/20 transition-all font-body text-primary outline-none" id="email" placeholder="isim@sirket.com" type="email"/>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-center px-1">
+<label class="text-sm font-semibold text-primary/80" for="password">Şifre</label>
+<a class="text-xs font-semibold text-secondary hover:underline" href="#">Şifremi Unuttum</a>
+</div>
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-secondary transition-colors">
+                                lock
+                            </span>
+<input class="w-full pl-12 pr-4 py-4 bg-surface-container-highest border-none rounded-xl focus:ring-2 focus:ring-secondary/20 transition-all font-body text-primary outline-none" id="password" placeholder="••••••••" type="password"/>
+</div>
+</div>
+<!-- Feedback Area (Success/Error) -->
+<div class="hidden" id="feedback">
+<div class="flex items-center gap-3 p-4 rounded-xl bg-error-container text-on-error-container text-sm font-medium">
+<span class="material-symbols-outlined text-lg">error</span>
+<span>Geçersiz e-posta veya şifre.</span>
+</div>
+</div>
+<button class="w-full py-4 bg-primary text-on-primary font-bold rounded-xl transition-all hover:opacity-90 active:scale-[0.98] shadow-lg shadow-primary/10 flex items-center justify-center gap-3 group relative overflow-hidden" type="button">
+<!-- Initial State -->
+<span class="relative z-10">Giriş Yap</span>
+<span class="material-symbols-outlined relative z-10 group-hover:translate-x-1 transition-transform">arrow_forward</span>
+<!-- Premium Shine Effect -->
+<div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
+</button>
+<!-- Loading State Simulation (Visual) -->
+<button class="hidden w-full py-4 bg-surface-container-highest text-on-primary-container font-bold rounded-xl flex items-center justify-center gap-3 cursor-not-allowed" disabled="" type="button">
+<svg class="animate-spin h-5 w-5 text-on-primary-container" fill="none" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+<path class="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path>
+</svg>
+<span>Giriş yapılıyor...</span>
+</button>
+</form>
+<div class="mt-12 pt-8 border-t border-outline-variant/20 text-center">
+<p class="text-on-surface-variant text-sm font-body">
+                        Hesabınız yok mu? <a class="text-primary font-bold hover:text-secondary transition-colors" href="#">Bir talep oluşturun</a>
+</p>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer Meta -->
+<footer class="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-6 text-[10px] uppercase tracking-widest font-label text-on-surface-variant/60 pointer-events-none">
+<span>© 2024 WhasAppC Pro</span>
+<span class="w-1 h-1 rounded-full bg-outline-variant/40"></span>
+<span>Secure Session</span>
+<span class="w-1 h-1 rounded-full bg-outline-variant/40"></span>
+<span>v1.2.0 GOLD EDITION</span>
+</footer>
+<style>
+        @keyframes shimmer {
+            100% { transform: translateX(100%); }
+        }
+    </style>
+</body></html>

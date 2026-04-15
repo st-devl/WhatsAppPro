@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+
+<html class="light" lang="tr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>WhatsAppC Pro - Rehberim &amp; Kişi Listesi</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary-fixed": "#111c2d",
+                    "surface-container-high": "#e6e8ea",
+                    "background": "#f7f9fb",
+                    "secondary-fixed-dim": "#4edea3",
+                    "secondary": "#006c49",
+                    "on-primary-container": "#8590a6",
+                    "primary-container": "#1e293b",
+                    "on-surface-variant": "#45474c",
+                    "on-secondary-container": "#00714d",
+                    "on-primary-fixed-variant": "#3c475a",
+                    "on-secondary-fixed-variant": "#005236",
+                    "error-container": "#ffdad6",
+                    "on-secondary": "#ffffff",
+                    "on-error": "#ffffff",
+                    "on-background": "#191c1e",
+                    "inverse-surface": "#2d3133",
+                    "on-tertiary-fixed-variant": "#653e00",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary-fixed-dim": "#ffb95f",
+                    "surface-bright": "#f7f9fb",
+                    "on-secondary-fixed": "#002113",
+                    "surface-tint": "#545f73",
+                    "tertiary-fixed": "#ffddb8",
+                    "on-tertiary": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "secondary-container": "#6cf8bb",
+                    "outline": "#75777d",
+                    "secondary-fixed": "#6ffbbe",
+                    "surface-dim": "#d8dadc",
+                    "on-error-container": "#93000a",
+                    "outline-variant": "#c5c6cd",
+                    "primary-fixed-dim": "#bcc7de",
+                    "error": "#ba1a1a",
+                    "surface": "#f7f9fb",
+                    "surface-container": "#eceef0",
+                    "primary-fixed": "#d8e3fb",
+                    "tertiary-container": "#3c2300",
+                    "on-surface": "#191c1e",
+                    "surface-container-low": "#f2f4f6",
+                    "surface-container-highest": "#e0e3e5",
+                    "primary": "#091426",
+                    "inverse-primary": "#bcc7de",
+                    "inverse-on-surface": "#eff1f3",
+                    "on-tertiary-container": "#c88000",
+                    "surface-variant": "#e0e3e5",
+                    "tertiary": "#201100",
+                    "on-tertiary-fixed": "#2a1700"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "fontFamily": {
+                    "headline": ["Manrope"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background font-body text-on-background antialiased overflow-hidden">
+<!-- Navigation Drawer (Shared) -->
+<aside class="h-screen w-72 fixed left-0 top-0 bg-slate-100 flex flex-col gap-2 py-8 pr-4 z-40 hidden md:flex">
+<div class="px-8 mb-8">
+<h1 class="font-headline font-extrabold text-slate-900 text-2xl tracking-tight">WhatsAppC Pro</h1>
+<p class="text-xs text-on-surface-variant mt-1 font-medium">Admin Console • Connected</p>
+</div>
+<nav class="flex flex-col gap-1 w-full">
+<a class="flex items-center gap-3 px-8 py-3 text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="grid_view">grid_view</span>
+<span class="font-inter text-sm font-medium">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-8 py-3 bg-emerald-50 text-emerald-700 rounded-r-full font-bold transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="contacts" style="font-variation-settings: 'FILL' 1;">contacts</span>
+<span class="font-inter text-sm">Contacts</span>
+</a>
+<a class="flex items-center gap-3 px-8 py-3 text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="rocket_launch">rocket_launch</span>
+<span class="font-inter text-sm font-medium">Campaigns</span>
+</a>
+<a class="flex items-center gap-3 px-8 py-3 text-slate-600 hover:text-slate-900 hover:bg-slate-200 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-inter text-sm font-medium">Settings</span>
+</a>
+</nav>
+<div class="mt-auto px-8 py-6">
+<div class="bg-surface-container-lowest p-4 rounded-xl shadow-sm border border-outline-variant/20">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">EU</div>
+<div>
+<p class="text-xs font-bold text-slate-900">Executive User</p>
+<p class="text-[10px] text-slate-500">Pro Edition</p>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- Top AppBar (Shared) -->
+<header class="fixed top-0 w-full z-50 bg-slate-50/80 backdrop-blur-md flex items-center justify-between px-6 py-4 md:ml-72 md:w-[calc(100%-18rem)]">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-slate-900" data-icon="dashboard_customize">dashboard_customize</span>
+<h2 class="font-headline font-bold text-lg text-slate-900">Rehberim &amp; Kişi Listesi</h2>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden md:flex items-center bg-surface-container p-1 rounded-lg">
+<span class="material-symbols-outlined px-2 text-slate-500 text-sm" data-icon="search">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm w-48 py-1" placeholder="Kişilerde ara..." type="text"/>
+</div>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-emerald-500">
+<img alt="User Profile" class="w-full h-full object-cover" data-alt="close-up portrait of a professional businessman in a sleek office environment with soft natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCYNpoDNguHe9Cjq88b60R318Lt0CuPu_69-Y5LtZMTZ158cvVzfKg209ubb63I9UKmZ4FWkJqBz36-G74avvNWSnfrJP2KuLPMJxJWn_iTPLjWidUvLMp97QM6e3U-gZwretG6yCcXOf6J9XJdQlj91dFgNhZio4PWD9Y5mcWJlCKjqRJaF8YM489ZJVYMNi_FnEQ_CvC3ZZzLPXaGeLbT0iVTFHOG_F5WLl88avulltWYQq21Al_uk0XGui_4PIDzcH-2pZR-amI"/>
+</div>
+</div>
+</header>
+<!-- Main Content Layout -->
+<main class="md:ml-72 pt-20 h-screen flex flex-col md:flex-row overflow-hidden">
+<!-- Sidebar: Gruplarım -->
+<section class="w-full md:w-80 bg-surface-container-low flex flex-col h-full border-r border-outline-variant/10">
+<div class="p-6 flex items-center justify-between">
+<h3 class="font-headline font-bold text-slate-900">Gruplarım</h3>
+<button class="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700 transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
+<!-- Group Item Active -->
+<div class="bg-surface-container-lowest p-4 rounded-xl flex items-center justify-between group cursor-pointer border-l-4 border-emerald-600 shadow-sm">
+<div>
+<p class="text-sm font-bold text-slate-900">VIP Müşteriler</p>
+<p class="text-[11px] text-slate-500">Oluşturma: 12.04.2024</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full">1,240</span>
+<button class="text-slate-400 hover:text-error opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="close">close</span>
+</button>
+</div>
+</div>
+<!-- Group Item -->
+<div class="bg-transparent hover:bg-slate-200/50 p-4 rounded-xl flex items-center justify-between group cursor-pointer transition-colors">
+<div>
+<p class="text-sm font-medium text-slate-700">Yeni Üyeler</p>
+<p class="text-[11px] text-slate-500">Oluşturma: 10.04.2024</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full">450</span>
+<button class="text-slate-400 hover:text-error opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="close">close</span>
+</button>
+</div>
+</div>
+<!-- Group Item -->
+<div class="bg-transparent hover:bg-slate-200/50 p-4 rounded-xl flex items-center justify-between group cursor-pointer transition-colors">
+<div>
+<p class="text-sm font-medium text-slate-700">Potansiyel Leadler</p>
+<p class="text-[11px] text-slate-500">Oluşturma: 05.04.2024</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="bg-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full">2,100</span>
+<button class="text-slate-400 hover:text-error opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="close">close</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Main Workspace Area -->
+<section class="flex-1 overflow-y-auto bg-surface p-6 md:p-8">
+<!-- Action Cards Grid (Bento Style) -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+<!-- Excel Import -->
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-emerald-500/50 transition-all cursor-pointer group">
+<div class="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+<span class="material-symbols-outlined" data-icon="upload_file">upload_file</span>
+</div>
+<h4 class="font-bold text-slate-900 text-sm mb-1">Excel'den Aktar</h4>
+<p class="text-xs text-slate-500 leading-relaxed">Toplu kişileri Excel dosyası ile saniyeler içinde içeri aktarın.</p>
+</div>
+<!-- Manual Add -->
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-emerald-500/50 transition-all cursor-pointer group">
+<div class="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center text-slate-600 mb-4 group-hover:bg-primary group-hover:text-white transition-colors">
+<span class="material-symbols-outlined" data-icon="person_add">person_add</span>
+</div>
+<h4 class="font-bold text-slate-900 text-sm mb-1">Manuel Ekle</h4>
+<p class="text-xs text-slate-500 leading-relaxed">Tekil kişi bilgilerini el ile hızlıca sisteme dahil edin.</p>
+</div>
+<!-- Example Download -->
+<div class="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-amber-500/50 transition-all cursor-pointer group">
+<div class="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600 mb-4 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+<span class="material-symbols-outlined" data-icon="download">download</span>
+</div>
+<h4 class="font-bold text-slate-900 text-sm mb-1">Örnek İndir</h4>
+<p class="text-xs text-slate-500 leading-relaxed">Doğru içe aktarma formatı için şablon dosyasını indirin.</p>
+</div>
+<!-- Group Actions -->
+<div class="bg-primary p-6 rounded-xl shadow-sm border border-primary-container relative overflow-hidden flex flex-col justify-between">
+<div class="relative z-10">
+<h4 class="font-bold text-white text-sm mb-3">Grup Adı Ver &amp; Kaydet</h4>
+<input class="w-full bg-slate-800 border-none rounded-lg text-white text-xs placeholder:text-slate-500 focus:ring-1 focus:ring-emerald-500 mb-3" placeholder="Grup adını yazın..." type="text"/>
+</div>
+<button class="w-full bg-emerald-600 text-white font-bold text-xs py-2.5 rounded-lg hover:bg-emerald-700 transition-colors z-10">
+                        Hepsini Kaydet
+                    </button>
+<div class="absolute -right-4 -bottom-4 opacity-10">
+<span class="material-symbols-outlined text-8xl text-white" data-icon="save">save</span>
+</div>
+</div>
+</div>
+<!-- Table Section -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 overflow-hidden">
+<!-- Table Header -->
+<div class="px-6 py-5 border-b border-outline-variant/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div class="flex items-center gap-3">
+<span class="w-2 h-6 bg-emerald-500 rounded-full"></span>
+<div>
+<h3 class="font-headline font-bold text-slate-900">VIP Müşteriler</h3>
+<p class="text-xs text-slate-500">Toplam <span class="font-bold text-slate-900">1,240</span> kayıt bulundu</p>
+</div>
+</div>
+<button class="flex items-center gap-2 px-4 py-2 rounded-lg border border-error text-error hover:bg-error hover:text-white transition-all text-xs font-bold">
+<span class="material-symbols-outlined text-sm" data-icon="delete_sweep">delete_sweep</span>
+                        Grubu Temizle
+                    </button>
+</div>
+<!-- Real Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead class="bg-slate-50/50">
+<tr>
+<th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-20">Sıra</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ad Soyad</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Telefon</th>
+<th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">İşlem</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/5">
+<tr class="hover:bg-slate-50/50 transition-colors">
+<td class="px-6 py-4 text-sm text-slate-500 font-medium">1</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">AA</div>
+<span class="text-sm font-semibold text-slate-900">Ahmet Aksoy</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-slate-600">+90 532 000 00 01</td>
+<td class="px-6 py-4 text-right">
+<button class="p-1.5 rounded-lg text-slate-400 hover:text-error hover:bg-error/5 transition-all">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 transition-colors">
+<td class="px-6 py-4 text-sm text-slate-500 font-medium">2</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-xs font-bold text-emerald-600">BK</div>
+<span class="text-sm font-semibold text-slate-900">Buse Karaca</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-slate-600">+90 545 111 22 33</td>
+<td class="px-6 py-4 text-right">
+<button class="p-1.5 rounded-lg text-slate-400 hover:text-error hover:bg-error/5 transition-all">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 transition-colors">
+<td class="px-6 py-4 text-sm text-slate-500 font-medium">3</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">ÇD</div>
+<span class="text-sm font-semibold text-slate-900">Caner Demir</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-slate-600">+90 505 555 44 33</td>
+<td class="px-6 py-4 text-right">
+<button class="p-1.5 rounded-lg text-slate-400 hover:text-error hover:bg-error/5 transition-all">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-slate-50/50 transition-colors">
+<td class="px-6 py-4 text-sm text-slate-500 font-medium">4</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">ED</div>
+<span class="text-sm font-semibold text-slate-900">Elif Doğan</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-slate-600">+90 533 123 45 67</td>
+<td class="px-6 py-4 text-right">
+<button class="p-1.5 rounded-lg text-slate-400 hover:text-error hover:bg-error/5 transition-all">
+<span class="material-symbols-outlined text-lg" data-icon="delete">delete</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Placeholder -->
+<div class="px-6 py-4 bg-slate-50/30 flex items-center justify-between">
+<span class="text-xs text-slate-500 font-medium">1 - 4 / 1,240 gösteriliyor</span>
+<div class="flex items-center gap-1">
+<button class="w-8 h-8 rounded bg-white border border-outline-variant/10 flex items-center justify-center text-slate-400 hover:bg-slate-50 transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="w-8 h-8 rounded bg-emerald-600 text-white flex items-center justify-center text-xs font-bold">1</button>
+<button class="w-8 h-8 rounded bg-white border border-outline-variant/10 flex items-center justify-center text-xs font-bold text-slate-600 hover:bg-slate-50">2</button>
+<button class="w-8 h-8 rounded bg-white border border-outline-variant/10 flex items-center justify-center text-xs font-bold text-slate-600 hover:bg-slate-50">3</button>
+<button class="w-8 h-8 rounded bg-white border border-outline-variant/10 flex items-center justify-center text-slate-400 hover:bg-slate-50 transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- FAB for Quick Add (Mobile Only) -->
+<button class="md:hidden fixed bottom-6 right-6 w-14 h-14 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-50">
+<span class="material-symbols-outlined text-2xl" data-icon="person_add">person_add</span>
+</button>
+</body></html>

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+
+<html class="light" lang="tr"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>WhasAppC PRO - GOLD EDITION</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                "primary-container": "#1e293b",
+                "surface-dim": "#d8dadc",
+                "on-tertiary": "#ffffff",
+                "on-surface-variant": "#45474c",
+                "surface-container-lowest": "#ffffff",
+                "secondary": "#006c49",
+                "tertiary-container": "#3c2300",
+                "inverse-primary": "#bcc7de",
+                "on-error": "#ffffff",
+                "error": "#ba1a1a",
+                "surface-container-low": "#f2f4f6",
+                "background": "#f7f9fb",
+                "on-secondary-fixed-variant": "#005236",
+                "inverse-surface": "#2d3133",
+                "on-primary": "#ffffff",
+                "outline-variant": "#c5c6cd",
+                "on-background": "#191c1e",
+                "inverse-on-surface": "#eff1f3",
+                "secondary-container": "#6cf8bb",
+                "secondary-fixed": "#6ffbbe",
+                "outline": "#75777d",
+                "on-secondary-container": "#00714d",
+                "on-primary-fixed-variant": "#3c475a",
+                "on-tertiary-fixed": "#2a1700",
+                "surface-container": "#eceef0",
+                "primary-fixed": "#d8e3fb",
+                "on-tertiary-container": "#c88000",
+                "primary": "#091426",
+                "tertiary": "#201100",
+                "surface-bright": "#f7f9fb",
+                "surface-container-highest": "#e0e3e5",
+                "on-secondary-fixed": "#002113",
+                "on-primary-container": "#8590a6",
+                "on-error-container": "#93000a",
+                "tertiary-fixed": "#ffddb8",
+                "on-surface": "#191c1e",
+                "on-tertiary-fixed-variant": "#653e00",
+                "surface-container-high": "#e6e8ea",
+                "error-container": "#ffdad6",
+                "primary-fixed-dim": "#bcc7de",
+                "on-primary-fixed": "#111c2d",
+                "surface-variant": "#e0e3e5",
+                "on-secondary": "#ffffff",
+                "surface-tint": "#545f73",
+                "surface": "#f7f9fb",
+                "tertiary-fixed-dim": "#ffb95f",
+                "secondary-fixed-dim": "#4edea3"
+            },
+            "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+            },
+            "fontFamily": {
+                "headline": ["Manrope"],
+                "body": ["Inter"],
+                "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; color: #191c1e; }
+        .font-headline { font-family: 'Manrope', sans-serif; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .glass-panel { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(12px); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        body { min-height: max(884px, 100dvh); }
+    </style>
+</head>
+<body class="bg-background min-h-screen flex flex-col overflow-hidden">
+<!-- TopAppBar Shell -->
+<header class="flex justify-between items-center px-8 py-4 w-full sticky top-0 z-50 backdrop-blur-md bg-[#f7f9fb] dark:bg-[#091426]">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-2xl">menu</span>
+<h1 class="text-xl font-black text-[#091426] dark:text-[#f7f9fb] font-headline tracking-tight">WhasAppC PRO</h1>
+</div>
+<nav class="hidden md:flex gap-6 items-center">
+<button class="text-[#006c49] dark:text-[#F59E0B] font-bold border-b-2 border-[#006c49] py-1 text-sm font-headline tracking-wide">Kampanya Hazırla</button>
+<button class="text-slate-500 dark:text-slate-400 font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors px-3 py-1 rounded-lg text-sm">Rehberim &amp; Kişi Listesi</button>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center bg-secondary/10 px-3 py-1.5 rounded-full">
+<div class="w-2 h-2 rounded-full bg-secondary animate-pulse mr-2"></div>
+<span class="text-secondary font-bold text-xs">CONNECTED</span>
+</div>
+<div class="bg-primary/5 px-4 py-1.5 rounded-full flex items-center gap-2 border border-outline-variant/20">
+<span class="material-symbols-outlined text-sm text-on-tertiary-fixed-variant" style="font-variation-settings: 'FILL' 1;">workspace_premium</span>
+<span class="text-[10px] font-bold text-primary tracking-widest uppercase">v1.2.0 - GOLD EDITION</span>
+</div>
+<div class="flex items-center gap-2 bg-primary px-4 py-2 rounded-xl text-white shadow-lg">
+<span class="material-symbols-outlined text-sm">security</span>
+<span class="text-xs font-semibold">Enterprise Integrity</span>
+</div>
+</div>
+</header>
+<main class="flex flex-1 overflow-hidden h-[calc(100vh-72px)]">
+<!-- NavigationDrawer / Sidebar Shell -->
+<aside class="fixed left-0 top-18 h-full z-40 flex flex-col p-4 bg-slate-50 dark:bg-[#091426] w-80 shadow-xl dark:shadow-none space-y-6">
+<!-- WhatsApp Connection Section -->
+<section class="space-y-4">
+<div class="flex justify-between items-center px-2">
+<h3 class="text-xs font-bold text-on-surface-variant tracking-widest uppercase">WhatsApp Connection</h3>
+<span class="material-symbols-outlined text-on-primary-container text-lg">settings_phone</span>
+</div>
+<div class="bg-surface-container-lowest p-5 rounded-xl shadow-sm border border-outline-variant/10">
+<div class="aspect-square bg-white flex items-center justify-center border-2 border-dashed border-slate-200 rounded-lg relative group overflow-hidden">
+<img alt="WhatsApp QR Code" class="w-40 h-40 opacity-20 grayscale" data-alt="high contrast digital qr code on white background with minimalist tech aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBe2skqg72mPdwoXL-zDir8mJ3-Q0S3xZtrEBfPvl9x1dTDMGC5zDKmit9TOSYpyJ3x05M6U7lgr14rHtHnwxHWZIFU8Vf-Qni64i-yx-EzVNTQtjuwvq6YlawONHXn0PNjjZK7JKReXarsAwNbTrVPoonhVe84mK8GI8D_P_qSVlb9oELQbdFLsVmwHiK0MpNPokL4NYr63Ov5ycGWRiAD49m6BdcqsBcyeukcMuxkefFyeo2ne2r4jlhyDR4lbX1VxLJvU8cMFVI"/>
+<div class="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-[2px]">
+<div class="text-center">
+<span class="material-symbols-outlined text-secondary text-4xl mb-2" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<p class="text-xs font-bold text-primary">Bağlantı Aktif</p>
+</div>
+</div>
+</div>
+<div class="mt-4 space-y-3">
+<div class="flex items-center justify-between">
+<span class="text-[11px] font-medium text-slate-500">Device ID:</span>
+<span class="text-[11px] font-bold text-primary">WP-GOLD-8821</span>
+</div>
+<button class="w-full py-2.5 rounded-lg border border-error/30 text-error text-[11px] font-bold hover:bg-error/5 transition-colors uppercase tracking-tight flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">refresh</span>
+                            Bağlantıyı Sıfırla
+                        </button>
+</div>
+</div>
+</section>
+<!-- Phone Preview Section -->
+<section class="flex-1 flex flex-col min-h-0 space-y-4">
+<div class="flex justify-between items-center px-2">
+<h3 class="text-xs font-bold text-on-surface-variant tracking-widest uppercase">Live Preview</h3>
+<span class="material-symbols-outlined text-on-primary-container text-lg">smartphone</span>
+</div>
+<div class="flex-1 bg-slate-200/50 rounded-[2.5rem] p-3 border-4 border-slate-300 relative shadow-inner overflow-hidden">
+<div class="bg-[#e5ddd5] h-full rounded-[1.8rem] overflow-hidden flex flex-col relative">
+<!-- Preview Header -->
+<div class="bg-[#075e54] p-3 flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-slate-300 overflow-hidden">
+<img alt="Contact" data-alt="professional portrait of a person with neutral expression and clean lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA8gzfdG3EyKhJn4JlqsMtI3UatDjph-zCHwBB-G_Wv0JqG42f2BUH359Q6hUds-i7IWhtXtZWiFno3IiM8o5GzRdqPDR9BGBtTnuNct3VGCYVVR2TSRpCUi9w-Ue7JqknTFe_3M61PE1fQZto_2fABR5wbYA6sI-MWfdddM0OScmXqpCKfOaJOdd-U73IXWRyQFmnqfRHX59dW-rPkL1-Ze_2OsBeEItTrsQQX6fXV6mdES4wKnWPQZZ4UAMZePnntsoqLrKaq0o4"/>
+</div>
+<div class="flex-1">
+<p class="text-[10px] font-bold text-white leading-none">Müşteri Rehberi</p>
+<p class="text-[8px] text-white/70">çevrimiçi</p>
+</div>
+</div>
+<!-- Preview Messages -->
+<div class="flex-1 p-3 space-y-3 overflow-y-auto no-scrollbar">
+<div class="bg-white p-2 rounded-lg rounded-tl-none shadow-sm max-w-[85%]">
+<p class="text-[9px] text-slate-800">Sayın {{ad}}, size özel indirim fırsatlarımızı kaçırmayın!</p>
+<p class="text-[7px] text-slate-400 text-right mt-1">14:20</p>
+</div>
+<div class="bg-[#dcf8c6] p-2 rounded-lg rounded-tr-none shadow-sm ml-auto max-w-[85%]">
+<p class="text-[9px] text-slate-800">Kampanya detaylarını iletebilir misiniz?</p>
+<p class="text-[7px] text-slate-400 text-right mt-1">14:22</p>
+</div>
+</div>
+<!-- Preview Footer -->
+<div class="bg-white/90 p-2 flex items-center gap-2">
+<div class="flex-1 bg-slate-100 rounded-full h-6 px-3 flex items-center">
+<span class="text-[8px] text-slate-400">Mesaj yazın...</span>
+</div>
+<span class="material-symbols-outlined text-slate-400 text-lg">mic</span>
+</div>
+</div>
+</div>
+</section>
+</aside>
+<!-- Main Content Area / Canvas -->
+<section class="flex-1 ml-80 p-8 overflow-y-auto bg-surface-bright">
+<div class="max-w-6xl mx-auto space-y-8 pb-20">
+<div class="grid grid-cols-12 gap-8">
+<!-- Left Column: Inputs -->
+<div class="col-span-12 lg:col-span-7 space-y-6">
+<header class="mb-6">
+<h2 class="text-3xl font-headline font-bold text-primary tracking-tight">Yeni Kampanya Hazırla</h2>
+<p class="text-on-surface-variant text-sm mt-1">Hedef kitlenize özel mesajlarınızı saniyeler içinde oluşturun.</p>
+</header>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm space-y-6">
+<div class="grid grid-cols-2 gap-4">
+<div class="space-y-2">
+<label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Şablon Seçimi</label>
+<select class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 h-11">
+<option>Hazır Şablonlar</option>
+<option>Hoşgeldin Mesajı</option>
+<option>Özel Kampanya #1</option>
+</select>
+</div>
+<div class="space-y-2">
+<label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Bağlantı Durumu</label>
+<div class="w-full bg-secondary/5 rounded-lg h-11 px-4 flex items-center justify-between">
+<span class="text-xs font-bold text-secondary">Ready to Send</span>
+<span class="material-symbols-outlined text-secondary text-sm" style="font-variation-settings: 'FILL' 1;">bolt</span>
+</div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-center px-1">
+<label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Mesaj İçeriği</label>
+<div class="flex gap-2">
+<button class="px-2 py-1 bg-slate-100 rounded text-[9px] font-bold text-slate-600 hover:bg-slate-200 transition-colors">ADD {{ad}}</button>
+<button class="px-2 py-1 bg-slate-100 rounded text-[9px] font-bold text-slate-600 hover:bg-slate-200 transition-colors">ADD {{soyadi}}</button>
+</div>
+</div>
+<textarea class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 min-h-[160px] p-4 placeholder-slate-400" placeholder="Mesajınızı buraya yazın... Kişiye özel hitap için etiketleri kullanabilirsiniz."></textarea>
+</div>
+<div class="space-y-2">
+<label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Medya Ekle</label>
+<div class="grid grid-cols-4 gap-3">
+<div class="aspect-square bg-slate-100 border border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center group hover:bg-slate-50 cursor-pointer transition-all">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-secondary mb-1">add_photo_alternate</span>
+<span class="text-[9px] font-bold text-slate-400 uppercase">YÜKLE</span>
+</div>
+<div class="aspect-square bg-white rounded-lg border border-outline-variant/20 relative group overflow-hidden">
+<img alt="Preview 1" class="w-full h-full object-cover" data-alt="abstract colorful gradient background with smooth flowing shapes and vibrant colors" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB-QPhslAel3edmgjnfWdUDIdb651KDPL3zrxXP96zPw8sGXs-j6yz-9qVlznxANV9hfcRB2weQBNRQZcx4TR8vCKdIEl12-4QNj-1BDgsB7YLDINmvLib5mZ9kuTJ0PO8XPxi-v3GJRAmynd3prcVAWAPNsvAW_4Yy-Sc6Yo1c2nWYDZv_3_qynOjXIgxx7f-c16SWToE_yZ0r15S58hLL-kKXhYQLVoQOGhQ6gM7MLcg1DCAxCtj9yCzMvM1-gMJpkhcC2wR_ptI"/>
+<button class="absolute top-1 right-1 bg-error text-white w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-[10px]">close</span>
+</button>
+</div>
+<div class="aspect-square bg-white rounded-lg border border-outline-variant/20 relative group flex items-center justify-center overflow-hidden">
+<div class="animate-spin rounded-full h-6 w-6 border-2 border-secondary border-t-transparent"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm space-y-4">
+<label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Manuel Numara Girişi</label>
+<textarea class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 min-h-[80px] p-4 font-mono placeholder-slate-400" placeholder="905XXXXXXXXX, 905XXXXXXXXX"></textarea>
+<p class="text-[10px] text-slate-400">Numaraları aralarına virgül koyarak yazınız.</p>
+</div>
+</div>
+<!-- Right Column: Settings & Controls -->
+<div class="col-span-12 lg:col-span-5 space-y-6">
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm space-y-4">
+<div class="flex justify-between items-center">
+<label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Hedef Gruplar</label>
+<span class="bg-primary/5 px-2 py-1 rounded text-[10px] font-bold text-primary">Seçilen: 0</span>
+</div>
+<div class="space-y-2 max-h-[160px] overflow-y-auto no-scrollbar">
+<label class="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<input class="rounded border-slate-300 text-secondary focus:ring-secondary" type="checkbox"/>
+<span class="text-sm font-medium text-slate-700">Tüm Müşteriler</span>
+</div>
+<span class="text-xs text-slate-400 font-bold">1,240 Kişi</span>
+</label>
+<label class="flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-all cursor-pointer">
+<div class="flex items-center gap-3">
+<input class="rounded border-slate-300 text-secondary focus:ring-secondary" type="checkbox"/>
+<span class="text-sm font-medium text-slate-700">Yeni Üyeler (Haftalık)</span>
+</div>
+<span class="text-xs text-slate-400 font-bold">86 Kişi</span>
+</label>
+</div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm space-y-6">
+<label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Hız &amp; Güvenlik Ayarları</label>
+<div class="space-y-4">
+<div class="flex justify-between items-center text-xs font-bold text-slate-600">
+<span>Gecikme Aralığı (Saniye)</span>
+<span class="text-secondary">15s - 45s</span>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<input class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" placeholder="Min" type="number" value="15"/>
+<input class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" placeholder="Max" type="number" value="45"/>
+</div>
+</div>
+</div>
+<div class="bg-primary p-6 rounded-xl shadow-xl space-y-4">
+<div class="flex justify-between items-end">
+<div>
+<p class="text-[10px] font-bold text-white/50 uppercase tracking-widest">Kampanya Durumu</p>
+<h4 class="text-white font-bold text-lg">Hazırlanıyor...</h4>
+</div>
+<span class="text-2xl font-black text-white">0%</span>
+</div>
+<div class="w-full bg-white/10 h-3 rounded-full overflow-hidden">
+<div class="bg-secondary h-full rounded-full transition-all duration-1000" style="width: 5%"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<button class="bg-secondary text-white py-4 rounded-xl font-bold font-headline tracking-widest text-xs flex items-center justify-center gap-2 shadow-lg shadow-secondary/20 hover:scale-[1.02] transition-transform active:scale-[0.98]">
+<span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+                                BAŞLAT
+                            </button>
+<button class="bg-slate-200 text-slate-500 py-4 rounded-xl font-bold font-headline tracking-widest text-xs flex items-center justify-center gap-2 hover:bg-slate-300 transition-colors opacity-50 cursor-not-allowed">
+<span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">stop</span>
+                                DURDUR
+                            </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Log Panel (Collapsible) -->
+<div class="fixed bottom-0 right-8 w-80 z-50">
+<div class="bg-primary text-white p-4 rounded-t-xl flex justify-between items-center cursor-pointer shadow-2xl">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">terminal</span>
+<span class="text-xs font-bold font-headline tracking-wide">Sistem Günlüğü</span>
+</div>
+<span class="material-symbols-outlined text-lg">keyboard_arrow_up</span>
+</div>
+</div>
+</section>
+</main>
+<!-- Campaign Complete Modal: Obsidian Emerald Pro Style -->
+<div class="fixed inset-0 z-[100] flex items-center justify-center bg-primary/20 backdrop-blur-md p-6">
+<div class="bg-white/95 dark:bg-[#091426]/95 w-full max-w-sm rounded-2xl p-10 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-white/20 relative flex flex-col items-center text-center space-y-6">
+<!-- Icon Background Circle -->
+<div class="w-24 h-24 bg-secondary/5 rounded-full flex items-center justify-center relative">
+<div class="absolute inset-0 bg-secondary/10 rounded-full animate-ping opacity-25"></div>
+<div class="w-20 h-20 bg-secondary/10 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary text-5xl" style="font-variation-settings: 'FILL' 1, 'wght' 700;">check_circle</span>
+</div>
+</div>
+<div class="space-y-3">
+<h3 class="text-2xl font-black font-headline text-primary tracking-tight leading-none">Gönderiler tamamlandı</h3>
+<p class="text-sm text-on-surface-variant/80 font-medium leading-relaxed px-4">Tüm hedefler işlendi. İlerleme %100 olarak tamamlandı.</p>
+</div>
+<div class="w-full pt-4">
+<button class="w-full bg-primary hover:bg-primary/90 text-white py-4 rounded-xl font-bold text-xs font-headline tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-[0.98] uppercase">
+                    Tamam
+                </button>
+</div>
+<!-- Subtle Decorative Element -->
+<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-secondary to-transparent opacity-30 rounded-t-2xl"></div>
+</div>
+</div>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 flex justify-around items-center px-6 py-3 backdrop-blur-lg bg-white/90 dark:bg-[#091426]/90 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] rounded-t-xl border-t border-slate-200 dark:border-slate-800">
+<button class="flex flex-col items-center justify-center text-[#006c49] dark:text-[#F59E0B] p-2">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">campaign</span>
+<span class="font-['Inter'] text-[10px] uppercase tracking-widest font-bold">Campaign</span>
+</button>
+<button class="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-2 opacity-60">
+<span class="material-symbols-outlined">group</span>
+<span class="font-['Inter'] text-[10px] uppercase tracking-widest font-bold">Contacts</span>
+</button>
+</nav>
+</body></html>
