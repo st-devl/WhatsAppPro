@@ -124,6 +124,10 @@
                 <div id="conn-indicator" class="w-2 h-2 rounded-full bg-slate-400 animate-pulse mr-2"></div>
                 <span id="status-badge" class="text-slate-500 font-bold text-xs uppercase">BAĞLANILIYOR...</span>
             </div>
+            <button id="logout-btn" onclick="logout()" type="button" aria-label="Oturumu kapat" class="inline-flex items-center justify-center gap-2 rounded-lg border border-error/30 bg-white px-3 py-2 text-xs font-bold text-error transition-colors hover:bg-error hover:text-white disabled:cursor-not-allowed disabled:opacity-60" title="Oturumu kapat">
+                <span id="logout-icon" class="material-symbols-outlined text-sm">logout</span>
+                <span id="logout-label">Çıkış</span>
+            </button>
             <div class="hidden lg:flex bg-primary/5 px-4 py-1.5 rounded-full items-center gap-2 border border-outline-variant/20">
                 <span class="material-symbols-outlined text-sm text-on-tertiary-fixed-variant" style="font-variation-settings: 'FILL' 1;">workspace_premium</span>
                 <span id="sys-version" class="text-[10px] font-bold text-primary tracking-widest uppercase">v1.2.0 - GOLD EDITION</span>
@@ -628,6 +632,37 @@
                 return data;
             } finally {
                 clearTimeout(timer);
+            }
+        }
+
+        async function logout() {
+            const button = document.getElementById('logout-btn');
+            const label = document.getElementById('logout-label');
+            const icon = document.getElementById('logout-icon');
+            if (button) button.disabled = true;
+            if (label) label.innerText = 'Çıkılıyor';
+            if (icon) {
+                icon.innerText = 'progress_activity';
+                icon.classList.add('animate-spin');
+            }
+
+            try {
+                const response = await fetch('/api/logout', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    cache: 'no-store'
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error || 'Çıkış yapılamadı');
+                window.location.replace('/login.html');
+            } catch (err) {
+                showToast(err.message || 'Çıkış yapılamadı', 'error');
+                if (button) button.disabled = false;
+                if (label) label.innerText = 'Çıkış';
+                if (icon) {
+                    icon.innerText = 'logout';
+                    icon.classList.remove('animate-spin');
+                }
             }
         }
 

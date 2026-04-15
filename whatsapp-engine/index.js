@@ -19,20 +19,22 @@ const session = require('express-session');
 
 app.set('trust proxy', 1);
 
+const sessionName = 'whasappc.sid';
 const secureCookies = process.env.COOKIE_SECURE === 'true';
+const sessionCookieOptions = {
+    secure: secureCookies,
+    sameSite: secureCookies ? 'none' : 'lax',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000
+};
 
 app.use(session({
-    name: 'whasappc.sid',
+    name: sessionName,
     secret: process.env.SESSION_SECRET || 'fallback-dev-secret',
     resave: false,
     saveUninitialized: false,
     proxy: true,
-    cookie: { 
-        secure: secureCookies,
-        sameSite: secureCookies ? 'none' : 'lax',
-        httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000 
-    }
+    cookie: sessionCookieOptions
 }));
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
@@ -119,8 +121,27 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.post('/api/logout', (req, res) => {
-    req.session.destroy();
-    res.json({ success: true });
+    const clearSessionCookie = () => {
+        res.clearCookie(sessionName, {
+            secure: sessionCookieOptions.secure,
+            sameSite: sessionCookieOptions.sameSite,
+            httpOnly: sessionCookieOptions.httpOnly
+        });
+    };
+
+    if (!req.session) {
+        clearSessionCookie();
+        return res.json({ success: true });
+    }
+
+    req.session.destroy((err) => {
+        if (err) {
+            console.error('Logout session destroy hatası:', err);
+            return res.status(500).json({ error: 'Oturum kapatılamadı.' });
+        }
+        clearSessionCookie();
+        res.json({ success: true });
+    });
 });
 
 app.get('/api/check-auth', (req, res) => {
