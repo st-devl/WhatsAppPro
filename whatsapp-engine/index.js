@@ -248,20 +248,19 @@ app.post('/api/upload-media', (req, res) => {
     });
 });
 
-app.delete('/api/upload-media/:index', async (req, res) => {
+app.delete('/api/upload-media', async (req, res) => {
     try {
-        const index = Number.parseInt(req.params.index, 10);
-        if (!Number.isInteger(index) || index < 0 || index >= currentMedia.length) {
-            return res.status(400).json({ error: 'Geçersiz medya seçimi' });
+        const mediaPath = String(req.body?.path || '').trim();
+        if (!mediaPath) {
+            return res.status(400).json({ error: 'Medya yolu gerekli' });
         }
 
-        const [removed] = currentMedia.splice(index, 1);
-        if (removed?.path) {
-            const uploadsDir = path.resolve(__dirname, 'uploads');
-            const mediaPath = path.resolve(__dirname, removed.path);
-            if (mediaPath.startsWith(uploadsDir + path.sep)) {
-                await fs.remove(mediaPath);
-            }
+        currentMedia = currentMedia.filter(item => item.path !== mediaPath);
+
+        const uploadsDir = path.resolve(__dirname, 'uploads');
+        const absoluteMediaPath = path.resolve(__dirname, mediaPath);
+        if (absoluteMediaPath.startsWith(uploadsDir + path.sep)) {
+            await fs.remove(absoluteMediaPath);
         }
 
         res.json(currentMedia);

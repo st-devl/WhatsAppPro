@@ -514,15 +514,19 @@
                 return `
                     <div class="relative w-14 h-14 shrink-0">
                         ${preview}
-                        <button type="button" onclick="removeMedia(${index})" aria-label="Medyayı kaldır" class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-600 text-white text-[10px] font-black leading-none shadow-lg hover:bg-red-700 transition-all">x</button>
+                        <button type="button" onclick="removeMedia('${f.path}')" aria-label="Medyayı kaldır" class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-600 text-white text-[10px] font-black leading-none shadow-lg hover:bg-red-700 transition-all">x</button>
                     </div>
                 `;
             }).join('');
         }
 
-        async function removeMedia(index) {
+        async function removeMedia(mediaPath) {
             try {
-                const res = await fetch(`/api/upload-media/${index}`, { method: 'DELETE' });
+                const res = await fetch('/api/upload-media', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: mediaPath })
+                });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Medya kaldırılamadı');
 
