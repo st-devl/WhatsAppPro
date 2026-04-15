@@ -1,5 +1,6 @@
 const recipientManager = require('./recipient_manager');
-const { generateWAMessageContent, generateWAMessageFromContent } = require('@whiskeysockets/baileys');
+const path = require('path');
+const fs = require('fs-extra');
 
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
@@ -31,6 +32,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
     const [min, max] = delayRange || [20, 90];
     const dailyLimit = userSettings.dailyLimit || 50;
     let failCount = 0; 
+    let endedEarly = false;
     
     activeCampaigns.set(campaignId, {
         id: campaignId,
@@ -41,37 +43,39 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         progress: 0
     });
 
-    const addLog = (type, message, progress) => {
+    const addLog = (type, message, progress, meta = {}) => {
         const campaign = activeCampaigns.get(campaignId);
         if(campaign) {
             campaign.logs.push({ type, message, timestamp: Date.now() });
             if(progress !== undefined) campaign.progress = progress;
+            if (meta.done) campaign.done = true;
             activeCampaigns.set(campaignId, campaign);
         }
-        if(socket) socket.emit('log', { type, message, progress });
+        if(socket) socket.emit('log', { type, message, progress, ...meta });
     };
 
-    // 🔴 1. WhatsApp'a Medyayı TEK SEFER Yükleme İşlemi (Relay Mimarisi) 🔴
-    let preUploadedMedia = [];
+    const preparedMedia = [];
     if (mediaFiles && mediaFiles.length > 0) {
-        addLog('info', `[!] Medya dosyaları WhatsApp'a şifrelenip sadece 1 kereliğine yükleniyor...`);
-        for (let file of mediaFiles) {
-            try {
-                const options = {};
-                if (file.mimetype.startsWith('image/')) options.image = { url: file.path };
-                else if (file.mimetype.startsWith('video/')) options.video = { url: file.path };
-                else continue;
-                
-                // generateWAMessageContent sadece 1 kere sunucuya yükleyip MediaKey döndürür
-                const mediaContent = await generateWAMessageContent(options, { upload: sock.waUploadToServer });
-                preUploadedMedia.push({ type: options.image ? 'image' : 'video', content: mediaContent });
-                
-                addLog('success', `[✅] Yükleme Tamamlandı: ${file.name}`);
-            } catch(e) {
-                addLog('error', `❌ Medya Yükleme Hatası (${file.name}): ${e.message}`);
+        addLog('info', `${mediaFiles.length} medya gönderim için hazırlanıyor...`);
+        for (const file of mediaFiles) {
+            const type = file.mimetype?.startsWith('image/') ? 'image' : file.mimetype?.startsWith('video/') ? 'video' : null;
+            if (!type) {
+                addLog('error', `Desteklenmeyen medya türü atlandı: ${file.name || file.path}`);
+                continue;
             }
+
+            const absolutePath = path.resolve(__dirname, '..', file.path);
+            if (!absolutePath.startsWith(path.resolve(__dirname, '..', 'uploads') + path.sep) || !fs.existsSync(absolutePath)) {
+                addLog('error', `Medya dosyası bulunamadı: ${file.name || file.path}`);
+                continue;
+            }
+
+            preparedMedia.push({ type, path: absolutePath, name: file.name || path.basename(file.path) });
         }
-        addLog('info', `🚀 Medyalar hazır. Tekli aktarım ile asıl gönderim başlıyor...`);
+
+        if (preparedMedia.length > 0) {
+            addLog('success', `${preparedMedia.length} medya gönderime hazır.`);
+        }
     }
 
     for (let i = 0; i < contacts.length; i++) {
@@ -92,11 +96,13 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
 
         if (sentToday >= dailyLimit) {
             addLog('error', `🚫 Günlük limite ulaşıldı (${dailyLimit}). Güvenlik gereği bugünlük durduruldu.`);
+            endedEarly = true;
             break;
         }
 
         if (failCount >= 5) {
             addLog('error', '🛑 Çok fazla ardışık hata! Ban riskine karşı kampanya güvenlik nedeniyle durduruldu.');
+            endedEarly = true;
             break;
         }
 
@@ -146,25 +152,15 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             await delay(Math.floor(Math.random() * 4000) + 2000);
             await sock.sendPresenceUpdate('paused', phone);
 
-            // Yeni RELAY MESSAGE Mimarisi
-            if (preUploadedMedia.length > 0) {
-                for (let j = 0; j < preUploadedMedia.length; j++) {
-                    const mediaUpload = preUploadedMedia[j];
-                    
-                    // Medya içerik yapısını Deep Copy yapıp Caption atayacağız (Sadece metin değişecek)
-                    const clonedContent = JSON.parse(JSON.stringify(mediaUpload.content));
-                    
-                    if (j === 0) { 
-                        if (mediaUpload.type === 'image') clonedContent.imageMessage.caption = finalMsg;
-                        else if (mediaUpload.type === 'video') clonedContent.videoMessage.caption = finalMsg;
-                    }
+            if (preparedMedia.length > 0) {
+                for (let j = 0; j < preparedMedia.length; j++) {
+                    const media = preparedMedia[j];
+                    const payload = media.type === 'image'
+                        ? { image: { url: media.path } }
+                        : { video: { url: media.path } };
 
-                    // Taze kopya mesaj oluşturuluyor (WhatsApp sunucusuna medyanın kodu tekrar inlenmeden fırlatılır)
-                    const msg = generateWAMessageFromContent(phone, clonedContent, { userJid: sock.user.id });
-                    
-                    // Doğrudan yolla (Relay)
-                    await sock.relayMessage(phone, msg.message, { messageId: msg.key.id });
-                    
+                    if (j === 0) payload.caption = finalMsg;
+                    await sock.sendMessage(phone, payload);
                     await delay(getHumanDelay(2, 5)); 
                 }
             } else {
@@ -188,9 +184,15 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
     
     // İşlem tamamen bitince
     const finalState = activeCampaigns.get(campaignId);
-    if(finalState && finalState.status !== 'stopped') {
+    if(finalState && finalState.status !== 'stopped' && !endedEarly) {
         finalState.status = 'completed';
-        addLog('success', '✨ Kampanya Tamamlandı.');
+        finalState.processed = finalState.total;
+        finalState.progress = 100;
+        activeCampaigns.set(campaignId, finalState);
+        addLog('success', 'Gönderiler tamamlandı.', 100, { done: true });
+    } else if (finalState && finalState.status !== 'stopped') {
+        finalState.status = 'paused';
+        activeCampaigns.set(campaignId, finalState);
     }
 }
 

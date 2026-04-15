@@ -127,6 +127,13 @@ app.get('/api/check-auth', (req, res) => {
     res.json({ authenticated: !!(req.session && req.session.user) });
 });
 
+app.get('/healthz', (req, res) => {
+    res.json({
+        ok: runtimeStatus.http === 'listening',
+        status: runtimeStatus
+    });
+});
+
 app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public/login.html')));
 app.use(requireAuth, express.static('public'));
 app.use('/uploads', requireAuth, express.static('uploads'));
@@ -136,6 +143,15 @@ let isConnected = false;
 let currentMedia = [];
 let lastQR = null;
 let initLock = false; // Multiple init WhatsApp Shield
+let reconnectTimer = null;
+let whatsappRetryCount = 0;
+const maxWhatsAppAutoRetries = Number.parseInt(process.env.WHATSAPP_MAX_AUTO_RETRIES || '3', 10);
+const runtimeStatus = {
+    startedAt: new Date().toISOString(),
+    http: 'starting',
+    whatsapp: 'idle',
+    lastError: null
+};
 
 const normalizePhone = (value) => String(value || '').replace(/[^\d]/g, '');
 
@@ -165,6 +181,10 @@ app.get('/api/version', async (req, res) => {
     } catch (e) {
         res.json({ version: '1.0.0' });
     }
+});
+
+app.get('/api/runtime-status', (req, res) => {
+    res.json(runtimeStatus);
 });
 
 // --- VERİTABANI API (SQLite) ---
@@ -330,7 +350,8 @@ app.post('/api/reset-session', async (req, res) => {
         const sessionPath = path.join(__dirname, 'auth/session');
         if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath);
         res.json({ success: true, message: 'Oturum temizlendi.' });
-        setTimeout(() => initWhatsApp(), 1000);
+        whatsappRetryCount = 0;
+        scheduleWhatsAppInit(1000);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -361,6 +382,9 @@ io.on('connection', (socket) => {
 async function initWhatsApp() {
     if(initLock) return;
     initLock = true;
+    reconnectTimer = null;
+    runtimeStatus.whatsapp = 'starting';
+    runtimeStatus.lastError = null;
     console.log('🚀 WhatsApp motoru başlatılıyor...');
     
     // Clean old sock to prevent memory leaks
@@ -376,15 +400,18 @@ async function initWhatsApp() {
             const { connection, qr, lastDisconnect } = update;
             
             if (qr) {
+                runtimeStatus.whatsapp = 'qr';
                 lastQR = qr;
                 io.emit('qr', qr);
             }
             
             if (connection === 'open') { 
                 console.log('✅ Bağlantı BAŞARILI!');
+                whatsappRetryCount = 0;
                 const initialWait = Math.floor(Math.random() * 5000) + 2000;
                 setTimeout(() => {
                     isConnected = true; 
+                    runtimeStatus.whatsapp = 'connected';
                     lastQR = null;
                     io.emit('status', 'connected'); 
                 }, initialWait);
@@ -394,6 +421,8 @@ async function initWhatsApp() {
                 const reason = lastDisconnect?.error?.output?.statusCode;
                 console.log('❌ Bağlantı Kesildi. Kod:', reason);
                 isConnected = false; 
+                runtimeStatus.whatsapp = 'disconnected';
+                runtimeStatus.lastError = reason ? `WhatsApp bağlantısı kapandı. Kod: ${reason}` : 'WhatsApp bağlantısı kapandı.';
                 io.emit('status', 'disconnected');
                 
                 initLock = false; // Release lock for reconnect
@@ -402,19 +431,45 @@ async function initWhatsApp() {
                     console.log('⚠️ Oturum bozulmuş. Otomatik temizleniyor...');
                     const sessionPath = path.join(__dirname, 'auth/session');
                     if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath);
-                    setTimeout(() => initWhatsApp(), 5000);
+                    scheduleWhatsAppInit(5000);
                 } else if(reason !== 428) {
-                    const reconnectNormal = Math.floor(Math.random() * 20000) + 10000;
-                    console.log(`⏳ ${reconnectNormal/1000}sn sonra yeniden bağlanılacak...`);
-                    setTimeout(() => initWhatsApp(), reconnectNormal);
+                    scheduleWhatsAppReconnect();
                 }
             }
         });
     } catch (err) {
         console.log('🚨 Başlatma hatası:', err.message);
+        runtimeStatus.whatsapp = 'error';
+        runtimeStatus.lastError = err.message;
         initLock = false;
-        setTimeout(() => initWhatsApp(), 15000);
+        scheduleWhatsAppReconnect();
     }
+}
+
+function scheduleWhatsAppInit(delayMs = 1500) {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    runtimeStatus.whatsapp = 'scheduled';
+    reconnectTimer = setTimeout(() => {
+        initWhatsApp().catch((err) => {
+            runtimeStatus.whatsapp = 'error';
+            runtimeStatus.lastError = err.message;
+            console.error('WhatsApp init beklenmeyen hata:', err);
+        });
+    }, delayMs);
+}
+
+function scheduleWhatsAppReconnect() {
+    if (whatsappRetryCount >= maxWhatsAppAutoRetries) {
+        runtimeStatus.whatsapp = 'paused';
+        runtimeStatus.lastError = `WhatsApp bağlantısı kurulamadı. Otomatik deneme ${maxWhatsAppAutoRetries} denemeden sonra durduruldu.`;
+        console.log(`⏸️ ${runtimeStatus.lastError}`);
+        return;
+    }
+
+    whatsappRetryCount++;
+    const reconnectDelay = Math.min(60000, 10000 * whatsappRetryCount);
+    console.log(`⏳ ${reconnectDelay / 1000}sn sonra yeniden bağlanılacak... (${whatsappRetryCount}/${maxWhatsAppAutoRetries})`);
+    scheduleWhatsAppInit(reconnectDelay);
 }
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -426,9 +481,19 @@ process.on('uncaughtException', (err) => {
 });
 
 const PORT = process.env.PORT || 3005;
-server.listen(PORT, () => {
+const HOST = process.env.HOST || '0.0.0.0';
+
+server.on('error', (err) => {
+    runtimeStatus.http = 'error';
+    runtimeStatus.lastError = err.message;
+    console.error('🚨 HTTP sunucu başlatılamadı:', err);
+    process.exit(1);
+});
+
+server.listen(PORT, HOST, () => {
+    runtimeStatus.http = 'listening';
     console.log(`\n================================================`);
-    console.log(`🌍 WhasAppC Pro Enterprise Aktif: http://localhost:${PORT}`);
+    console.log(`🌍 WhasAppC Pro Enterprise Aktif: http://${HOST}:${PORT}`);
     console.log(`================================================\n`);
-    initWhatsApp();
+    scheduleWhatsAppInit();
 });

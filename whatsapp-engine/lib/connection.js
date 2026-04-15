@@ -9,7 +9,10 @@ const path = require('path');
 
 async function getSocketConfig() {
     const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, '../auth/session'));
-    const { version } = await fetchLatestBaileysVersion();
+    const { version, isLatest, error } = await fetchLatestBaileysVersion({ timeout: 5000 });
+    if (!isLatest && error) {
+        console.warn('Baileys sürüm bilgisi güncel alınamadı, paket içi varsayılan sürüm kullanılacak:', error.message);
+    }
 
     const sock = makeWASocket({
         version,
