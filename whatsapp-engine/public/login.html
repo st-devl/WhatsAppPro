@@ -178,6 +178,7 @@
 
     <script>
         const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+        const API_BASE = '/api/v1';
 
         function getDashboardPath() {
             return new URL('./', window.location.href).pathname;
@@ -212,15 +213,27 @@
             icon.classList.toggle('animate-spin', isLoading);
         }
 
+        function unwrapApiPayload(payload) {
+            if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'data') && Object.prototype.hasOwnProperty.call(payload, 'code')) {
+                return payload.data;
+            }
+            return payload;
+        }
+
+        function apiErrorMessage(payload, fallback) {
+            if (!payload || typeof payload !== 'object') return fallback;
+            return payload.error || payload.message || fallback;
+        }
+
         async function isAuthenticated() {
             try {
-                const response = await fetch('/api/check-auth', {
+                const response = await fetch(`${API_BASE}/check-auth`, {
                     method: 'GET',
                     cache: 'no-store',
                     credentials: 'same-origin'
                 });
                 if (!response.ok) return false;
-                const data = await response.json();
+                const data = unwrapApiPayload(await response.json());
                 return !!data.authenticated;
             } catch {
                 return false;
@@ -247,7 +260,7 @@
             setMessage('', 'info');
 
             try {
-                const response = await fetch('/api/login', {
+                const response = await fetch(`${API_BASE}/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
@@ -264,7 +277,7 @@
                         setSubmitLoading(false);
                     }
                 } else {
-                    setMessage(data.error || 'Giriş başarısız.', 'error');
+                    setMessage(apiErrorMessage(data, 'Giriş başarısız.'), 'error');
                     setSubmitLoading(false);
                 }
             } catch (err) {

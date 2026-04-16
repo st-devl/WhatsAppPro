@@ -31,6 +31,7 @@ function isNightMode() {
 async function sendBulkWithProgress(sock, contacts, message, socket, delayRange, mediaFiles = [], campaignId, userSettings = {}) {
     const [min, max] = delayRange || [20, 90];
     const dailyLimit = userSettings.dailyLimit || 50;
+    const campaignStore = userSettings.campaignStore || null;
     let failCount = 0; 
     let endedEarly = false;
     
@@ -43,6 +44,15 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         progress: 0
     });
 
+    const persist = (operation) => {
+        if (!operation) return;
+        Promise.resolve(operation).catch(err => {
+            console.error('Campaign state kalıcılaştırma hatası:', err);
+        });
+    };
+
+    persist(campaignStore?.setRunStatus(campaignId, 'running'));
+
     const addLog = (type, message, progress, meta = {}) => {
         const campaign = activeCampaigns.get(campaignId);
         if(campaign) {
@@ -51,6 +61,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             if (meta.done) campaign.done = true;
             activeCampaigns.set(campaignId, campaign);
         }
+        persist(campaignStore?.addLog(campaignId, type, message, progress, meta));
         if(socket) socket.emit('log', { type, message, progress, ...meta });
     };
 
@@ -127,6 +138,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
 
         if (recipientManager.isInCooldown(phone)) {
             addLog('wait', `⏭️ Atlandı (Cooldown): ${phone} için son 24 saat içinde gönderim yapılmış.`);
+            persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'Cooldown aktif'));
             continue;
         }
 
@@ -142,6 +154,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         const exists = await recipientManager.validateOnWhatsApp(sock, phone);
         if (!exists) {
             addLog('error', `❌ Atlandı: ${phone} numaralı kullanıcı WhatsApp kullanmıyor.`);
+            persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'WhatsApp kullanıcısı değil'));
             continue;
         }
 
@@ -168,10 +181,12 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             }
 
             await recipientManager.logSend(phone);
+            persist(campaignStore?.markRecipient(campaignId, contact, 'sent'));
             addLog('success', `✅ İletildi: ${nameLabel} (${recipientManager.getDailyCount()}/${dailyLimit})`);
 
         } catch (err) {
             failCount++;
+            persist(campaignStore?.markRecipient(campaignId, contact, 'failed', err.message));
             addLog('error', `❌ Hata: ${err.message}`);
         }
 
@@ -189,10 +204,14 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         finalState.processed = finalState.total;
         finalState.progress = 100;
         activeCampaigns.set(campaignId, finalState);
+        persist(campaignStore?.setRunStatus(campaignId, 'completed'));
         addLog('success', 'Gönderiler tamamlandı.', 100, { done: true });
     } else if (finalState && finalState.status !== 'stopped') {
         finalState.status = 'paused';
         activeCampaigns.set(campaignId, finalState);
+        persist(campaignStore?.setRunStatus(campaignId, 'paused'));
+    } else if (finalState && finalState.status === 'stopped') {
+        persist(campaignStore?.setRunStatus(campaignId, 'stopped'));
     }
 }
 
@@ -204,8 +223,14 @@ function stopCampaign(campaignId) {
     }
 }
 
+function stopAllCampaigns() {
+    for (const campaignId of activeCampaigns.keys()) {
+        stopCampaign(campaignId);
+    }
+}
+
 function getCampaignStatus(campaignId) {
     return activeCampaigns.get(campaignId) || null;
 }
 
-module.exports = { sendBulkWithProgress, stopCampaign, getCampaignStatus };
+module.exports = { sendBulkWithProgress, stopCampaign, stopAllCampaigns, getCampaignStatus };

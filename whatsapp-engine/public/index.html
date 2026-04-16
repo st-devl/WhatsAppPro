@@ -394,7 +394,7 @@
                                 <h4 class="font-bold text-slate-900 text-sm mb-1">Excel'den Aktar</h4>
                                 <p class="text-xs text-slate-500 leading-relaxed">Toplu kişileri Excel dosyası ile içeri aktarın.</p>
                             </button>
-                            <input type="file" id="excel-input" accept=".xlsx,.xls" class="hidden" onchange="uploadExcel(this)">
+                            <input type="file" id="excel-input" accept=".xlsx" class="hidden" onchange="uploadExcel(this)">
 
                             <button onclick="document.getElementById('manual-modal').classList.remove('hidden')" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-emerald-500/50 transition-all cursor-pointer group">
                                 <div class="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center text-slate-600 mb-4 group-hover:bg-primary group-hover:text-white transition-colors">
@@ -600,6 +600,7 @@
         let selectedCampaignGroupIds = new Set();
         let contactFilterQuery = '';
         const unsavedContactsDraftKey = 'whatsappc.unsavedContacts.v1';
+        const API_BASE = '/api/v1';
 
         const navActive = 'text-secondary font-bold border-b-2 border-secondary py-1 text-sm font-headline tracking-wide';
         const navInactive = 'text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm';
@@ -622,14 +623,47 @@
             btn.innerHTML = '<span class="material-symbols-outlined text-lg">error</span> SUNUCU BAĞLANTISI YOK';
         }
 
+        function unwrapApiPayload(payload) {
+            if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'data') && Object.prototype.hasOwnProperty.call(payload, 'code')) {
+                return payload.data;
+            }
+            return payload;
+        }
+
+        function apiErrorMessage(payload, fallback) {
+            if (!payload || typeof payload !== 'object') return fallback;
+            return payload.error || payload.message || fallback;
+        }
+
+        function apiMeta(payload) {
+            return payload && typeof payload === 'object' && payload.meta ? payload.meta : {};
+        }
+
         async function fetchJson(url, options = {}, timeoutMs = 8000) {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), timeoutMs);
             try {
                 const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error || `${url} isteği başarısız`);
-                return data;
+                const payload = await response.json();
+                if (!response.ok) throw new Error(apiErrorMessage(payload, `${url} isteği başarısız`));
+                return unwrapApiPayload(payload);
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function fetchApiEnvelope(url, options = {}, timeoutMs = 8000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(apiErrorMessage(payload, `${url} isteği başarısız`));
+                return {
+                    data: unwrapApiPayload(payload),
+                    meta: apiMeta(payload),
+                    code: payload?.code
+                };
             } finally {
                 clearTimeout(timer);
             }
@@ -647,13 +681,13 @@
             }
 
             try {
-                const response = await fetch('/api/logout', {
+                const response = await fetch(`${API_BASE}/logout`, {
                     method: 'POST',
                     credentials: 'same-origin',
                     cache: 'no-store'
                 });
                 const data = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(data.error || 'Çıkış yapılamadı');
+                if (!response.ok) throw new Error(apiErrorMessage(data, 'Çıkış yapılamadı'));
                 window.location.replace('/login.html');
             } catch (err) {
                 showToast(err.message || 'Çıkış yapılamadı', 'error');
@@ -711,7 +745,7 @@
 
         async function refreshRuntimeStatus() {
             try {
-                const status = await fetchJson('/api/runtime-status', {}, 5000);
+                const status = await fetchJson(`${API_BASE}/runtime-status`, {}, 5000);
                 if (status.whatsapp === 'connected') {
                     setWhatsAppUiStatus('connected');
                 } else if (status.whatsapp === 'qr') {
@@ -781,15 +815,59 @@
             return dedupeContacts(input.value.split(',').map(phone => ({ phone })));
         }
 
-        function getSelectedCampaignContacts() {
-            const groupContacts = groups
-                .filter(group => selectedCampaignGroupIds.has(group.id))
-                .flatMap(group => group.contacts || []);
+        function getGroupContactCount(group) {
+            return Number(group?.contact_count ?? group?.contacts?.length ?? 0);
+        }
+
+        async function loadGroupContacts(groupId, options = {}) {
+            const params = new URLSearchParams({
+                limit: String(options.limit || 500),
+                offset: String(options.offset || 0),
+                sort: options.sort || 'id',
+                direction: options.direction || 'asc'
+            });
+            if (options.search) params.set('search', options.search);
+
+            const envelope = await fetchApiEnvelope(`${API_BASE}/groups/${encodeURIComponent(groupId)}/contacts?${params.toString()}`, {}, 12000);
+            return {
+                contacts: dedupeContacts(envelope.data || []),
+                pagination: envelope.meta.pagination || { total: 0, has_more: false, next_offset: null }
+            };
+        }
+
+        async function ensureGroupContactsLoaded(groupId) {
+            const group = groups.find(item => item.id === groupId);
+            if (!group) return [];
+            if (group.contactsLoaded) return group.contacts || [];
+
+            const allContacts = [];
+            let offset = 0;
+            let hasMore = true;
+            while (hasMore) {
+                const page = await loadGroupContacts(groupId, { limit: 500, offset });
+                allContacts.push(...page.contacts);
+                hasMore = !!page.pagination.has_more;
+                offset = page.pagination.next_offset || allContacts.length;
+            }
+
+            group.contacts = dedupeContacts(allContacts);
+            group.contactsLoaded = true;
+            group.contact_count = group.contacts.length;
+            return group.contacts;
+        }
+
+        async function getSelectedCampaignContacts() {
+            const selectedGroups = groups.filter(group => selectedCampaignGroupIds.has(group.id));
+            await Promise.all(selectedGroups.map(group => ensureGroupContactsLoaded(group.id)));
+            const groupContacts = selectedGroups.flatMap(group => group.contacts || []);
             return dedupeContacts([...groupContacts, ...getManualCampaignContacts()]);
         }
 
         function updateCampaignTargetSummary() {
-            const total = getSelectedCampaignContacts().length;
+            const selectedGroupsTotal = groups
+                .filter(group => selectedCampaignGroupIds.has(group.id))
+                .reduce((sum, group) => sum + getGroupContactCount(group), 0);
+            const total = selectedGroupsTotal + getManualCampaignContacts().length;
             const selectedCount = selectedCampaignGroupIds.size;
             const countEl = document.getElementById('campaign-selected-count');
             if (countEl) countEl.innerText = `Toplam ${total} numara seçildi`;
@@ -822,7 +900,7 @@
             }
 
             container.innerHTML = groups.map(group => {
-                const count = (group.contacts || []).length;
+                const count = getGroupContactCount(group);
                 const checked = selectedCampaignGroupIds.has(group.id);
                 return `
                     <label class="flex items-center justify-between p-3 rounded-lg border ${checked ? 'bg-secondary/5 border-secondary/20' : 'border-transparent hover:bg-slate-50 hover:border-slate-100'} transition-all cursor-pointer">
@@ -1041,15 +1119,15 @@
 
         async function removeMedia(mediaPath) {
             try {
-                const res = await fetch('/api/upload-media', {
+                const res = await fetch(`${API_BASE}/upload-media`, {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: mediaPath })
                 });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Medya kaldırılamadı');
+                if (!res.ok) throw new Error(apiErrorMessage(data, 'Medya kaldırılamadı'));
 
-                mediaFiles = data;
+                mediaFiles = unwrapApiPayload(data);
                 renderMediaPreview();
                 updatePreview();
                 setMediaUploadStatus(mediaFiles.length > 0 ? 'success' : 'idle', mediaFiles.length > 0 ? `${mediaFiles.length} medya hazır` : '');
@@ -1066,11 +1144,11 @@
             setMediaUploadStatus('loading', 'Medya yükleniyor...');
 
             try {
-                const res = await fetch('/api/upload-media', { method: 'POST', body: fd });
+                const res = await fetch(`${API_BASE}/upload-media`, { method: 'POST', body: fd });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Medya yüklenemedi');
+                if (!res.ok) throw new Error(apiErrorMessage(data, 'Medya yüklenemedi'));
 
-                mediaFiles = data;
+                mediaFiles = unwrapApiPayload(data);
                 renderMediaPreview();
                 updatePreview();
                 setMediaUploadStatus('success', `${mediaFiles.length} medya yüklendi`);
@@ -1090,14 +1168,15 @@
             fd.append('excel', input.files[0]);
             input.value = '';
             try {
-                const res = await fetch('/api/upload-excel', { method: 'POST', body: fd });
+                const res = await fetch(`${API_BASE}/upload-excel`, { method: 'POST', body: fd });
                 const data = await res.json();
                 if (!res.ok) {
-                    showToast(data.error || 'Excel yüklenemedi', 'error');
+                    showToast(apiErrorMessage(data, 'Excel yüklenemedi'), 'error');
                     return;
                 }
-                const importedContacts = Array.isArray(data) ? data : (data.contacts || []);
-                const summary = Array.isArray(data) ? null : data.summary;
+                const uploadData = unwrapApiPayload(data);
+                const importedContacts = Array.isArray(uploadData) ? uploadData : (uploadData.contacts || []);
+                const summary = Array.isArray(uploadData) ? null : uploadData.summary;
                 const merged = dedupeContacts([...currentContacts, ...importedContacts]);
                 const addedCount = merged.length - currentContacts.length;
                 currentContacts = merged;
@@ -1186,26 +1265,26 @@
                     if (!confirm(`"${groupName}" grubu zaten var. Üzerine yazılsın mı?`)) return;
                     targetGroupId = existingGroup.id;
                 } else {
-                    const createRes = await fetch('/api/groups', {
+                    const createRes = await fetch(`${API_BASE}/groups`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name: groupName })
                     });
                     const created = await createRes.json();
-                    if (!createRes.ok) throw new Error(created.error || 'Grup oluşturulamadı');
-                    targetGroupId = created.id;
+                    if (!createRes.ok) throw new Error(apiErrorMessage(created, 'Grup oluşturulamadı'));
+                    targetGroupId = unwrapApiPayload(created).id;
                 }
 
-                const saveRes = await fetch(`/api/groups/${targetGroupId}`, {
+                const saveRes = await fetch(`${API_BASE}/groups/${targetGroupId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ contacts: currentContacts })
                 });
                 const saveData = await saveRes.json();
-                if (!saveRes.ok) throw new Error(saveData.error || 'Kişiler kaydedilemedi');
+                if (!saveRes.ok) throw new Error(apiErrorMessage(saveData, 'Kişiler kaydedilemedi'));
 
                 await loadGroups();
-                selectGroup(targetGroupId);
+                await selectGroup(targetGroupId);
                 selectedCampaignGroupIds.add(targetGroupId);
                 renderCampaignGroupChecklist();
                 closeGroupSaveModal();
@@ -1228,17 +1307,21 @@
 
             if (activeGroupId) {
                 try {
-                    const res = await fetch(`/api/groups/${activeGroupId}/contacts`, {
+                    const res = await fetch(`${API_BASE}/groups/${activeGroupId}/contacts`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name, phone })
                     });
                     const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || 'Kişi eklenemedi');
-                    currentContacts = dedupeContacts([...currentContacts, data]);
+                    if (!res.ok) throw new Error(apiErrorMessage(data, 'Kişi eklenemedi'));
+                    currentContacts = dedupeContacts([...currentContacts, unwrapApiPayload(data)]);
                     visibleContacts = currentContacts;
                     const group = groups.find(g => g.id === activeGroupId);
-                    if (group) group.contacts = [...currentContacts];
+                    if (group) {
+                        group.contacts = [...currentContacts];
+                        group.contactsLoaded = true;
+                        group.contact_count = currentContacts.length;
+                    }
                     document.getElementById('manual-modal').classList.add('hidden');
                     updateContactsTable();
                     renderGroupsSidebar();
@@ -1272,12 +1355,12 @@
 
         async function resetConnection() {
             if (confirm('Bağlantı sıfırlanacak. Sayfa yenilenecektir. Emin misiniz?')) {
-                await fetch('/api/reset-session', { method: 'POST' });
+                await fetch(`${API_BASE}/reset-session`, { method: 'POST' });
                 window.location.reload();
             }
         }
 
-        function downloadSample() { window.location.href = '/api/download-sample'; }
+        function downloadSample() { window.location.href = `${API_BASE}/download-sample`; }
 
         function clearList() {
             if (window.confirm('Tüm rehber silinecek. Emin misiniz?')) {
@@ -1295,13 +1378,17 @@
 
             if (activeGroupId && contact.id) {
                 try {
-                    const res = await fetch(`/api/groups/${activeGroupId}/contacts/${contact.id}`, { method: 'DELETE' });
+                    const res = await fetch(`${API_BASE}/groups/${activeGroupId}/contacts/${contact.id}`, { method: 'DELETE' });
                     const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || 'Kişi silinemedi');
+                    if (!res.ok) throw new Error(apiErrorMessage(data, 'Kişi silinemedi'));
                     currentContacts = currentContacts.filter(item => String(item.id) !== String(contact.id));
                     visibleContacts = contactFilterQuery ? visibleContacts.filter(item => String(item.id) !== String(contact.id)) : currentContacts;
                     const group = groups.find(g => g.id === activeGroupId);
-                    if (group) group.contacts = [...currentContacts];
+                    if (group) {
+                        group.contacts = [...currentContacts];
+                        group.contactsLoaded = true;
+                        group.contact_count = currentContacts.length;
+                    }
                     updateContactsTable();
                     renderGroupsSidebar();
                     renderCampaignGroupChecklist();
@@ -1353,17 +1440,22 @@
 
             if (activeGroupId && contactId) {
                 try {
-                    const res = await fetch(`/api/groups/${activeGroupId}/contacts/${contactId}`, {
+                    const res = await fetch(`${API_BASE}/groups/${activeGroupId}/contacts/${contactId}`, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
                     const updated = await res.json();
-                    if (!res.ok) throw new Error(updated.error || 'Kişi güncellenemedi');
-                    currentContacts = currentContacts.map(item => String(item.id) === String(contactId) ? updated : item);
-                    visibleContacts = contactFilterQuery ? visibleContacts.map(item => String(item.id) === String(contactId) ? updated : item) : currentContacts;
+                    if (!res.ok) throw new Error(apiErrorMessage(updated, 'Kişi güncellenemedi'));
+                    const updatedContact = unwrapApiPayload(updated);
+                    currentContacts = currentContacts.map(item => String(item.id) === String(contactId) ? updatedContact : item);
+                    visibleContacts = contactFilterQuery ? visibleContacts.map(item => String(item.id) === String(contactId) ? updatedContact : item) : currentContacts;
                     const group = groups.find(g => g.id === activeGroupId);
-                    if (group) group.contacts = [...currentContacts];
+                    if (group) {
+                        group.contacts = [...currentContacts];
+                        group.contactsLoaded = true;
+                        group.contact_count = currentContacts.length;
+                    }
                     closeEditContactModal();
                     updateContactsTable();
                     renderGroupsSidebar();
@@ -1442,9 +1534,9 @@
 
         async function initTemplates() {
             try {
-                const vData = await fetchJson('/api/version').catch(() => ({ version: '1.2.0' }));
+                const vData = await fetchJson(`${API_BASE}/version`).catch(() => ({ version: '1.2.0' }));
                 document.getElementById('sys-version').innerText = `v${vData.version} - GOLD EDITION`;
-                templates = await fetchJson('/api/templates');
+                templates = await fetchJson(`${API_BASE}/templates`);
                 document.getElementById('template-select').innerHTML = '<option value="">ŞABLONLAR</option>' + templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
             } catch (err) {
                 templates = [];
@@ -1468,10 +1560,10 @@
                 showToast('Şablon adı ve mesaj içeriği zorunlu', 'error');
                 return;
             }
-            const res = await fetch('/api/templates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, text }) });
+            const res = await fetch(`${API_BASE}/templates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, text }) });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                showToast(data.error || 'Şablon kaydedilemedi', 'error');
+                showToast(apiErrorMessage(data, 'Şablon kaydedilemedi'), 'error');
                 return;
             }
             initTemplates();
@@ -1480,10 +1572,16 @@
             showToast('Şablon kaydedildi', 'success');
         }
 
-        function startCampaign() {
+        async function startCampaign() {
             if (!socket) return alert('Sunucu bağlantısı kurulamadı. Sayfayı yenileyin veya sunucu loglarını kontrol edin.');
             const text = document.getElementById('message').value;
-            const targetContacts = getSelectedCampaignContacts();
+            let targetContacts = [];
+            try {
+                targetContacts = await getSelectedCampaignContacts();
+            } catch (err) {
+                showToast('Hedef kişiler yüklenemedi: ' + err.message, 'error');
+                return;
+            }
 
             if (!text || targetContacts.length === 0) return alert('Mesaj içeriği ve hedef numara/grup boş olamaz.');
             document.getElementById('send-btn').classList.add('hidden');
@@ -1518,12 +1616,12 @@
 
         async function loadGroups() {
             try {
-                const data = await fetchJson('/api/groups');
+                const data = await fetchJson(`${API_BASE}/groups`);
                 groups = Array.isArray(data) ? data : [];
                 if (activeGroupId) {
                     const active = groups.find(g => g.id === activeGroupId);
                     if (active) {
-                        currentContacts = dedupeContacts(active.contacts || []);
+                        currentContacts = dedupeContacts(await ensureGroupContactsLoaded(active.id));
                         visibleContacts = currentContacts;
                         document.getElementById('active-group-name').innerText = active.name;
                         updateContactsTable();
@@ -1559,7 +1657,7 @@
                                 <p class="text-[11px] text-slate-500">${formatDate(g.created_at || g.createdAt)}</p>
                             </div>
                             <div class="flex items-center gap-2 shrink-0">
-                                <span class="${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'} text-[10px] font-bold px-2 py-0.5 rounded-full">${(g.contacts || []).length}</span>
+                                <span class="${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'} text-[10px] font-bold px-2 py-0.5 rounded-full">${getGroupContactCount(g)}</span>
                                 <button onclick="event.stopPropagation(); deleteGroup('${g.id}')" class="text-slate-400 hover:text-error opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all" title="Grubu sil">
                                     <span class="material-symbols-outlined text-sm">close</span>
                                 </button>
@@ -1575,16 +1673,17 @@
             const name = prompt('Yeni grup adı (Örn: İş Arkadaşları):');
             if (!name || name.trim() === '') return;
             try {
-                const res = await fetch('/api/groups', {
+                const res = await fetch(`${API_BASE}/groups`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name: name.trim() })
                 });
                 const newGroup = await res.json();
-                if (!res.ok) throw new Error(newGroup.error || 'Grup oluşturulamadı');
-                groups.push(newGroup);
-                selectGroup(newGroup.id);
-                selectedCampaignGroupIds.add(newGroup.id);
+                if (!res.ok) throw new Error(apiErrorMessage(newGroup, 'Grup oluşturulamadı'));
+                const createdGroup = unwrapApiPayload(newGroup);
+                groups.push(createdGroup);
+                await selectGroup(createdGroup.id);
+                selectedCampaignGroupIds.add(createdGroup.id);
                 renderCampaignGroupChecklist();
             } catch (err) {
                 showToast(err.message, 'error');
@@ -1594,9 +1693,9 @@
         async function deleteGroup(id) {
             if (!confirm('Bu grubu ve içindeki kişileri silmek istediğinize emin misiniz?')) return;
             try {
-                const res = await fetch(`/api/groups/${id}`, { method: 'DELETE' });
+                const res = await fetch(`${API_BASE}/groups/${id}`, { method: 'DELETE' });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Grup silinemedi');
+                if (!res.ok) throw new Error(apiErrorMessage(data, 'Grup silinemedi'));
                 groups = groups.filter(g => g.id !== id);
                 selectedCampaignGroupIds.delete(id);
                 if (activeGroupId === id) {
@@ -1612,7 +1711,7 @@
             }
         }
 
-        function selectGroup(id) {
+        async function selectGroup(id) {
             saveUnsavedContactsDraft();
             activeGroupId = id;
             const group = groups.find(g => g.id === id);
@@ -1625,7 +1724,12 @@
                 renderGroupsSidebar();
                 return;
             }
-            currentContacts = dedupeContacts(group?.contacts || []);
+            try {
+                currentContacts = dedupeContacts(await ensureGroupContactsLoaded(group.id));
+            } catch (err) {
+                showToast('Kişiler yüklenemedi: ' + err.message, 'error');
+                currentContacts = [];
+            }
             visibleContacts = currentContacts;
             document.getElementById('active-group-name').innerText = group.name;
             updateContactsTable();
@@ -1640,13 +1744,13 @@
             currentContacts = dedupeContacts(currentContacts);
             visibleContacts = currentContacts;
             try {
-                const res = await fetch(`/api/groups/${activeGroupId}`, {
+                const res = await fetch(`${API_BASE}/groups/${activeGroupId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ contacts: currentContacts })
                 });
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Grup güncellenemedi');
+                if (!res.ok) throw new Error(apiErrorMessage(data, 'Grup güncellenemedi'));
                 await loadGroups();
             } catch (err) {
                 showToast(err.message, 'error');
@@ -1655,7 +1759,7 @@
 
         async function checkActiveCampaign() {
             try {
-                const data = await fetchJson('/api/campaign-status');
+                const data = await fetchJson(`${API_BASE}/campaign-status`);
                 if (data.campaign && data.campaign.status === 'running') {
                     document.getElementById('send-btn').classList.add('hidden');
                     document.getElementById('stop-btn').classList.remove('hidden');

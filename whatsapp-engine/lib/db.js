@@ -26,7 +26,11 @@ class DbError extends Error {
 const now = () => new Date().toISOString();
 
 function normalizeGroupName(value) {
-    return String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('tr-TR');
+    return cleanText(value)
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[ıİ]/g, 'i')
+        .toLowerCase();
 }
 
 function cleanText(value) {
@@ -125,6 +129,15 @@ function createBackup(reason = 'manual') {
     const backupFile = path.join(backupDir, `database-${timestampForFile()}-${sanitizeBackupReason(reason)}.sqlite`);
     fs.copyFileSync(dbFile, backupFile);
     cleanupBackups();
+    return backupFile;
+}
+
+function requireSuccessfulBackup(reason) {
+    if (!fs.existsSync(dbFile)) return null;
+    const backupFile = createBackup(reason);
+    if (!backupFile) {
+        throw new DbError('Yazma işleminden önce veritabanı yedeği alınamadı', 500, 'DB_BACKUP_REQUIRED');
+    }
     return backupFile;
 }
 
@@ -243,6 +256,32 @@ function applyMigration(d, id, description, fn) {
     return true;
 }
 
+function assertNoDuplicateRows(d, sql, message, code) {
+    const duplicates = queryAll(d, sql);
+    if (duplicates.length > 0) {
+        throw new DbError(message, 409, code);
+    }
+}
+
+function assertNoNormalizedGroupNameConflicts(d) {
+    const activeGroups = queryAll(d, 'SELECT id, name FROM groups WHERE deleted_at IS NULL');
+    const seen = new Map();
+
+    for (const group of activeGroups) {
+        const normalized = normalizeGroupName(group.name);
+        if (!normalized) continue;
+        const existing = seen.get(normalized);
+        if (existing && existing !== group.id) {
+            throw new DbError('Aktif grup adlarında normalize edilmiş duplicate veri var. Unique index kurulmadan önce veri temizlenmeli.', 409, 'DUPLICATE_ACTIVE_GROUP_NAMES');
+        }
+        seen.set(normalized, group.id);
+    }
+}
+
+function enableForeignKeys(d) {
+    d.run('PRAGMA foreign_keys = ON');
+}
+
 function runMigrations(d) {
     ensureBaseTables(d);
 
@@ -302,11 +341,122 @@ function runMigrations(d) {
                 d.run('CREATE INDEX IF NOT EXISTS idx_contacts_normalized_phone ON contacts(normalized_phone)');
                 d.run('CREATE INDEX IF NOT EXISTS idx_contacts_group_phone ON contacts(group_id, normalized_phone)');
             }
+        },
+        {
+            id: '004_integrity_constraints',
+            description: 'Add active uniqueness constraints and enforce relational integrity',
+            run: () => {
+                assertNoNormalizedGroupNameConflicts(d);
+                assertNoDuplicateRows(d, `
+                    SELECT name_normalized, COUNT(*) AS duplicate_count
+                    FROM groups
+                    WHERE deleted_at IS NULL AND name_normalized IS NOT NULL
+                    GROUP BY name_normalized
+                    HAVING COUNT(*) > 1
+                `, 'Aktif grup adlarında duplicate veri var. Unique index kurulmadan önce veri temizlenmeli.', 'DUPLICATE_ACTIVE_GROUP_NAMES');
+
+                assertNoDuplicateRows(d, `
+                    SELECT group_id, normalized_phone, COUNT(*) AS duplicate_count
+                    FROM contacts
+                    WHERE deleted_at IS NULL AND normalized_phone IS NOT NULL
+                    GROUP BY group_id, normalized_phone
+                    HAVING COUNT(*) > 1
+                `, 'Aktif grup kişilerinde duplicate telefon verisi var. Unique index kurulmadan önce veri temizlenmeli.', 'DUPLICATE_ACTIVE_CONTACT_PHONES');
+
+                d.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_active_name_unique
+                    ON groups(name_normalized)
+                    WHERE deleted_at IS NULL AND name_normalized IS NOT NULL`);
+                d.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_active_group_phone_unique
+                    ON contacts(group_id, normalized_phone)
+                    WHERE deleted_at IS NULL AND normalized_phone IS NOT NULL`);
+            }
+        },
+        {
+            id: '005_campaign_state_tables',
+            description: 'Add durable campaign run and recipient state tables',
+            run: () => {
+                d.run(`CREATE TABLE IF NOT EXISTS campaign_runs (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    template_id TEXT,
+                    group_id TEXT,
+                    message TEXT,
+                    total_count INTEGER NOT NULL DEFAULT 0,
+                    sent_count INTEGER NOT NULL DEFAULT 0,
+                    failed_count INTEGER NOT NULL DEFAULT 0,
+                    daily_limit INTEGER,
+                    delay_min_ms INTEGER,
+                    delay_max_ms INTEGER,
+                    started_at TEXT,
+                    stopped_at TEXT,
+                    completed_at TEXT,
+                    error TEXT,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(group_id) REFERENCES groups(id),
+                    FOREIGN KEY(template_id) REFERENCES templates(id)
+                )`);
+
+                d.run(`CREATE TABLE IF NOT EXISTS campaign_recipients (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    campaign_run_id TEXT NOT NULL,
+                    contact_id INTEGER,
+                    phone TEXT NOT NULL,
+                    normalized_phone TEXT NOT NULL,
+                    name TEXT,
+                    surname TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    sent_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(campaign_run_id) REFERENCES campaign_runs(id) ON DELETE CASCADE,
+                    FOREIGN KEY(contact_id) REFERENCES contacts(id)
+                )`);
+
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_runs_status ON campaign_runs(status)');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_runs_group_id ON campaign_runs(group_id)');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_run_id ON campaign_recipients(campaign_run_id)');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_status ON campaign_recipients(status)');
+                d.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_recipients_run_phone_unique
+                    ON campaign_recipients(campaign_run_id, normalized_phone)`);
+            }
+        },
+        {
+            id: '006_locale_safe_group_name_normalization',
+            description: 'Normalize active group names with locale-safe comparable keys',
+            run: () => {
+                assertNoNormalizedGroupNameConflicts(d);
+                const groups = queryAll(d, 'SELECT id, name FROM groups');
+                groups.forEach(group => {
+                    d.run('UPDATE groups SET name_normalized = ? WHERE id = ?', [normalizeGroupName(group.name), group.id]);
+                });
+            }
+        },
+        {
+            id: '007_campaign_logs',
+            description: 'Add durable campaign log table',
+            run: () => {
+                d.run(`CREATE TABLE IF NOT EXISTS campaign_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    campaign_run_id TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    progress REAL,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(campaign_run_id) REFERENCES campaign_runs(id) ON DELETE CASCADE
+                )`);
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_logs_run_id ON campaign_logs(campaign_run_id)');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_logs_created_at ON campaign_logs(created_at)');
+            }
         }
     ];
 
     const hasPending = migrations.some(migration => !hasMigration(d, migration.id));
-    if (hasPending) createBackup('before-migrations');
+    if (hasPending) requireSuccessfulBackup('before-migrations');
 
     let changed = false;
     migrations.forEach(migration => {
@@ -386,7 +536,7 @@ function migrateJSONsWithDb(d) {
 
     if (!fs.existsSync(tplPath) && !fs.existsSync(grpPath)) return false;
 
-    createBackup('before-json-migration');
+    requireSuccessfulBackup('before-json-migration');
     runInSqlTransaction(d, () => {
         if (fs.existsSync(tplPath)) {
             const templates = fs.readJsonSync(tplPath);
@@ -448,6 +598,7 @@ async function getDb() {
         db = new SQL.Database();
     }
 
+    enableForeignKeys(db);
     const changed = runMigrations(db);
     if (changed || !fs.existsSync(dbFile)) save();
     migrateJSONsWithDb(db);
@@ -457,7 +608,7 @@ async function getDb() {
 
 async function withWriteTransaction(reason, fn) {
     const d = await getDb();
-    if (reason) createBackup(reason);
+    if (reason) requireSuccessfulBackup(reason);
     const result = runInSqlTransaction(d, () => fn(d));
     save();
     return result;
@@ -467,27 +618,23 @@ async function withWriteTransaction(reason, fn) {
 
 const getGroups = async () => {
     const d = await getDb();
-    const groupRows = queryAll(d, `
-        SELECT id, name, created_at, updated_at
-        FROM groups
-        WHERE deleted_at IS NULL
-        ORDER BY datetime(created_at) DESC, name ASC
-    `);
-
-    const contactRows = queryAll(d, `
-        SELECT id, group_id, name, surname, phone, normalized_phone, created_at, updated_at
-        FROM contacts
-        WHERE deleted_at IS NULL
-        ORDER BY id ASC
-    `);
-
-    groupRows.forEach(group => {
-        group.contacts = contactRows
-            .filter(contact => contact.group_id === group.id)
-            .map(mapContact);
-    });
-
-    return groupRows;
+    return queryAll(d, `
+        SELECT
+            g.id,
+            g.name,
+            g.created_at,
+            g.updated_at,
+            COUNT(c.id) AS contact_count
+        FROM groups g
+        LEFT JOIN contacts c ON c.group_id = g.id AND c.deleted_at IS NULL
+        WHERE g.deleted_at IS NULL
+        GROUP BY g.id, g.name, g.created_at, g.updated_at
+        ORDER BY datetime(g.created_at) DESC, g.name ASC
+    `).map(group => ({
+        ...group,
+        contact_count: Number(group.contact_count || 0),
+        contacts: []
+    }));
 };
 
 const getGroupContacts = async (groupId) => {
@@ -501,6 +648,71 @@ const getGroupContacts = async (groupId) => {
     `, [groupId]).map(mapContact);
 };
 
+function normalizePaginationOptions(options = {}) {
+    const rawLimit = Number.parseInt(options.limit, 10);
+    const rawOffset = Number.parseInt(options.offset, 10);
+    const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 100));
+    const offset = Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0);
+    const search = cleanText(options.search || options.q || '');
+    const sort = ['name', 'phone', 'created_at', 'updated_at'].includes(options.sort) ? options.sort : 'id';
+    const direction = String(options.direction || options.order || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    return { limit, offset, search, sort, direction };
+}
+
+function contactOrderBy(sort, direction) {
+    const columns = {
+        id: 'id',
+        name: 'name',
+        phone: 'normalized_phone',
+        created_at: 'datetime(created_at)',
+        updated_at: 'datetime(updated_at)'
+    };
+    return `${columns[sort] || columns.id} ${direction}, id ASC`;
+}
+
+const getGroupContactsPage = async (groupId, options = {}) => {
+    const d = await getDb();
+    ensureActiveGroup(d, groupId);
+
+    const { limit, offset, search, sort, direction } = normalizePaginationOptions(options);
+    const where = ['group_id = ?', 'deleted_at IS NULL'];
+    const params = [groupId];
+
+    if (search) {
+        where.push('(name LIKE ? OR surname LIKE ? OR phone LIKE ? OR normalized_phone LIKE ?)');
+        const like = `%${search}%`;
+        params.push(like, like, like, like);
+    }
+
+    const whereSql = where.join(' AND ');
+    const totalRow = queryOne(d, `SELECT COUNT(*) AS total FROM contacts WHERE ${whereSql}`, params);
+    const total = Number(totalRow?.total || 0);
+    const rows = queryAll(d, `
+        SELECT id, group_id, name, surname, phone, normalized_phone, created_at, updated_at
+        FROM contacts
+        WHERE ${whereSql}
+        ORDER BY ${contactOrderBy(sort, direction)}
+        LIMIT ? OFFSET ?
+    `, [...params, limit, offset]).map(mapContact);
+
+    return {
+        contacts: rows,
+        pagination: {
+            total,
+            limit,
+            offset,
+            returned: rows.length,
+            has_more: offset + rows.length < total,
+            next_offset: offset + rows.length < total ? offset + rows.length : null
+        },
+        sort: {
+            field: sort,
+            direction: direction.toLowerCase()
+        },
+        search
+    };
+};
+
 const createGroup = async (id, name) => withWriteTransaction('create-group', (d) => {
     const groupName = cleanText(name);
     if (!groupName) throw new DbError('Grup adı zorunlu', 400, 'GROUP_NAME_REQUIRED');
@@ -509,7 +721,7 @@ const createGroup = async (id, name) => withWriteTransaction('create-group', (d)
 
     d.run('INSERT INTO groups (id, name, name_normalized, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', [id, groupName, normalized, current, current]);
     audit(d, 'group_created', 'group', id, { group_name: groupName });
-    return { id, name: groupName, created_at: current, updated_at: current, contacts: [] };
+    return { id, name: groupName, created_at: current, updated_at: current, contact_count: 0, contacts: [] };
 });
 
 const updateGroupContacts = async (groupId, contactsList) => withWriteTransaction('replace-group-contacts', (d) => {
@@ -616,11 +828,203 @@ const createTemplate = async (id, name, text) => withWriteTransaction(null, (d) 
     return { id, name: tplName, text: String(text) };
 });
 
+function mapCampaignRun(row) {
+    if (!row) return null;
+    const total = Number(row.total_count || 0);
+    const sent = Number(row.sent_count || 0);
+    const failed = Number(row.failed_count || 0);
+    const processed = sent + failed;
+    return {
+        id: row.id,
+        status: row.status,
+        template_id: row.template_id || null,
+        group_id: row.group_id || null,
+        total,
+        processed,
+        sent_count: sent,
+        failed_count: failed,
+        progress: total > 0 ? Math.min(100, (processed / total) * 100) : 0,
+        daily_limit: row.daily_limit,
+        delay_min_ms: row.delay_min_ms,
+        delay_max_ms: row.delay_max_ms,
+        started_at: row.started_at,
+        stopped_at: row.stopped_at,
+        completed_at: row.completed_at,
+        error: row.error || null,
+        metadata: row.metadata ? JSON.parse(row.metadata) : {},
+        created_at: row.created_at,
+        updated_at: row.updated_at
+    };
+}
+
+function mapCampaignLog(row) {
+    return {
+        id: row.id,
+        type: row.type,
+        message: row.message,
+        progress: row.progress === null || row.progress === undefined ? undefined : Number(row.progress),
+        metadata: row.metadata ? JSON.parse(row.metadata) : {},
+        timestamp: row.created_at
+    };
+}
+
+const createCampaignRun = async (input = {}) => withWriteTransaction('create-campaign-run', (d) => {
+    const campaignId = String(input.id || '').trim();
+    if (!campaignId) throw new DbError('Campaign id zorunlu', 400, 'CAMPAIGN_ID_REQUIRED');
+    const normalized = normalizeContactsDetailed(input.contacts || []);
+    if (normalized.contacts.length === 0) throw new DbError('Gönderilecek geçerli kişi yok', 400, 'CAMPAIGN_CONTACTS_REQUIRED');
+
+    const delayRange = Array.isArray(input.delayRange) ? input.delayRange : [];
+    const delayMinMs = Number.parseInt(delayRange[0], 10) * 1000 || null;
+    const delayMaxMs = Number.parseInt(delayRange[1], 10) * 1000 || null;
+    const current = now();
+
+    d.run(`INSERT INTO campaign_runs (
+        id, status, message, total_count, sent_count, failed_count, daily_limit,
+        delay_min_ms, delay_max_ms, started_at, metadata, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?)`, [
+        campaignId,
+        'queued',
+        String(input.message || ''),
+        normalized.contacts.length,
+        Number.parseInt(input.dailyLimit, 10) || null,
+        delayMinMs,
+        delayMaxMs,
+        current,
+        toSqlJson({ import_summary: normalized.summary, media_count: Number(input.mediaCount || 0) }),
+        current,
+        current
+    ]);
+
+    normalized.contacts.forEach(contact => {
+        d.run(`INSERT INTO campaign_recipients (
+            campaign_run_id, contact_id, phone, normalized_phone, name, surname, status,
+            attempt_count, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`, [
+            campaignId,
+            contact.id || null,
+            contact.phone,
+            contact.normalized_phone,
+            contact.name,
+            contact.surname,
+            current,
+            current
+        ]);
+    });
+
+    return getCampaignRunStatusWithDb(d, campaignId);
+});
+
+const setCampaignRunStatus = async (campaignId, status, metadata = {}) => withWriteTransaction(null, (d) => {
+    const current = now();
+    const fields = ['status = ?', 'updated_at = ?'];
+    const params = [status, current];
+
+    if (status === 'running') {
+        fields.push('started_at = COALESCE(started_at, ?)');
+        params.push(current);
+    }
+    if (status === 'stopped') {
+        fields.push('stopped_at = ?');
+        params.push(current);
+    }
+    if (status === 'completed') {
+        fields.push('completed_at = ?');
+        params.push(current);
+    }
+    if (metadata.error !== undefined) {
+        fields.push('error = ?');
+        params.push(String(metadata.error || ''));
+    }
+
+    params.push(campaignId);
+    d.run(`UPDATE campaign_runs SET ${fields.join(', ')} WHERE id = ?`, params);
+    return getCampaignRunStatusWithDb(d, campaignId);
+});
+
+const addCampaignLog = async (campaignId, type, message, progress, metadata = {}) => withWriteTransaction(null, (d) => {
+    d.run(
+        'INSERT INTO campaign_logs (campaign_run_id, type, message, progress, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [campaignId, type, String(message || ''), progress === undefined ? null : Number(progress), toSqlJson(metadata), now()]
+    );
+});
+
+const updateCampaignRecipient = async (campaignId, contact, status, error = null) => withWriteTransaction(null, (d) => {
+    const normalizedPhone = normalizePhone(contact?.phone || contact?.normalized_phone);
+    if (!normalizedPhone) return null;
+    const current = now();
+    const sentAt = status === 'sent' ? current : null;
+    d.run(`UPDATE campaign_recipients
+        SET status = ?, attempt_count = attempt_count + 1, last_error = ?, sent_at = COALESCE(?, sent_at), updated_at = ?
+        WHERE campaign_run_id = ? AND normalized_phone = ?`, [
+        status,
+        error ? String(error) : null,
+        sentAt,
+        current,
+        campaignId,
+        normalizedPhone
+    ]);
+
+    const counts = queryOne(d, `
+        SELECT
+            SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent_count,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count
+        FROM campaign_recipients
+        WHERE campaign_run_id = ?
+    `, [campaignId]);
+
+    d.run('UPDATE campaign_runs SET sent_count = ?, failed_count = ?, updated_at = ? WHERE id = ?', [
+        Number(counts?.sent_count || 0),
+        Number(counts?.failed_count || 0),
+        current,
+        campaignId
+    ]);
+    return getCampaignRunStatusWithDb(d, campaignId);
+});
+
+function getCampaignRunStatusWithDb(d, campaignId) {
+    const run = mapCampaignRun(queryOne(d, 'SELECT * FROM campaign_runs WHERE id = ?', [campaignId]));
+    if (!run) return null;
+    run.logs = queryAll(d, `
+        SELECT id, type, message, progress, metadata, created_at
+        FROM campaign_logs
+        WHERE campaign_run_id = ?
+        ORDER BY id DESC
+        LIMIT 300
+    `, [campaignId]).reverse().map(mapCampaignLog);
+    return run;
+}
+
+const getCampaignRunStatus = async (campaignId) => {
+    const d = await getDb();
+    return getCampaignRunStatusWithDb(d, campaignId);
+};
+
+const getLatestCampaignRunStatus = async () => {
+    const d = await getDb();
+    const row = queryOne(d, 'SELECT id FROM campaign_runs ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC LIMIT 1');
+    return row ? getCampaignRunStatusWithDb(d, row.id) : null;
+};
+
+const stopLatestRunningCampaign = async () => withWriteTransaction(null, (d) => {
+    const row = queryOne(d, `
+        SELECT id FROM campaign_runs
+        WHERE status IN ('queued', 'running', 'paused')
+        ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+        LIMIT 1
+    `);
+    if (!row) return null;
+    const current = now();
+    d.run('UPDATE campaign_runs SET status = ?, stopped_at = ?, updated_at = ? WHERE id = ?', ['stopped', current, current, row.id]);
+    return getCampaignRunStatusWithDb(d, row.id);
+});
+
 module.exports = {
     DbError,
     getDb,
     save,
     createBackup,
+    requireSuccessfulBackup,
     migrateJSONs,
     normalizePhone,
     normalizeContact,
@@ -628,6 +1032,7 @@ module.exports = {
     normalizeContactsDetailed,
     getGroups,
     getGroupContacts,
+    getGroupContactsPage,
     createGroup,
     updateGroupContacts,
     deleteGroup,
@@ -635,5 +1040,12 @@ module.exports = {
     updateContact,
     deleteContact,
     getTemplates,
-    createTemplate
+    createTemplate,
+    createCampaignRun,
+    setCampaignRunStatus,
+    addCampaignLog,
+    updateCampaignRecipient,
+    getCampaignRunStatus,
+    getLatestCampaignRunStatus,
+    stopLatestRunningCampaign
 };
