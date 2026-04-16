@@ -3,109 +3,12 @@
 <head>
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
-    <title>WhasAppC PRO - GOLD EDITION</title>
+    <title>WhasAppC PRO</title>
     <script src="/socket.io/socket.io.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
-    <script id="tailwind-config">
-        window.tailwind = window.tailwind || {};
-        window.tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        'primary-container': '#1e293b',
-                        'surface-dim': '#d8dadc',
-                        'on-tertiary': '#ffffff',
-                        'on-surface-variant': '#45474c',
-                        'surface-container-lowest': '#ffffff',
-                        'secondary': '#006c49',
-                        'tertiary-container': '#3c2300',
-                        'inverse-primary': '#bcc7de',
-                        'on-error': '#ffffff',
-                        'error': '#ba1a1a',
-                        'surface-container-low': '#f2f4f6',
-                        'background': '#f7f9fb',
-                        'on-secondary-fixed-variant': '#005236',
-                        'inverse-surface': '#2d3133',
-                        'on-primary': '#ffffff',
-                        'outline-variant': '#c5c6cd',
-                        'on-background': '#191c1e',
-                        'inverse-on-surface': '#eff1f3',
-                        'secondary-container': '#6cf8bb',
-                        'secondary-fixed': '#6ffbbe',
-                        'outline': '#75777d',
-                        'on-secondary-container': '#00714d',
-                        'on-primary-fixed-variant': '#3c475a',
-                        'on-tertiary-fixed': '#2a1700',
-                        'surface-container': '#eceef0',
-                        'primary-fixed': '#d8e3fb',
-                        'on-tertiary-container': '#c88000',
-                        'primary': '#091426',
-                        'tertiary': '#201100',
-                        'surface-bright': '#f7f9fb',
-                        'surface-container-highest': '#e0e3e5',
-                        'on-secondary-fixed': '#002113',
-                        'on-primary-container': '#8590a6',
-                        'on-error-container': '#93000a',
-                        'tertiary-fixed': '#ffddb8',
-                        'on-surface': '#191c1e',
-                        'on-tertiary-fixed-variant': '#653e00',
-                        'surface-container-high': '#e6e8ea',
-                        'error-container': '#ffdad6',
-                        'primary-fixed-dim': '#bcc7de',
-                        'on-primary-fixed': '#111c2d',
-                        'surface-variant': '#e0e3e5',
-                        'on-secondary': '#ffffff',
-                        'surface-tint': '#545f73',
-                        'surface': '#f7f9fb',
-                        'tertiary-fixed-dim': '#ffb95f',
-                        'secondary-fixed-dim': '#4edea3'
-                    },
-                    borderRadius: {
-                        DEFAULT: '0.25rem',
-                        lg: '0.5rem',
-                        xl: '0.75rem',
-                        full: '9999px'
-                    },
-                    fontFamily: {
-                        headline: ['Manrope'],
-                        body: ['Inter'],
-                        label: ['Inter']
-                    }
-                }
-            }
-        };
-    </script>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; color: #191c1e; }
-        .font-headline { font-family: 'Manrope', sans-serif; }
-        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-        :root { --wc-primary: #091426; --wc-secondary: #006c49; --wc-error: #ba1a1a; --wc-on-primary: #ffffff; }
-        .bg-primary { background-color: var(--wc-primary); }
-        .bg-secondary { background-color: var(--wc-secondary); }
-        .bg-error { background-color: var(--wc-error); }
-        .text-primary { color: var(--wc-primary); }
-        .text-secondary { color: var(--wc-secondary); }
-        .text-error { color: var(--wc-error); }
-        .text-on-primary { color: var(--wc-on-primary); }
-        .text-white { color: var(--wc-on-primary); }
-        .border-error { border-color: var(--wc-error); }
-        .hover\:bg-primary\/90:hover { background-color: rgba(9, 20, 38, 0.9); }
-        .hover\:bg-secondary\/90:hover { background-color: rgba(0, 108, 73, 0.9); }
-        .hover\:bg-error:hover { background-color: var(--wc-error); }
-        .hover\:bg-error\/90:hover { background-color: rgba(186, 26, 26, 0.9); }
-        .group:hover .group-hover\:bg-primary { background-color: var(--wc-primary); }
-        .group:hover .group-hover\:text-white { color: var(--wc-on-primary); }
-        .glass-panel { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(12px); }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .phone-frame { width: 260px; height: 520px; border: 8px solid #1e293b; border-radius: 36px; position: relative; background: #000; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); margin: 0 auto; }
-        .phone-notch { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 100px; height: 20px; background: #1e293b; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; z-index: 20; }
-        .hidden-important { display: none !important; }
-        body { min-height: max(884px, 100dvh); }
-    </style>
+    <link href="/css/app.css" rel="stylesheet">
 </head>
 <body class="bg-background min-h-screen flex flex-col overflow-x-hidden">
     <header class="flex justify-between items-center px-4 lg:px-8 py-4 w-full sticky top-0 z-50 backdrop-blur-md bg-[#f7f9fb]/95">
@@ -115,8 +18,8 @@
                 <h1 class="text-lg lg:text-xl font-black text-primary font-headline tracking-tight truncate">WhasAppC PRO</h1>
             </div>
             <nav class="hidden md:flex gap-6 items-center">
-                <button onclick="switchTab('campaign')" id="tab-campaign" class="text-secondary font-bold border-b-2 border-secondary py-1 text-sm font-headline tracking-wide">Kampanya Hazırla</button>
-                <button onclick="switchTab('contacts')" id="tab-contacts" class="text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm">Rehberim &amp; Kişi Listesi</button>
+                <button id="tab-campaign" data-tab="campaign" class="text-secondary font-bold border-b-2 border-secondary py-1 text-sm font-headline tracking-wide">Kampanya Hazırla</button>
+                <button id="tab-contacts" data-tab="contacts" class="text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm">Rehberim &amp; Kişi Listesi</button>
             </nav>
         </div>
         <div class="flex items-center gap-2 lg:gap-4">
@@ -124,13 +27,13 @@
                 <div id="conn-indicator" class="w-2 h-2 rounded-full bg-slate-400 animate-pulse mr-2"></div>
                 <span id="status-badge" class="text-slate-500 font-bold text-xs uppercase">BAĞLANILIYOR...</span>
             </div>
-            <button id="logout-btn" onclick="logout()" type="button" aria-label="Oturumu kapat" class="inline-flex items-center justify-center gap-2 rounded-lg border border-error/30 bg-white px-3 py-2 text-xs font-bold text-error transition-colors hover:bg-error hover:text-white disabled:cursor-not-allowed disabled:opacity-60" title="Oturumu kapat">
+            <button id="logout-btn" type="button" aria-label="Oturumu kapat" class="inline-flex items-center justify-center gap-2 rounded-lg border border-error/30 bg-white px-3 py-2 text-xs font-bold text-error transition-colors hover:bg-error hover:text-white disabled:cursor-not-allowed disabled:opacity-60" title="Oturumu kapat">
                 <span id="logout-icon" class="material-symbols-outlined text-sm">logout</span>
                 <span id="logout-label">Çıkış</span>
             </button>
             <div class="hidden lg:flex bg-primary/5 px-4 py-1.5 rounded-full items-center gap-2 border border-outline-variant/20">
                 <span class="material-symbols-outlined text-sm text-on-tertiary-fixed-variant" style="font-variation-settings: 'FILL' 1;">workspace_premium</span>
-                <span id="sys-version" class="text-[10px] font-bold text-primary tracking-widest uppercase">v1.2.0 - GOLD EDITION</span>
+                <span id="sys-version" class="text-[10px] font-bold text-primary tracking-widest uppercase">version yükleniyor</span>
             </div>
             <div class="hidden xl:flex items-center gap-2 bg-primary px-4 py-2 rounded-xl text-white shadow-lg">
                 <span class="material-symbols-outlined text-sm">security</span>
@@ -167,7 +70,7 @@
                             <span class="text-[11px] font-medium text-slate-500">Device ID:</span>
                             <span class="text-[11px] font-bold text-primary">WP-GOLD-8821</span>
                         </div>
-                        <button onclick="resetConnection()" class="w-full py-2.5 rounded-lg border border-error/30 text-error text-[11px] font-bold hover:bg-error hover:text-white transition-colors uppercase tracking-tight flex items-center justify-center gap-2">
+                        <button id="reset-connection-btn" class="w-full py-2.5 rounded-lg border border-error/30 text-error text-[11px] font-bold hover:bg-error hover:text-white transition-colors uppercase tracking-tight flex items-center justify-center gap-2">
                             <span class="material-symbols-outlined text-sm">refresh</span>
                             Bağlantıyı Sıfırla
                         </button>
@@ -234,7 +137,7 @@
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div class="space-y-2">
                                     <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1" for="template-select">Şablon Seçimi</label>
-                                    <select id="template-select" onchange="loadTemplate(this.value)" class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 h-11">
+                                    <select id="template-select" class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 h-11">
                                         <option value="">ŞABLONLAR</option>
                                     </select>
                                 </div>
@@ -251,13 +154,14 @@
                                 <div class="flex justify-between items-center px-1 gap-3">
                                     <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest" for="message">Mesaj İçeriği</label>
                                     <div class="flex gap-2">
-                                        <button type="button" onclick="insertToken('{{ad}}')" class="px-2 py-1 bg-slate-100 rounded text-[9px] font-bold text-slate-600 hover:bg-slate-200 transition-colors">ADD {{ad}}</button>
-                                        <button type="button" onclick="insertToken('{{soyadi}}')" class="px-2 py-1 bg-slate-100 rounded text-[9px] font-bold text-slate-600 hover:bg-slate-200 transition-colors">ADD {{soyadi}}</button>
+                                        <button type="button" data-insert-token="{{ad}}" class="px-2 py-1 bg-slate-100 rounded text-[9px] font-bold text-slate-600 hover:bg-slate-200 transition-colors">ADD {{ad}}</button>
+                                        <button type="button" data-insert-token="{{soyadi}}" class="px-2 py-1 bg-slate-100 rounded text-[9px] font-bold text-slate-600 hover:bg-slate-200 transition-colors">ADD {{soyadi}}</button>
                                     </div>
                                 </div>
-                                <textarea id="message" oninput="updatePreview()" class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 min-h-[160px] p-4 placeholder-slate-400" placeholder="Merhaba {{ad}}! {Nasılsınız|İyi günler|Size bir teklifimiz var}{.|!|..}"></textarea>
+                                <textarea id="message" class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 min-h-[160px] p-4 placeholder-slate-400" placeholder="Merhaba {{ad}}! {Nasılsınız|İyi günler|Size bir teklifimiz var}{.|!|..}"></textarea>
+                                <p id="template-validation-message" class="hidden text-[10px] font-bold text-error px-1"></p>
                                 <div class="flex flex-wrap gap-3 pt-2">
-                                    <button type="button" onclick="document.getElementById('template-modal').classList.remove('hidden')" class="px-4 py-2.5 bg-primary text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-primary/90 transition-colors flex items-center gap-2">
+                                    <button type="button" id="open-template-modal-btn" class="px-4 py-2.5 bg-primary text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-primary/90 transition-colors flex items-center gap-2">
                                         <span class="material-symbols-outlined text-sm">bookmark_add</span>
                                         Şablon Kaydet
                                     </button>
@@ -273,13 +177,13 @@
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-4 gap-3">
-                                    <button type="button" id="media-upload-btn" onclick="document.getElementById('media-input').click()" class="aspect-square bg-slate-100 border border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center group hover:bg-slate-50 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <button type="button" id="media-upload-btn" class="aspect-square bg-slate-100 border border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center group hover:bg-slate-50 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                                         <span class="material-symbols-outlined text-slate-400 group-hover:text-secondary mb-1">add_photo_alternate</span>
                                         <span class="text-[9px] font-bold text-slate-400 uppercase">YÜKLE</span>
                                     </button>
                                     <div id="media-preview" class="contents"></div>
                                 </div>
-                                <input type="file" id="media-input" multiple accept="image/*,video/*" class="hidden" onchange="uploadMedia(this)">
+                                <input type="file" id="media-input" multiple accept="image/*,video/*" class="hidden">
                             </div>
                         </div>
 
@@ -288,7 +192,7 @@
                                 <label for="manual-campaign-numbers" class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Manuel Numara Girişi</label>
                                 <span id="manual-campaign-count" class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Virgül ile ayırın. 0 numara hazır.</span>
                             </div>
-                            <textarea id="manual-campaign-numbers" oninput="handleManualNumbersInput(this)" rows="3" inputmode="numeric" class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 min-h-[80px] p-4 font-mono placeholder-slate-400" placeholder="905320000000,905330000000,905340000000"></textarea>
+                            <textarea id="manual-campaign-numbers" rows="3" inputmode="numeric" class="w-full bg-surface-container-low border-0 rounded-lg text-sm focus:ring-2 focus:ring-secondary/20 min-h-[80px] p-4 font-mono placeholder-slate-400" placeholder="905320000000,905330000000,905340000000"></textarea>
                             <p class="text-[10px] text-slate-400">Numaraları aralarına virgül koyarak yazınız.</p>
                         </div>
                     </div>
@@ -312,15 +216,15 @@
                                     <span id="delay-range-label" class="text-secondary">20s - 90s</span>
                                 </div>
                                 <div class="grid grid-cols-2 gap-4">
-                                    <input id="min-delay" oninput="updateDelayLabel()" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" placeholder="Min" type="number" value="20">
-                                    <input id="max-delay" oninput="updateDelayLabel()" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" placeholder="Max" type="number" value="90">
+                                    <input id="min-delay" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" placeholder="Min" type="number" value="20">
+                                    <input id="max-delay" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" placeholder="Max" type="number" value="90">
                                 </div>
                                 <div class="space-y-2">
                                     <div class="flex justify-between items-center text-xs font-bold text-slate-600">
                                         <span>Günlük Limit</span>
                                         <span class="text-primary"><span id="daily-limit-label">50</span> Mesaj</span>
                                     </div>
-                                    <input id="daily-limit" oninput="updateDelayLabel()" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" type="number" value="50">
+                                    <input id="daily-limit" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" type="number" value="50">
                                 </div>
                             </div>
                         </div>
@@ -344,13 +248,21 @@
                         </div>
 
                         <div class="grid grid-cols-2 gap-4">
-                            <button id="send-btn" disabled onclick="startCampaign()" class="bg-secondary text-white py-4 rounded-xl font-bold font-headline tracking-widest text-xs flex items-center justify-center gap-2 shadow-lg shadow-secondary/20 hover:scale-[1.02] transition-transform active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none disabled:hover:scale-100 disabled:cursor-not-allowed">
+                            <button id="send-btn" disabled class="bg-secondary text-white py-4 rounded-lg font-bold font-headline tracking-widest text-xs flex items-center justify-center gap-2 shadow-lg shadow-secondary/20 hover:scale-[1.02] transition-transform active:scale-[0.98] disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none disabled:hover:scale-100 disabled:cursor-not-allowed">
                                 <span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
                                 BAŞLAT
                             </button>
-                            <button id="stop-btn" onclick="stopCampaign()" class="hidden bg-error text-white py-4 rounded-xl font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 shadow-lg shadow-error/10 hover:bg-error/90 transition-colors active:scale-[0.98]">
+                            <button id="stop-btn" class="hidden bg-error text-white py-4 rounded-lg font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 shadow-lg shadow-error/10 hover:bg-error/90 transition-colors active:scale-[0.98]">
                                 <span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">stop</span>
                                 DURDUR
+                            </button>
+                            <button id="resume-btn" class="hidden bg-surface-container-low text-primary border border-outline-variant/60 py-4 rounded-lg font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 hover:bg-surface-container transition-colors active:scale-[0.98]">
+                                <span class="material-symbols-outlined text-lg">restart_alt</span>
+                                DEVAM
+                            </button>
+                            <button id="retry-btn" class="hidden bg-amber-500 text-white py-4 rounded-lg font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 hover:bg-amber-600 transition-colors active:scale-[0.98]">
+                                <span class="material-symbols-outlined text-lg">replay</span>
+                                TEKRAR DENE
                             </button>
                         </div>
                     </div>
@@ -365,7 +277,7 @@
                                 <h3 class="font-headline font-bold text-slate-900">Gruplarım</h3>
                                 <p class="text-xs text-slate-500 mt-1">Kalıcı rehber şablonları</p>
                             </div>
-                            <button onclick="createGroup()" class="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700 transition-colors" title="Yeni grup">
+                            <button id="create-group-btn" class="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-700 transition-colors" title="Yeni grup">
                                 <span class="material-symbols-outlined text-sm">add</span>
                             </button>
                         </div>
@@ -382,21 +294,21 @@
                             </div>
                             <div class="hidden md:flex items-center bg-surface-container p-1 rounded-lg">
                                 <span class="material-symbols-outlined px-2 text-slate-500 text-sm">search</span>
-                                <input oninput="filterContacts(this.value)" class="bg-transparent border-none focus:ring-0 text-sm w-48 py-1" placeholder="Kişilerde ara..." type="text">
+                                <input id="contact-search-input" class="bg-transparent border-none focus:ring-0 text-sm w-48 py-1" placeholder="Kişilerde ara..." type="text">
                             </div>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                            <button onclick="document.getElementById('excel-input').click()" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-emerald-500/50 transition-all cursor-pointer group">
+                            <button id="excel-upload-card" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-emerald-500/50 transition-all cursor-pointer group">
                                 <div class="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 mb-4 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
                                     <span class="material-symbols-outlined">upload_file</span>
                                 </div>
                                 <h4 class="font-bold text-slate-900 text-sm mb-1">Excel'den Aktar</h4>
                                 <p class="text-xs text-slate-500 leading-relaxed">Toplu kişileri Excel dosyası ile içeri aktarın.</p>
                             </button>
-                            <input type="file" id="excel-input" accept=".xlsx" class="hidden" onchange="uploadExcel(this)">
+                            <input type="file" id="excel-input" accept=".xlsx" class="hidden">
 
-                            <button onclick="document.getElementById('manual-modal').classList.remove('hidden')" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-emerald-500/50 transition-all cursor-pointer group">
+                            <button id="manual-open-card" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-emerald-500/50 transition-all cursor-pointer group">
                                 <div class="w-10 h-10 rounded-lg bg-slate-50 flex items-center justify-center text-slate-600 mb-4 group-hover:bg-primary group-hover:text-white transition-colors">
                                     <span class="material-symbols-outlined">person_add</span>
                                 </div>
@@ -404,7 +316,7 @@
                                 <p class="text-xs text-slate-500 leading-relaxed">Tekil kişi bilgilerini el ile hızlıca sisteme dahil edin.</p>
                             </button>
 
-                            <button onclick="downloadSample()" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-amber-500/50 transition-all cursor-pointer group">
+                            <button id="download-sample-card" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-amber-500/50 transition-all cursor-pointer group">
                                 <div class="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600 mb-4 group-hover:bg-amber-500 group-hover:text-white transition-colors">
                                     <span class="material-symbols-outlined">download</span>
                                 </div>
@@ -417,7 +329,7 @@
                                     <h4 class="font-bold text-white text-sm mb-3">Grup Adı Ver &amp; Kaydet</h4>
                                     <input id="quick-group-name" class="w-full bg-slate-800 border-none rounded-lg text-white text-xs placeholder:text-slate-500 focus:ring-1 focus:ring-emerald-500 mb-3" placeholder="Grup adını yazın..." type="text">
                                 </div>
-                                <button onclick="saveInlineGroupName()" class="w-full bg-emerald-600 text-white font-bold text-xs py-2.5 rounded-lg hover:bg-emerald-700 transition-colors z-10">Hepsini Kaydet</button>
+                                <button id="save-inline-group-btn" class="w-full bg-emerald-600 text-white font-bold text-xs py-2.5 rounded-lg hover:bg-emerald-700 transition-colors z-10">Hepsini Kaydet</button>
                                 <div class="absolute -right-4 -bottom-4 opacity-10">
                                     <span class="material-symbols-outlined text-8xl text-white">save</span>
                                 </div>
@@ -473,7 +385,7 @@
     </main>
 
     <div class="fixed bottom-0 right-8 w-80 z-50 hidden md:block">
-        <button onclick="toggleLogs()" class="w-full bg-primary text-white p-4 rounded-t-xl flex justify-between items-center cursor-pointer shadow-2xl">
+        <button data-action="toggle-logs" class="w-full bg-primary text-white p-4 rounded-t-xl flex justify-between items-center cursor-pointer shadow-2xl">
             <span class="flex items-center gap-2">
                 <span class="material-symbols-outlined text-sm">terminal</span>
                 <span class="text-xs font-bold font-headline tracking-wide">Sistem Günlüğü</span>
@@ -485,7 +397,7 @@
     <div id="log-monitor" class="fixed right-8 bottom-16 w-80 h-96 bg-primary rounded-xl shadow-2xl p-5 hidden flex-col z-[80] border border-white/10">
         <div class="flex items-center justify-between mb-4">
             <h3 class="text-[10px] font-bold text-white/50 uppercase tracking-widest">Sistem Logları</h3>
-            <button onclick="toggleLogs()" class="text-white/60 hover:text-white"><span class="material-symbols-outlined text-lg">close</span></button>
+            <button data-action="toggle-logs" class="text-white/60 hover:text-white"><span class="material-symbols-outlined text-lg">close</span></button>
         </div>
         <div id="logs" class="flex-1 overflow-y-auto no-scrollbar font-mono text-[10px] text-secondary-fixed-dim space-y-2">&gt;&gt; Bekleniyor...</div>
     </div>
@@ -501,8 +413,8 @@
                 <input type="text" id="manual-phone" placeholder="905xxxxxxxxx" class="w-full bg-surface-container-low border-0 rounded-xl p-4 font-mono focus:ring-2 focus:ring-secondary/20">
             </div>
             <div class="grid grid-cols-2 gap-4">
-                <button onclick="document.getElementById('manual-modal').classList.add('hidden')" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
-                <button onclick="saveManualContact()" class="py-3 rounded-xl font-bold text-xs text-white bg-primary hover:bg-primary/90 uppercase">Ekle</button>
+                <button id="manual-cancel-btn" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
+                <button id="manual-save-btn" class="py-3 rounded-xl font-bold text-xs text-white bg-primary hover:bg-primary/90 uppercase">Ekle</button>
             </div>
         </div>
     </div>
@@ -521,8 +433,8 @@
                 <input type="text" id="edit-contact-phone" placeholder="905xxxxxxxxx" class="w-full bg-surface-container-low border-0 rounded-xl p-4 font-mono focus:ring-2 focus:ring-secondary/20">
             </div>
             <div class="grid grid-cols-2 gap-4">
-                <button onclick="closeEditContactModal()" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
-                <button onclick="saveEditedContact()" class="py-3 rounded-xl font-bold text-xs text-white bg-primary hover:bg-primary/90 uppercase">Güncelle</button>
+                <button id="edit-contact-cancel-btn" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
+                <button id="edit-contact-save-btn" class="py-3 rounded-xl font-bold text-xs text-white bg-primary hover:bg-primary/90 uppercase">Güncelle</button>
             </div>
         </div>
     </div>
@@ -535,8 +447,8 @@
             </div>
             <input type="text" id="save-group-name" placeholder="Grup adı (Örn: Nisan Kampanya Listesi)" class="w-full bg-surface-container-low border-0 rounded-xl p-4 font-medium focus:ring-2 focus:ring-secondary/20">
             <div class="grid grid-cols-2 gap-4">
-                <button onclick="closeGroupSaveModal()" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
-                <button onclick="saveCurrentListAsGroup()" class="py-3 rounded-xl font-bold text-xs text-white bg-secondary hover:bg-secondary/90 uppercase">Kaydet</button>
+                <button id="group-save-cancel-btn" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
+                <button id="group-save-confirm-btn" class="py-3 rounded-xl font-bold text-xs text-white bg-secondary hover:bg-secondary/90 uppercase">Kaydet</button>
             </div>
         </div>
     </div>
@@ -549,8 +461,8 @@
             </div>
             <input type="text" id="template-name" placeholder="Şablon Adı" class="w-full bg-surface-container-low border-0 rounded-xl p-4 font-medium focus:ring-2 focus:ring-secondary/20">
             <div class="grid grid-cols-2 gap-4">
-                <button onclick="document.getElementById('template-modal').classList.add('hidden')" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
-                <button onclick="saveTemplate()" class="py-3 rounded-xl font-bold text-xs text-white bg-primary hover:bg-primary/90 uppercase">Kaydet</button>
+                <button id="template-cancel-btn" class="py-3 rounded-xl font-bold text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 uppercase">İptal</button>
+                <button id="template-save-btn" class="py-3 rounded-xl font-bold text-xs text-white bg-primary hover:bg-primary/90 uppercase">Kaydet</button>
             </div>
         </div>
     </div>
@@ -568,1249 +480,31 @@
                 <p class="text-sm text-on-surface-variant/80 font-medium leading-relaxed px-4">Tüm hedefler işlendi. İlerleme %100 olarak tamamlandı.</p>
             </div>
             <div class="w-full pt-4">
-                <button onclick="closeCampaignCompleteModal()" class="w-full bg-primary hover:bg-primary/90 text-white py-4 rounded-xl font-bold text-xs font-headline tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-[0.98] uppercase">Tamam</button>
+                <button id="campaign-complete-close-btn" class="w-full bg-primary hover:bg-primary/90 text-white py-4 rounded-xl font-bold text-xs font-headline tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-[0.98] uppercase">Tamam</button>
             </div>
             <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-secondary to-transparent opacity-30 rounded-t-2xl"></div>
         </div>
     </div>
 
-    <button onclick="document.getElementById('manual-modal').classList.remove('hidden')" class="md:hidden fixed bottom-24 right-6 w-14 h-14 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-50">
+    <button id="mobile-manual-open-btn" class="md:hidden fixed bottom-24 right-6 w-14 h-14 rounded-full bg-emerald-600 text-white shadow-lg flex items-center justify-center z-50">
         <span class="material-symbols-outlined text-2xl">person_add</span>
     </button>
 
     <nav class="md:hidden fixed bottom-0 w-full z-50 flex justify-around items-center px-6 py-3 backdrop-blur-lg bg-white/90 shadow-[0_-4px_12px_rgba(0,0,0,0.05)] rounded-t-xl border-t border-slate-200">
-        <button id="mobile-tab-campaign" onclick="switchTab('campaign')" class="flex flex-col items-center justify-center text-secondary p-2">
+        <button id="mobile-tab-campaign" data-tab="campaign" class="flex flex-col items-center justify-center text-secondary p-2">
             <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">campaign</span>
             <span class="font-body text-[10px] uppercase tracking-widest font-bold">Campaign</span>
         </button>
-        <button id="mobile-tab-contacts" onclick="switchTab('contacts')" class="flex flex-col items-center justify-center text-slate-400 p-2 opacity-60">
+        <button id="mobile-tab-contacts" data-tab="contacts" class="flex flex-col items-center justify-center text-slate-400 p-2 opacity-60">
             <span class="material-symbols-outlined">group</span>
             <span class="font-body text-[10px] uppercase tracking-widest font-bold">Contacts</span>
         </button>
     </nav>
 
-    <script>
-        const socket = window.io ? io({ timeout: 10000, reconnectionDelayMax: 5000 }) : null;
-        let currentContacts = [];
-        let visibleContacts = [];
-        let templates = [];
-        let mediaFiles = [];
-        let groups = [];
-        let activeGroupId = null;
-        let selectedCampaignGroupIds = new Set();
-        let contactFilterQuery = '';
-        const unsavedContactsDraftKey = 'whatsappc.unsavedContacts.v1';
-        const API_BASE = '/api/v1';
-
-        const navActive = 'text-secondary font-bold border-b-2 border-secondary py-1 text-sm font-headline tracking-wide';
-        const navInactive = 'text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm';
-
-        function setPanelConnectionError(message) {
-            const btn = document.getElementById('send-btn');
-            const indicator = document.getElementById('conn-indicator');
-            const txt = document.getElementById('qr-status-text');
-            const badge = document.getElementById('status-badge');
-            const detail = document.getElementById('connection-detail');
-            indicator.className = 'w-2 h-2 rounded-full bg-error mr-2';
-            txt.innerText = message;
-            badge.innerText = 'BAĞLANTI HATASI';
-            badge.className = 'text-error font-bold text-xs uppercase';
-            if (detail) {
-                detail.innerText = 'Sunucu bağlantısı yok';
-                detail.className = 'text-xs font-bold text-error';
-            }
-            btn.disabled = true;
-            btn.innerHTML = '<span class="material-symbols-outlined text-lg">error</span> SUNUCU BAĞLANTISI YOK';
-        }
-
-        function unwrapApiPayload(payload) {
-            if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'data') && Object.prototype.hasOwnProperty.call(payload, 'code')) {
-                return payload.data;
-            }
-            return payload;
-        }
-
-        function apiErrorMessage(payload, fallback) {
-            if (!payload || typeof payload !== 'object') return fallback;
-            return payload.error || payload.message || fallback;
-        }
-
-        function apiMeta(payload) {
-            return payload && typeof payload === 'object' && payload.meta ? payload.meta : {};
-        }
-
-        async function fetchJson(url, options = {}, timeoutMs = 8000) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            try {
-                const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
-                const payload = await response.json();
-                if (!response.ok) throw new Error(apiErrorMessage(payload, `${url} isteği başarısız`));
-                return unwrapApiPayload(payload);
-            } finally {
-                clearTimeout(timer);
-            }
-        }
-
-        async function fetchApiEnvelope(url, options = {}, timeoutMs = 8000) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            try {
-                const response = await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
-                const payload = await response.json();
-                if (!response.ok) throw new Error(apiErrorMessage(payload, `${url} isteği başarısız`));
-                return {
-                    data: unwrapApiPayload(payload),
-                    meta: apiMeta(payload),
-                    code: payload?.code
-                };
-            } finally {
-                clearTimeout(timer);
-            }
-        }
-
-        async function logout() {
-            const button = document.getElementById('logout-btn');
-            const label = document.getElementById('logout-label');
-            const icon = document.getElementById('logout-icon');
-            if (button) button.disabled = true;
-            if (label) label.innerText = 'Çıkılıyor';
-            if (icon) {
-                icon.innerText = 'progress_activity';
-                icon.classList.add('animate-spin');
-            }
-
-            try {
-                const response = await fetch(`${API_BASE}/logout`, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    cache: 'no-store'
-                });
-                const data = await response.json().catch(() => ({}));
-                if (!response.ok) throw new Error(apiErrorMessage(data, 'Çıkış yapılamadı'));
-                window.location.replace('/login.html');
-            } catch (err) {
-                showToast(err.message || 'Çıkış yapılamadı', 'error');
-                if (button) button.disabled = false;
-                if (label) label.innerText = 'Çıkış';
-                if (icon) {
-                    icon.innerText = 'logout';
-                    icon.classList.remove('animate-spin');
-                }
-            }
-        }
-
-        function setWhatsAppUiStatus(status, detail = '') {
-            const btn = document.getElementById('send-btn');
-            const indicator = document.getElementById('conn-indicator');
-            const txt = document.getElementById('qr-status-text');
-            const badge = document.getElementById('status-badge');
-            const connectionDetail = document.getElementById('connection-detail');
-            const qrCanvas = document.getElementById('qr-canvas');
-            const qrLoading = document.getElementById('qr-loading');
-            const connectedCheck = document.getElementById('connected-check');
-
-            if (status === 'connected') {
-                indicator.className = 'w-2 h-2 rounded-full bg-secondary animate-pulse mr-2';
-                txt.innerText = 'WhatsApp Connection';
-                badge.innerText = 'CONNECTED';
-                badge.className = 'text-secondary font-bold text-xs uppercase';
-                if (connectionDetail) {
-                    connectionDetail.innerText = 'Ready to Send';
-                    connectionDetail.className = 'text-xs font-bold text-secondary';
-                }
-                qrCanvas.classList.add('hidden');
-                qrLoading.classList.add('hidden');
-                connectedCheck.classList.remove('hidden');
-                connectedCheck.classList.add('flex');
-                btn.disabled = false;
-                btn.innerHTML = '<span class="material-symbols-outlined text-lg" style="font-variation-settings: \'FILL\' 1;">play_arrow</span> BAŞLAT';
-                return;
-            }
-
-            indicator.className = 'w-2 h-2 rounded-full bg-slate-400 animate-pulse mr-2';
-            txt.innerText = detail || 'BAĞLI DEĞİL';
-            badge.innerText = detail === 'QR BEKLENİYOR' ? 'QR BEKLENİYOR' : 'BAĞLI DEĞİL';
-            badge.className = 'text-slate-500 font-bold text-xs uppercase';
-            if (connectionDetail) {
-                connectionDetail.innerText = detail === 'QR BEKLENİYOR' ? 'QR okutulmalı' : 'WhatsApp bağlı değil';
-                connectionDetail.className = 'text-xs font-bold text-slate-500';
-            }
-            connectedCheck.classList.add('hidden');
-            connectedCheck.classList.remove('flex');
-            if (detail !== 'QR BEKLENİYOR') qrLoading.classList.remove('hidden');
-            btn.disabled = true;
-            btn.innerHTML = `<span class="material-symbols-outlined text-lg">qr_code_2</span> ${detail === 'QR BEKLENİYOR' ? 'QR OKUTUN' : 'WHATSAPP BAĞLI DEĞİL'}`;
-        }
-
-        async function refreshRuntimeStatus() {
-            try {
-                const status = await fetchJson(`${API_BASE}/runtime-status`, {}, 5000);
-                if (status.whatsapp === 'connected') {
-                    setWhatsAppUiStatus('connected');
-                } else if (status.whatsapp === 'qr') {
-                    setWhatsAppUiStatus('disconnected', 'QR BEKLENİYOR');
-                } else {
-                    setWhatsAppUiStatus('disconnected', 'BAĞLI DEĞİL');
-                }
-            } catch (err) {
-                console.error('Runtime durumu alınamadı', err);
-            }
-        }
-
-        function normalizePhone(phone) {
-            let digits = String(phone || '').replace(/[^\d]/g, '');
-            if (digits.length === 10 && digits.startsWith('5')) digits = `90${digits}`;
-            if (digits.length === 11 && digits.startsWith('05')) digits = `90${digits.slice(1)}`;
-            return digits;
-        }
-
-        function dedupeContacts(list) {
-            const unique = [];
-            const seen = new Set();
-            for (const item of list || []) {
-                const phone = normalizePhone(item?.phone);
-                if (phone.length < 10 || seen.has(phone)) continue;
-                seen.add(phone);
-                const normalized = {
-                    name: String(item?.name || '').trim(),
-                    surname: String(item?.surname || '').trim(),
-                    phone
-                };
-                if (item?.id !== undefined && item?.id !== null) normalized.id = item.id;
-                if (item?.group_id) normalized.group_id = item.group_id;
-                if (item?.normalized_phone) normalized.normalized_phone = item.normalized_phone;
-                if (item?.created_at) normalized.created_at = item.created_at;
-                if (item?.updated_at) normalized.updated_at = item.updated_at;
-                unique.push(normalized);
-            }
-            return unique;
-        }
-
-        function escapeHtml(value) {
-            return String(value || '').replace(/[&<>"']/g, char => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            }[char]));
-        }
-
-        function getInitials(contact) {
-            const full = `${contact?.name || ''} ${contact?.surname || ''}`.trim() || 'Kişi';
-            return full.split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toLocaleUpperCase('tr-TR');
-        }
-
-        function formatDate(value) {
-            if (!value) return 'Kayıtlı grup';
-            const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return 'Kayıtlı grup';
-            return `Oluşturma: ${date.toLocaleDateString('tr-TR')}`;
-        }
-
-        function getManualCampaignContacts() {
-            const input = document.getElementById('manual-campaign-numbers');
-            if (!input) return [];
-            return dedupeContacts(input.value.split(',').map(phone => ({ phone })));
-        }
-
-        function getGroupContactCount(group) {
-            return Number(group?.contact_count ?? group?.contacts?.length ?? 0);
-        }
-
-        async function loadGroupContacts(groupId, options = {}) {
-            const params = new URLSearchParams({
-                limit: String(options.limit || 500),
-                offset: String(options.offset || 0),
-                sort: options.sort || 'id',
-                direction: options.direction || 'asc'
-            });
-            if (options.search) params.set('search', options.search);
-
-            const envelope = await fetchApiEnvelope(`${API_BASE}/groups/${encodeURIComponent(groupId)}/contacts?${params.toString()}`, {}, 12000);
-            return {
-                contacts: dedupeContacts(envelope.data || []),
-                pagination: envelope.meta.pagination || { total: 0, has_more: false, next_offset: null }
-            };
-        }
-
-        async function ensureGroupContactsLoaded(groupId) {
-            const group = groups.find(item => item.id === groupId);
-            if (!group) return [];
-            if (group.contactsLoaded) return group.contacts || [];
-
-            const allContacts = [];
-            let offset = 0;
-            let hasMore = true;
-            while (hasMore) {
-                const page = await loadGroupContacts(groupId, { limit: 500, offset });
-                allContacts.push(...page.contacts);
-                hasMore = !!page.pagination.has_more;
-                offset = page.pagination.next_offset || allContacts.length;
-            }
-
-            group.contacts = dedupeContacts(allContacts);
-            group.contactsLoaded = true;
-            group.contact_count = group.contacts.length;
-            return group.contacts;
-        }
-
-        async function getSelectedCampaignContacts() {
-            const selectedGroups = groups.filter(group => selectedCampaignGroupIds.has(group.id));
-            await Promise.all(selectedGroups.map(group => ensureGroupContactsLoaded(group.id)));
-            const groupContacts = selectedGroups.flatMap(group => group.contacts || []);
-            return dedupeContacts([...groupContacts, ...getManualCampaignContacts()]);
-        }
-
-        function updateCampaignTargetSummary() {
-            const selectedGroupsTotal = groups
-                .filter(group => selectedCampaignGroupIds.has(group.id))
-                .reduce((sum, group) => sum + getGroupContactCount(group), 0);
-            const total = selectedGroupsTotal + getManualCampaignContacts().length;
-            const selectedCount = selectedCampaignGroupIds.size;
-            const countEl = document.getElementById('campaign-selected-count');
-            if (countEl) countEl.innerText = `Toplam ${total} numara seçildi`;
-
-            const manualCountEl = document.getElementById('manual-campaign-count');
-            if (manualCountEl) {
-                const manualCount = getManualCampaignContacts().length;
-                manualCountEl.innerText = `Virgül ile ayırın. ${manualCount} manuel numara hazır. ${selectedCount} grup seçili.`;
-            }
-            const totalEl = document.getElementById('prog-total');
-            if (totalEl) totalEl.innerText = `TOPLAM: ${total}`;
-        }
-
-        function toggleCampaignGroup(groupId, checked) {
-            if (checked) selectedCampaignGroupIds.add(groupId);
-            else selectedCampaignGroupIds.delete(groupId);
-            renderCampaignGroupChecklist();
-        }
-
-        function renderCampaignGroupChecklist() {
-            const container = document.getElementById('campaign-group-list');
-            if (!container) return;
-
-            selectedCampaignGroupIds = new Set([...selectedCampaignGroupIds].filter(id => groups.some(group => group.id === id)));
-
-            if (groups.length === 0) {
-                container.innerHTML = '<div class="p-4 rounded-lg bg-surface-container-low text-[10px] font-bold text-slate-400 uppercase tracking-widest">Henüz kayıtlı grup yok</div>';
-                updateCampaignTargetSummary();
-                return;
-            }
-
-            container.innerHTML = groups.map(group => {
-                const count = getGroupContactCount(group);
-                const checked = selectedCampaignGroupIds.has(group.id);
-                return `
-                    <label class="flex items-center justify-between p-3 rounded-lg border ${checked ? 'bg-secondary/5 border-secondary/20' : 'border-transparent hover:bg-slate-50 hover:border-slate-100'} transition-all cursor-pointer">
-                        <div class="flex items-center gap-3 min-w-0">
-                            <input class="rounded border-slate-300 text-secondary focus:ring-secondary" type="checkbox" ${checked ? 'checked' : ''} onchange="toggleCampaignGroup('${group.id}', this.checked)">
-                            <span class="text-sm font-medium text-slate-700 truncate" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
-                        </div>
-                        <span class="text-xs text-slate-400 font-bold whitespace-nowrap">${count} Kişi</span>
-                    </label>
-                `;
-            }).join('');
-            updateCampaignTargetSummary();
-        }
-
-        function updateManualCampaignCount() {
-            updateCampaignTargetSummary();
-        }
-
-        function saveUnsavedContactsDraft() {
-            try {
-                if (activeGroupId || currentContacts.length === 0) {
-                    localStorage.removeItem(unsavedContactsDraftKey);
-                    return;
-                }
-
-                localStorage.setItem(unsavedContactsDraftKey, JSON.stringify({
-                    savedAt: new Date().toISOString(),
-                    contacts: dedupeContacts(currentContacts)
-                }));
-            } catch (err) {
-                console.warn('Kaydedilmemiş kişi taslağı saklanamadı:', err);
-            }
-        }
-
-        function clearUnsavedContactsDraft() {
-            try {
-                localStorage.removeItem(unsavedContactsDraftKey);
-            } catch (err) {
-                console.warn('Kaydedilmemiş kişi taslağı temizlenemedi:', err);
-            }
-        }
-
-        function restoreUnsavedContactsDraft() {
-            if (activeGroupId || currentContacts.length > 0) return false;
-
-            try {
-                const draft = JSON.parse(localStorage.getItem(unsavedContactsDraftKey) || 'null');
-                const draftContacts = dedupeContacts(draft?.contacts || []);
-                if (draftContacts.length === 0) {
-                    clearUnsavedContactsDraft();
-                    return false;
-                }
-
-                currentContacts = draftContacts;
-                visibleContacts = currentContacts;
-                document.getElementById('active-group-name').innerText = 'Kaydedilmemiş Liste';
-                updateContactsTable();
-                showToast('Kaydedilmemiş liste geri yüklendi. Kalıcı olması için grup adı verip kaydedin.', 'info');
-                return true;
-            } catch {
-                clearUnsavedContactsDraft();
-                return false;
-            }
-        }
-
-        function handleManualNumbersInput(input) {
-            const cleaned = input.value.replace(/[^\d,]/g, '').replace(/,{2,}/g, ',');
-            if (input.value !== cleaned) {
-                const cursorPosition = input.selectionStart;
-                input.value = cleaned;
-                input.setSelectionRange(Math.max(cursorPosition - 1, 0), Math.max(cursorPosition - 1, 0));
-            }
-            updateManualCampaignCount();
-        }
-
-        function switchTab(tab) {
-            document.getElementById('view-campaign').classList.toggle('hidden', tab !== 'campaign');
-            document.getElementById('view-contacts').classList.toggle('hidden', tab !== 'contacts');
-            document.getElementById('tab-campaign').className = tab === 'campaign' ? navActive : navInactive;
-            document.getElementById('tab-contacts').className = tab === 'contacts' ? navActive : navInactive;
-            document.getElementById('mobile-tab-campaign').className = tab === 'campaign' ? 'flex flex-col items-center justify-center text-secondary p-2' : 'flex flex-col items-center justify-center text-slate-400 p-2 opacity-60';
-            document.getElementById('mobile-tab-contacts').className = tab === 'contacts' ? 'flex flex-col items-center justify-center text-secondary p-2' : 'flex flex-col items-center justify-center text-slate-400 p-2 opacity-60';
-            if (tab === 'contacts') updateContactsTable();
-        }
-
-        if (!socket) {
-            setPanelConnectionError('Socket.IO yüklenemedi');
-        }
-
-        socket?.on('connect_error', () => {
-            setPanelConnectionError('Sunucu bağlantısı kurulamadı');
-        });
-
-        socket?.on('qr', qr => {
-            const canvas = document.getElementById('qr-canvas');
-            canvas.classList.remove('hidden');
-            document.getElementById('qr-loading').classList.add('hidden');
-            document.getElementById('connected-check').classList.add('hidden');
-            setWhatsAppUiStatus('disconnected', 'QR BEKLENİYOR');
-            const renderQr = () => {
-                if (!window.QRCode) return setTimeout(renderQr, 250);
-                QRCode.toCanvas(canvas, qr, { width: 180, margin: 1 });
-            };
-            renderQr();
-        });
-
-        socket?.on('status', status => setWhatsAppUiStatus(status));
-
-        socket?.on('log', data => {
-            const logs = document.getElementById('logs');
-            const div = document.createElement('div');
-            const colorClass = data.type === 'error' ? 'text-red-300' : (data.type === 'success' ? 'text-secondary-fixed-dim' : (data.type === 'wait' ? 'text-amber-300' : 'text-slate-300'));
-            div.className = colorClass;
-            div.innerText = `> ${data.message}`;
-            logs.prepend(div);
-            while (logs.children.length > 300) logs.removeChild(logs.lastChild);
-
-            if (data.progress !== undefined) {
-                document.getElementById('prog-box').classList.remove('hidden');
-                document.getElementById('prog-bar').style.width = `${data.progress}%`;
-                document.getElementById('prog-text').innerText = `${Math.round(data.progress)}%`;
-                document.getElementById('prog-count').innerText = data.message;
-            }
-
-            if (data.done) {
-                document.getElementById('prog-box').classList.remove('hidden');
-                document.getElementById('prog-bar').style.width = '100%';
-                document.getElementById('prog-text').innerText = '100%';
-                document.getElementById('prog-count').innerText = data.message;
-                document.getElementById('stop-btn').classList.add('hidden');
-                document.getElementById('stop-btn').classList.remove('flex');
-                document.getElementById('send-btn').classList.remove('hidden');
-                showCampaignCompleteModal();
-                return;
-            }
-
-            if (data.message.toLocaleLowerCase('tr-TR').includes('durduruldu')) {
-                document.getElementById('stop-btn').classList.add('hidden');
-                document.getElementById('stop-btn').classList.remove('flex');
-                document.getElementById('send-btn').classList.remove('hidden');
-            }
-        });
-
-        function showCampaignCompleteModal() {
-            document.getElementById('campaign-complete-modal').classList.remove('hidden');
-            document.getElementById('campaign-complete-modal').classList.add('flex');
-        }
-
-        function closeCampaignCompleteModal() {
-            document.getElementById('campaign-complete-modal').classList.add('hidden');
-            document.getElementById('campaign-complete-modal').classList.remove('flex');
-        }
-
-        function insertToken(token) {
-            const input = document.getElementById('message');
-            const start = input.selectionStart || input.value.length;
-            const end = input.selectionEnd || input.value.length;
-            input.value = input.value.slice(0, start) + token + input.value.slice(end);
-            input.focus();
-            input.setSelectionRange(start + token.length, start + token.length);
-            updatePreview();
-        }
-
-        function updatePreview() {
-            const text = document.getElementById('message').value || 'Mesajınız...';
-            document.getElementById('mes-text').innerText = text.replace(/{{ad}}/g, 'Sayın Ahmet Yılmaz').replace(/{{soyadi}}/g, 'Yılmaz').replace(/{([^{}]+)}/g, (m, c) => c.split('|')[0]);
-            const inner = document.getElementById('media-preview-inner');
-            if (mediaFiles.length > 0) {
-                inner.classList.remove('hidden');
-                if (mediaFiles[0].mimetype.startsWith('video/')) {
-                    inner.innerHTML = `<video src="/${mediaFiles[0].path}" class="w-full rounded-md max-h-[200px] object-cover" controls></video>`;
-                } else {
-                    inner.innerHTML = `<img src="/${mediaFiles[0].path}" class="w-full rounded-md object-cover">`;
-                }
-            } else {
-                inner.classList.add('hidden');
-                inner.innerHTML = '';
-            }
-        }
-
-        function setMediaUploadStatus(state, message) {
-            const status = document.getElementById('media-upload-status');
-            const spinner = document.getElementById('media-upload-spinner');
-            const text = document.getElementById('media-upload-text');
-            const button = document.getElementById('media-upload-btn');
-
-            status.classList.toggle('hidden', state === 'idle');
-            status.classList.toggle('flex', state !== 'idle');
-            spinner.classList.toggle('hidden', state !== 'loading');
-            text.innerText = message || '';
-            text.className = 'text-[10px] font-bold uppercase tracking-widest ' + (state === 'error' ? 'text-error' : state === 'success' ? 'text-secondary' : 'text-slate-500');
-            button.disabled = state === 'loading';
-        }
-
-        function renderMediaPreview() {
-            document.getElementById('media-preview').innerHTML = mediaFiles.map((f, index) => {
-                const preview = f.mimetype.startsWith('video/')
-                    ? '<div class="w-full h-full bg-white rounded-lg border border-outline-variant/20 flex items-center justify-center"><span class="material-symbols-outlined text-primary text-3xl">movie</span></div>'
-                    : `<img src="/${f.path}" class="w-full h-full object-cover rounded-lg" alt="Medya önizleme">`;
-
-                return `
-                    <div class="aspect-square bg-white rounded-lg border border-outline-variant/20 relative group overflow-hidden">
-                        ${preview}
-                        <button type="button" onclick="removeMediaByIndex(${index})" aria-label="Medyayı kaldır" class="absolute top-1 right-1 bg-error text-white w-6 h-6 rounded-full flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                            <span class="material-symbols-outlined text-[12px]">close</span>
-                        </button>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        function removeMediaByIndex(index) {
-            const file = mediaFiles[index];
-            if (file) removeMedia(file.path);
-        }
-
-        async function removeMedia(mediaPath) {
-            try {
-                const res = await fetch(`${API_BASE}/upload-media`, {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path: mediaPath })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(apiErrorMessage(data, 'Medya kaldırılamadı'));
-
-                mediaFiles = unwrapApiPayload(data);
-                renderMediaPreview();
-                updatePreview();
-                setMediaUploadStatus(mediaFiles.length > 0 ? 'success' : 'idle', mediaFiles.length > 0 ? `${mediaFiles.length} medya hazır` : '');
-            } catch (err) {
-                showToast(err.message, 'error');
-            }
-        }
-
-        async function uploadMedia(input) {
-            if (!input.files || input.files.length === 0) return;
-
-            const fd = new FormData();
-            for (let f of input.files) fd.append('media', f);
-            setMediaUploadStatus('loading', 'Medya yükleniyor...');
-
-            try {
-                const res = await fetch(`${API_BASE}/upload-media`, { method: 'POST', body: fd });
-                const data = await res.json();
-                if (!res.ok) throw new Error(apiErrorMessage(data, 'Medya yüklenemedi'));
-
-                mediaFiles = unwrapApiPayload(data);
-                renderMediaPreview();
-                updatePreview();
-                setMediaUploadStatus('success', `${mediaFiles.length} medya yüklendi`);
-                setTimeout(() => setMediaUploadStatus('idle'), 3500);
-            } catch (err) {
-                setMediaUploadStatus('error', err.message);
-                showToast(err.message, 'error');
-            } finally {
-                input.value = '';
-            }
-        }
-
-        async function uploadExcel(input) {
-            if (!input.files[0]) return;
-            showToast('Excel yükleniyor...', 'info');
-            const fd = new FormData();
-            fd.append('excel', input.files[0]);
-            input.value = '';
-            try {
-                const res = await fetch(`${API_BASE}/upload-excel`, { method: 'POST', body: fd });
-                const data = await res.json();
-                if (!res.ok) {
-                    showToast(apiErrorMessage(data, 'Excel yüklenemedi'), 'error');
-                    return;
-                }
-                const uploadData = unwrapApiPayload(data);
-                const importedContacts = Array.isArray(uploadData) ? uploadData : (uploadData.contacts || []);
-                const summary = Array.isArray(uploadData) ? null : uploadData.summary;
-                const merged = dedupeContacts([...currentContacts, ...importedContacts]);
-                const addedCount = merged.length - currentContacts.length;
-                currentContacts = merged;
-                visibleContacts = currentContacts;
-                updateContactsTable();
-                saveCurrentContactsToBackend();
-                saveUnsavedContactsDraft();
-                if (addedCount > 0) {
-                    const details = summary ? ` (${summary.duplicate || 0} duplicate, ${summary.invalid || 0} hatalı satır)` : '';
-                    const saveHint = activeGroupId ? '' : '. Kalıcı olması için grup olarak kaydedin';
-                    showToast(`${addedCount} yeni kişi yüklendi${details}${saveHint}`, 'success');
-                } else {
-                    showToast('Yeni kişi eklenmedi. Numaralar zaten listede.', 'info');
-                }
-            } catch (e) {
-                showToast('Bağlantı hatası: ' + e.message, 'error');
-            }
-        }
-
-        function showToast(msg, type = 'info') {
-            const colors = {
-                info: 'bg-white text-primary border-primary/10',
-                success: 'bg-white text-primary border-secondary/20',
-                error: 'bg-white text-primary border-error/20'
-            };
-            const icons = { info: 'info', success: 'cloud_done', error: 'error' };
-            const iconColors = { info: 'text-primary bg-primary/10', success: 'text-secondary bg-secondary/10', error: 'text-error bg-error/10' };
-            const t = document.createElement('div');
-            t.className = `fixed bottom-8 left-1/2 -translate-x-1/2 z-[200] ${colors[type] || colors.info} shadow-2xl border px-6 py-4 rounded-2xl flex items-center gap-4 max-w-[calc(100vw-2rem)]`;
-            t.innerHTML = `
-                <div class="w-10 h-10 ${iconColors[type] || iconColors.info} rounded-full flex items-center justify-center shrink-0">
-                    <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">${icons[type] || icons.info}</span>
-                </div>
-                <div>
-                    <h5 class="text-xs font-bold">${type === 'error' ? 'İşlem Hatası' : type === 'success' ? 'İşlem Başarılı' : 'Bilgilendirme'}</h5>
-                    <p class="text-[10px] text-slate-500">${escapeHtml(msg)}</p>
-                </div>
-                <button class="ml-2 text-slate-300 hover:text-slate-500" type="button"><span class="material-symbols-outlined text-lg">close</span></button>
-            `;
-            t.querySelector('button').addEventListener('click', () => t.remove());
-            document.body.appendChild(t);
-            setTimeout(() => t.remove(), 4000);
-        }
-
-        function openGroupSaveModal() {
-            if (currentContacts.length === 0) {
-                showToast('Önce kişi ekleyin veya Excel yükleyin', 'error');
-                return;
-            }
-
-            const activeGroup = groups.find(g => g.id === activeGroupId);
-            const nameInput = document.getElementById('save-group-name');
-            nameInput.value = document.getElementById('quick-group-name')?.value.trim() || (activeGroup ? activeGroup.name : '');
-            document.getElementById('save-group-summary').innerText = `${currentContacts.length} kişi kaydedilecek.`;
-            document.getElementById('save-group-modal').classList.remove('hidden');
-            setTimeout(() => nameInput.focus(), 30);
-        }
-
-        function saveInlineGroupName() {
-            openGroupSaveModal();
-        }
-
-        function closeGroupSaveModal() {
-            document.getElementById('save-group-modal').classList.add('hidden');
-        }
-
-        async function saveCurrentListAsGroup() {
-            const groupName = document.getElementById('save-group-name').value.trim();
-            if (!groupName) {
-                showToast('Grup adı zorunlu', 'error');
-                return;
-            }
-
-            currentContacts = dedupeContacts(currentContacts);
-            if (currentContacts.length === 0) {
-                showToast('Kaydedilecek geçerli kişi yok', 'error');
-                return;
-            }
-
-            const normalize = (value) => value.toLocaleLowerCase('tr-TR').trim();
-            const existingGroup = groups.find(g => normalize(g.name) === normalize(groupName));
-            let targetGroupId = null;
-
-            try {
-                if (existingGroup) {
-                    if (!confirm(`"${groupName}" grubu zaten var. Üzerine yazılsın mı?`)) return;
-                    targetGroupId = existingGroup.id;
-                } else {
-                    const createRes = await fetch(`${API_BASE}/groups`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name: groupName })
-                    });
-                    const created = await createRes.json();
-                    if (!createRes.ok) throw new Error(apiErrorMessage(created, 'Grup oluşturulamadı'));
-                    targetGroupId = unwrapApiPayload(created).id;
-                }
-
-                const saveRes = await fetch(`${API_BASE}/groups/${targetGroupId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contacts: currentContacts })
-                });
-                const saveData = await saveRes.json();
-                if (!saveRes.ok) throw new Error(apiErrorMessage(saveData, 'Kişiler kaydedilemedi'));
-
-                await loadGroups();
-                await selectGroup(targetGroupId);
-                selectedCampaignGroupIds.add(targetGroupId);
-                renderCampaignGroupChecklist();
-                closeGroupSaveModal();
-                document.getElementById('quick-group-name').value = '';
-                clearUnsavedContactsDraft();
-                showToast(`"${groupName}" grubuna ${currentContacts.length} kişi kaydedildi`, 'success');
-            } catch (err) {
-                showToast(err.message, 'error');
-            }
-        }
-
-        async function saveManualContact() {
-            const name = document.getElementById('manual-name').value.trim();
-            const phone = normalizePhone(document.getElementById('manual-phone').value);
-
-            if (!name || phone.length < 10) {
-                showToast('Geçerli ad ve telefon girin', 'error');
-                return;
-            }
-
-            if (activeGroupId) {
-                try {
-                    const res = await fetch(`${API_BASE}/groups/${activeGroupId}/contacts`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name, phone })
-                    });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(apiErrorMessage(data, 'Kişi eklenemedi'));
-                    currentContacts = dedupeContacts([...currentContacts, unwrapApiPayload(data)]);
-                    visibleContacts = currentContacts;
-                    const group = groups.find(g => g.id === activeGroupId);
-                    if (group) {
-                        group.contacts = [...currentContacts];
-                        group.contactsLoaded = true;
-                        group.contact_count = currentContacts.length;
-                    }
-                    document.getElementById('manual-modal').classList.add('hidden');
-                    updateContactsTable();
-                    renderGroupsSidebar();
-                    renderCampaignGroupChecklist();
-                    document.getElementById('manual-name').value = '';
-                    document.getElementById('manual-phone').value = '';
-                    showToast('Kişi eklendi', 'success');
-                    return;
-                } catch (err) {
-                    showToast(err.message, 'error');
-                    return;
-                }
-            }
-
-            const merged = dedupeContacts([...currentContacts, { name, phone }]);
-            if (merged.length === currentContacts.length) {
-                showToast('Bu numara zaten listede', 'info');
-                return;
-            }
-
-            currentContacts = merged;
-            visibleContacts = currentContacts;
-            document.getElementById('manual-modal').classList.add('hidden');
-            updateContactsTable();
-            saveCurrentContactsToBackend();
-            saveUnsavedContactsDraft();
-            document.getElementById('manual-name').value = '';
-            document.getElementById('manual-phone').value = '';
-            showToast('Kişi geçici listeye eklendi. Kalıcı olması için grup adı verip kaydedin.', 'info');
-        }
-
-        async function resetConnection() {
-            if (confirm('Bağlantı sıfırlanacak. Sayfa yenilenecektir. Emin misiniz?')) {
-                await fetch(`${API_BASE}/reset-session`, { method: 'POST' });
-                window.location.reload();
-            }
-        }
-
-        function downloadSample() { window.location.href = `${API_BASE}/download-sample`; }
-
-        function clearList() {
-            if (window.confirm('Tüm rehber silinecek. Emin misiniz?')) {
-                currentContacts = [];
-                visibleContacts = [];
-                updateContactsTable();
-                saveCurrentContactsToBackend();
-                if (!activeGroupId) clearUnsavedContactsDraft();
-            }
-        }
-
-        async function removeContact(index) {
-            const contact = visibleContacts[index];
-            if (!contact) return;
-
-            if (activeGroupId && contact.id) {
-                try {
-                    const res = await fetch(`${API_BASE}/groups/${activeGroupId}/contacts/${contact.id}`, { method: 'DELETE' });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(apiErrorMessage(data, 'Kişi silinemedi'));
-                    currentContacts = currentContacts.filter(item => String(item.id) !== String(contact.id));
-                    visibleContacts = contactFilterQuery ? visibleContacts.filter(item => String(item.id) !== String(contact.id)) : currentContacts;
-                    const group = groups.find(g => g.id === activeGroupId);
-                    if (group) {
-                        group.contacts = [...currentContacts];
-                        group.contactsLoaded = true;
-                        group.contact_count = currentContacts.length;
-                    }
-                    updateContactsTable();
-                    renderGroupsSidebar();
-                    renderCampaignGroupChecklist();
-                    showToast('Kişi silindi', 'success');
-                    return;
-                } catch (err) {
-                    showToast(err.message, 'error');
-                    return;
-                }
-            }
-
-            const targetPhone = normalizePhone(contact.phone);
-            currentContacts = currentContacts.filter(item => normalizePhone(item.phone) !== targetPhone);
-            visibleContacts = currentContacts;
-            updateContactsTable();
-            saveCurrentContactsToBackend();
-            saveUnsavedContactsDraft();
-        }
-
-        function openEditContact(index) {
-            const contact = visibleContacts[index];
-            if (!contact) return;
-            document.getElementById('edit-contact-id').value = contact.id || '';
-            document.getElementById('edit-contact-index').value = String(index);
-            document.getElementById('edit-contact-name').value = contact.name || '';
-            document.getElementById('edit-contact-surname').value = contact.surname || '';
-            document.getElementById('edit-contact-phone').value = contact.phone || '';
-            document.getElementById('edit-contact-modal').classList.remove('hidden');
-        }
-
-        function closeEditContactModal() {
-            document.getElementById('edit-contact-modal').classList.add('hidden');
-        }
-
-        async function saveEditedContact() {
-            const contactId = document.getElementById('edit-contact-id').value;
-            const index = Number.parseInt(document.getElementById('edit-contact-index').value, 10);
-            const original = visibleContacts[index];
-            const payload = {
-                name: document.getElementById('edit-contact-name').value.trim(),
-                surname: document.getElementById('edit-contact-surname').value.trim(),
-                phone: normalizePhone(document.getElementById('edit-contact-phone').value)
-            };
-
-            if (!payload.phone || payload.phone.length < 10) {
-                showToast('Geçerli telefon girin', 'error');
-                return;
-            }
-
-            if (activeGroupId && contactId) {
-                try {
-                    const res = await fetch(`${API_BASE}/groups/${activeGroupId}/contacts/${contactId}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    const updated = await res.json();
-                    if (!res.ok) throw new Error(apiErrorMessage(updated, 'Kişi güncellenemedi'));
-                    const updatedContact = unwrapApiPayload(updated);
-                    currentContacts = currentContacts.map(item => String(item.id) === String(contactId) ? updatedContact : item);
-                    visibleContacts = contactFilterQuery ? visibleContacts.map(item => String(item.id) === String(contactId) ? updatedContact : item) : currentContacts;
-                    const group = groups.find(g => g.id === activeGroupId);
-                    if (group) {
-                        group.contacts = [...currentContacts];
-                        group.contactsLoaded = true;
-                        group.contact_count = currentContacts.length;
-                    }
-                    closeEditContactModal();
-                    updateContactsTable();
-                    renderGroupsSidebar();
-                    renderCampaignGroupChecklist();
-                    showToast('Kişi güncellendi', 'success');
-                    return;
-                } catch (err) {
-                    showToast(err.message, 'error');
-                    return;
-                }
-            }
-
-            if (!original) return;
-            currentContacts = currentContacts.map(item => normalizePhone(item.phone) === normalizePhone(original.phone) ? { ...item, ...payload } : item);
-            visibleContacts = currentContacts;
-            closeEditContactModal();
-            updateContactsTable();
-            saveCurrentContactsToBackend();
-            saveUnsavedContactsDraft();
-        }
-
-        window.clearList = clearList;
-        window.removeContact = removeContact;
-        window.openEditContact = openEditContact;
-
-        function updateContactsTable() {
-            const tbody = document.getElementById('contacts-table-body');
-            const list = contactFilterQuery ? visibleContacts : currentContacts;
-            document.getElementById('num-badge').innerText = currentContacts.length;
-            document.getElementById('contacts-pagination-label').innerText = `${list.length} / ${currentContacts.length} gösteriliyor`;
-            if (currentContacts.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-20 text-center text-slate-300 font-bold uppercase text-[10px]">Rehber Boş</td></tr>';
-                return;
-            }
-            if (list.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-20 text-center text-slate-300 font-bold uppercase text-[10px]">Arama sonucu bulunamadı</td></tr>';
-                return;
-            }
-            tbody.innerHTML = list.map((c, i) => `
-                <tr class="hover:bg-slate-50/50 transition-colors">
-                    <td class="px-6 py-4 text-sm text-slate-500 font-medium">${i + 1}</td>
-                    <td class="px-6 py-4">
-                        <div class="flex items-center gap-3">
-                            <div class="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center text-xs font-bold text-emerald-600">${escapeHtml(getInitials(c))}</div>
-                            <span class="text-sm font-semibold text-slate-900">${escapeHtml(`${c.name || ''} ${c.surname || ''}`.trim() || 'İsimsiz')}</span>
-                        </div>
-                    </td>
-                    <td class="px-6 py-4 text-sm text-slate-600 font-mono">${escapeHtml(c.phone)}</td>
-                    <td class="px-6 py-4 text-right">
-                        <div class="inline-flex items-center gap-1">
-                            <button onclick="openEditContact(${i})" class="p-1.5 rounded-lg text-slate-400 hover:text-secondary hover:bg-secondary/5 transition-all" title="Kişiyi düzenle">
-                                <span class="material-symbols-outlined text-lg">edit</span>
-                            </button>
-                            <button onclick="removeContact(${i})" class="p-1.5 rounded-lg text-slate-400 hover:text-error hover:bg-error/5 transition-all" title="Kişiyi sil">
-                                <span class="material-symbols-outlined text-lg">delete</span>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `).join('');
-        }
-
-        function filterContacts(query) {
-            const normalized = String(query || '').toLocaleLowerCase('tr-TR').trim();
-            contactFilterQuery = normalized;
-            if (!normalized) {
-                visibleContacts = currentContacts;
-            } else {
-                visibleContacts = currentContacts.filter(contact => {
-                    const full = `${contact.name || ''} ${contact.surname || ''} ${contact.phone || ''}`.toLocaleLowerCase('tr-TR');
-                    return full.includes(normalized);
-                });
-            }
-            updateContactsTable();
-        }
-
-        async function initTemplates() {
-            try {
-                const vData = await fetchJson(`${API_BASE}/version`).catch(() => ({ version: '1.2.0' }));
-                document.getElementById('sys-version').innerText = `v${vData.version} - GOLD EDITION`;
-                templates = await fetchJson(`${API_BASE}/templates`);
-                document.getElementById('template-select').innerHTML = '<option value="">ŞABLONLAR</option>' + templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
-            } catch (err) {
-                templates = [];
-                document.getElementById('template-select').innerHTML = '<option value="">ŞABLONLAR YÜKLENEMEDİ</option>';
-                showToast('Şablonlar yüklenemedi: ' + err.message, 'error');
-            }
-        }
-
-        function loadTemplate(id) {
-            const t = templates.find(item => item.id == id);
-            if (t) {
-                document.getElementById('message').value = t.text;
-                updatePreview();
-            }
-        }
-
-        async function saveTemplate() {
-            const name = document.getElementById('template-name').value.trim();
-            const text = document.getElementById('message').value;
-            if (!name || !text) {
-                showToast('Şablon adı ve mesaj içeriği zorunlu', 'error');
-                return;
-            }
-            const res = await fetch(`${API_BASE}/templates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, text }) });
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                showToast(apiErrorMessage(data, 'Şablon kaydedilemedi'), 'error');
-                return;
-            }
-            initTemplates();
-            document.getElementById('template-modal').classList.add('hidden');
-            document.getElementById('template-name').value = '';
-            showToast('Şablon kaydedildi', 'success');
-        }
-
-        async function startCampaign() {
-            if (!socket) return alert('Sunucu bağlantısı kurulamadı. Sayfayı yenileyin veya sunucu loglarını kontrol edin.');
-            const text = document.getElementById('message').value;
-            let targetContacts = [];
-            try {
-                targetContacts = await getSelectedCampaignContacts();
-            } catch (err) {
-                showToast('Hedef kişiler yüklenemedi: ' + err.message, 'error');
-                return;
-            }
-
-            if (!text || targetContacts.length === 0) return alert('Mesaj içeriği ve hedef numara/grup boş olamaz.');
-            document.getElementById('send-btn').classList.add('hidden');
-            document.getElementById('stop-btn').classList.remove('hidden');
-            document.getElementById('stop-btn').classList.add('flex');
-            document.getElementById('prog-box').classList.remove('hidden');
-
-            const delayRange = [
-                parseInt(document.getElementById('min-delay').value),
-                parseInt(document.getElementById('max-delay').value)
-            ];
-            const dailyLimit = parseInt(document.getElementById('daily-limit').value);
-
-            socket.emit('start-bulk', {
-                contacts: targetContacts,
-                message: text,
-                delayRange,
-                dailyLimit
-            });
-        }
-
-        function stopCampaign() {
-            if (!socket) return;
-            socket.emit('stop-bulk');
-        }
-
-        function toggleLogs() {
-            const panel = document.getElementById('log-monitor');
-            panel.classList.toggle('hidden');
-            panel.classList.toggle('flex');
-        }
-
-        async function loadGroups() {
-            try {
-                const data = await fetchJson(`${API_BASE}/groups`);
-                groups = Array.isArray(data) ? data : [];
-                if (activeGroupId) {
-                    const active = groups.find(g => g.id === activeGroupId);
-                    if (active) {
-                        currentContacts = dedupeContacts(await ensureGroupContactsLoaded(active.id));
-                        visibleContacts = currentContacts;
-                        document.getElementById('active-group-name').innerText = active.name;
-                        updateContactsTable();
-                    } else {
-                        activeGroupId = null;
-                        currentContacts = [];
-                        visibleContacts = [];
-                        document.getElementById('active-group-name').innerText = 'Seçili Grup Yok';
-                        updateContactsTable();
-                    }
-                }
-                renderGroupsSidebar();
-                restoreUnsavedContactsDraft();
-            } catch (err) {
-                groups = [];
-                document.getElementById('groups-list').innerHTML = '<div class="p-4 text-center text-[10px] text-error font-bold uppercase tracking-widest">Gruplar yüklenemedi</div>';
-                renderCampaignGroupChecklist();
-                showToast('Gruplar yüklenemedi: ' + err.message, 'error');
-            }
-        }
-
-        function renderGroupsSidebar() {
-            const container = document.getElementById('groups-list');
-            if (groups.length === 0) {
-                container.innerHTML = '<div class="p-4 text-center text-[10px] text-slate-400 font-bold uppercase tracking-widest">Henüz grup yok</div>';
-            } else {
-                container.innerHTML = groups.map(g => {
-                    const active = activeGroupId === g.id;
-                    return `
-                        <div class="${active ? 'bg-surface-container-lowest border-l-4 border-emerald-600 shadow-sm' : 'bg-transparent hover:bg-slate-200/50'} p-4 rounded-xl flex items-center justify-between group cursor-pointer transition-colors" onclick="selectGroup('${g.id}')">
-                            <div class="min-w-0">
-                                <p class="text-sm ${active ? 'font-bold text-slate-900' : 'font-medium text-slate-700'} truncate" title="${escapeHtml(g.name)}">${escapeHtml(g.name)}</p>
-                                <p class="text-[11px] text-slate-500">${formatDate(g.created_at || g.createdAt)}</p>
-                            </div>
-                            <div class="flex items-center gap-2 shrink-0">
-                                <span class="${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'} text-[10px] font-bold px-2 py-0.5 rounded-full">${getGroupContactCount(g)}</span>
-                                <button onclick="event.stopPropagation(); deleteGroup('${g.id}')" class="text-slate-400 hover:text-error opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all" title="Grubu sil">
-                                    <span class="material-symbols-outlined text-sm">close</span>
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-            renderCampaignGroupChecklist();
-        }
-
-        async function createGroup() {
-            const name = prompt('Yeni grup adı (Örn: İş Arkadaşları):');
-            if (!name || name.trim() === '') return;
-            try {
-                const res = await fetch(`${API_BASE}/groups`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name.trim() })
-                });
-                const newGroup = await res.json();
-                if (!res.ok) throw new Error(apiErrorMessage(newGroup, 'Grup oluşturulamadı'));
-                const createdGroup = unwrapApiPayload(newGroup);
-                groups.push(createdGroup);
-                await selectGroup(createdGroup.id);
-                selectedCampaignGroupIds.add(createdGroup.id);
-                renderCampaignGroupChecklist();
-            } catch (err) {
-                showToast(err.message, 'error');
-            }
-        }
-
-        async function deleteGroup(id) {
-            if (!confirm('Bu grubu ve içindeki kişileri silmek istediğinize emin misiniz?')) return;
-            try {
-                const res = await fetch(`${API_BASE}/groups/${id}`, { method: 'DELETE' });
-                const data = await res.json();
-                if (!res.ok) throw new Error(apiErrorMessage(data, 'Grup silinemedi'));
-                groups = groups.filter(g => g.id !== id);
-                selectedCampaignGroupIds.delete(id);
-                if (activeGroupId === id) {
-                    activeGroupId = null;
-                    currentContacts = [];
-                    visibleContacts = [];
-                    document.getElementById('active-group-name').innerText = 'Seçili Grup Yok';
-                    updateContactsTable();
-                }
-                renderGroupsSidebar();
-            } catch (err) {
-                showToast(err.message, 'error');
-            }
-        }
-
-        async function selectGroup(id) {
-            saveUnsavedContactsDraft();
-            activeGroupId = id;
-            const group = groups.find(g => g.id === id);
-            if (!group) {
-                activeGroupId = null;
-                currentContacts = [];
-                visibleContacts = [];
-                document.getElementById('active-group-name').innerText = 'Seçili Grup Yok';
-                updateContactsTable();
-                renderGroupsSidebar();
-                return;
-            }
-            try {
-                currentContacts = dedupeContacts(await ensureGroupContactsLoaded(group.id));
-            } catch (err) {
-                showToast('Kişiler yüklenemedi: ' + err.message, 'error');
-                currentContacts = [];
-            }
-            visibleContacts = currentContacts;
-            document.getElementById('active-group-name').innerText = group.name;
-            updateContactsTable();
-            renderGroupsSidebar();
-        }
-
-        async function saveCurrentContactsToBackend() {
-            if (!activeGroupId) {
-                saveUnsavedContactsDraft();
-                return;
-            }
-            currentContacts = dedupeContacts(currentContacts);
-            visibleContacts = currentContacts;
-            try {
-                const res = await fetch(`${API_BASE}/groups/${activeGroupId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ contacts: currentContacts })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(apiErrorMessage(data, 'Grup güncellenemedi'));
-                await loadGroups();
-            } catch (err) {
-                showToast(err.message, 'error');
-            }
-        }
-
-        async function checkActiveCampaign() {
-            try {
-                const data = await fetchJson(`${API_BASE}/campaign-status`);
-                if (data.campaign && data.campaign.status === 'running') {
-                    document.getElementById('send-btn').classList.add('hidden');
-                    document.getElementById('stop-btn').classList.remove('hidden');
-                    document.getElementById('stop-btn').classList.add('flex');
-                    document.getElementById('prog-box').classList.remove('hidden');
-                    document.getElementById('prog-bar').style.width = `${data.campaign.progress}%`;
-                    document.getElementById('prog-text').innerText = `${Math.round(data.campaign.progress)}%`;
-                    document.getElementById('prog-count').innerText = 'Kaldığı yerden devam ediliyor...';
-
-                    const logContainer = document.getElementById('logs');
-                    logContainer.innerHTML = '';
-                    data.campaign.logs.slice(-300).forEach(log => {
-                        const div = document.createElement('div');
-                        div.className = log.type === 'error' ? 'text-red-300' : log.type === 'success' ? 'text-secondary-fixed-dim' : log.type === 'wait' ? 'text-amber-300' : 'text-slate-300';
-                        div.innerHTML = `[${new Date(log.timestamp).toLocaleTimeString()}] ${escapeHtml(log.message)}`;
-                        logContainer.appendChild(div);
-                    });
-                    logContainer.scrollTop = logContainer.scrollHeight;
-                }
-            } catch (err) {
-                console.error('Kampanya durumu alınamadı', err);
-            }
-        }
-
-        function updateDelayLabel() {
-            const min = document.getElementById('min-delay').value || 0;
-            const max = document.getElementById('max-delay').value || 0;
-            const daily = document.getElementById('daily-limit').value || 0;
-            document.getElementById('delay-range-label').innerText = `${min}s - ${max}s`;
-            document.getElementById('daily-limit-label').innerText = daily;
-        }
-
-        function initializeDashboard() {
-            document.getElementById('clear-list-btn').addEventListener('click', clearList);
-            document.getElementById('save-group-name').addEventListener('keydown', (event) => {
-                if (event.key === 'Enter') saveCurrentListAsGroup();
-            });
-            document.getElementById('quick-group-name').addEventListener('keydown', (event) => {
-                if (event.key === 'Enter') saveInlineGroupName();
-            });
-            setWhatsAppUiStatus('disconnected', 'BAĞLI DEĞİL');
-            updateDelayLabel();
-            initTemplates();
-            loadGroups();
-            refreshRuntimeStatus();
-            setInterval(refreshRuntimeStatus, 15000);
-            setTimeout(checkActiveCampaign, 1000);
-        }
-
-        initializeDashboard();
-        switchTab('campaign');
-    </script>
+    <script src="/js/api_client.js"></script>
+    <script src="/js/app_state.js"></script>
+    <script src="/js/ui_helpers.js"></script>
+    <script src="/shared/message_renderer.js"></script>
+    <script src="/js/dashboard.js"></script>
 </body>
 </html>

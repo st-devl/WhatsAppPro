@@ -8,7 +8,7 @@ function createSecurityHeaders(options = {}) {
             "object-src 'none'",
             "frame-ancestors 'none'",
             "form-action 'self'",
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net",
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src 'self' https://fonts.gstatic.com",
             "img-src 'self' data: https://user-images.githubusercontent.com",
@@ -51,4 +51,3 @@ function requireSameOriginForStateChanges(req, res, next) {
 }
 
 module.exports = { createSecurityHeaders, requireSameOriginForStateChanges };
-

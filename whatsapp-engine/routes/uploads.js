@@ -16,19 +16,20 @@ function createUploadRouter(options = {}) {
     const router = express.Router();
     const { upload } = options;
     const uploadService = createUploadService(options);
+    const context = (req) => ({ tenantId: req.session?.user?.tenant_id || 'default' });
 
     router.post('/upload-media', asyncHandler(async (req, res) => {
         await runUpload(upload.array('media'), req, res);
-        sendSuccess(res, await uploadService.replaceMedia(req.files || []), 'MEDIA_UPLOADED');
+        sendSuccess(res, await uploadService.replaceMedia(req.files || [], context(req)), 'MEDIA_UPLOADED');
     }));
 
     router.delete('/upload-media', asyncHandler(async (req, res) => {
-        sendSuccess(res, await uploadService.removeMedia(req.body?.path), 'MEDIA_REMOVED');
+        sendSuccess(res, await uploadService.removeMedia(req.body?.path, context(req)), 'MEDIA_REMOVED');
     }));
 
     router.post('/upload-excel', asyncHandler(async (req, res) => {
         await runUpload(upload.single('excel'), req, res);
-        sendSuccess(res, await uploadService.importContactsFromExcel(req.file), 'EXCEL_IMPORTED');
+        sendSuccess(res, await uploadService.importContactsFromExcel(req.file, context(req)), 'EXCEL_IMPORTED');
     }));
 
     router.get('/download-sample', asyncHandler(async (req, res) => {

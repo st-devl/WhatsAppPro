@@ -1,3 +1,5 @@
+const { getRequestLogger } = require('./logger');
+
 class ApiError extends Error {
     constructor(message, options = {}) {
         super(message);
@@ -22,13 +24,13 @@ function asyncHandler(handler) {
     return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
 
-function sendApiError(res, err) {
+function sendApiError(req, res, err) {
     const status = err.status || err.statusCode || 500;
     const code = err.code || (status >= 500 ? 'INTERNAL_ERROR' : 'API_ERROR');
     const shouldExpose = err.expose !== undefined ? err.expose : status < 500;
     const message = shouldExpose ? (err.message || 'Beklenmeyen hata') : 'Beklenmeyen hata';
 
-    if (status >= 500) console.error('API hatası:', err);
+    if (status >= 500) getRequestLogger(req, { component: 'api_errors', errorCode: code }).error({ err }, 'api_request_failed');
 
     const body = { data: null, error: message, code };
     if (err.details && status < 500) body.details = err.details;
@@ -38,7 +40,7 @@ function sendApiError(res, err) {
 function createErrorMiddleware() {
     return (err, req, res, next) => {
         if (res.headersSent) return next(err);
-        sendApiError(res, err);
+        sendApiError(req, res, err);
     };
 }
 

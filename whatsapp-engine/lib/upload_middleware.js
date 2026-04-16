@@ -1,10 +1,24 @@
 const path = require('path');
+const fs = require('fs-extra');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 
+function uploadFileSizeLimit() {
+    const parsed = Number.parseInt(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || process.env.MEDIA_MAX_FILE_SIZE_BYTES || '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 50 * 1024 * 1024;
+}
+
+function safeTenantSegment(tenantId = 'default') {
+    return String(tenantId || 'default').trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'default';
+}
+
 function createUploadMiddleware(baseDir) {
     const storage = multer.diskStorage({
-        destination: path.join(baseDir, 'uploads'),
+        destination: (req, file, cb) => {
+            const uploadDir = path.join(baseDir, 'uploads', safeTenantSegment(req.session?.user?.tenant_id));
+            fs.ensureDirSync(uploadDir);
+            cb(null, uploadDir);
+        },
         filename: (req, file, cb) => {
             const ext = path.extname(file.originalname);
             cb(null, uuidv4() + ext);
@@ -13,7 +27,7 @@ function createUploadMiddleware(baseDir) {
 
     return multer({
         storage,
-        limits: { fileSize: 50 * 1024 * 1024 },
+        limits: { fileSize: uploadFileSizeLimit() },
         fileFilter: (req, file, cb) => {
             const ext = path.extname(file.originalname || '').toLocaleLowerCase('tr-TR');
             const allowedMimeTypes = [
@@ -31,4 +45,4 @@ function createUploadMiddleware(baseDir) {
     });
 }
 
-module.exports = { createUploadMiddleware };
+module.exports = { createUploadMiddleware, uploadFileSizeLimit, safeTenantSegment };

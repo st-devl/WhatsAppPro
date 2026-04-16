@@ -1,17 +1,14 @@
 const recipientManager = require('./recipient_manager');
 const path = require('path');
 const fs = require('fs-extra');
+const { renderTemplate } = require('../shared/message_renderer');
+const { componentLogger } = require('./logger');
 
 const delay = ms => new Promise(res => setTimeout(res, ms));
+const messengerLogger = componentLogger('messenger');
 
 // Campaign state in memory
 let activeCampaigns = new Map();
-
-function personalizeMessage(text, name) {
-    let processed = text.replace(/{{ad}}/g, name);
-    processed = processed.trim().replace(/\s+/g, ' ');
-    return processed;
-}
 
 function getHumanDelay(min, max) {
     const r = Math.random();
@@ -32,6 +29,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
     const [min, max] = delayRange || [20, 90];
     const dailyLimit = userSettings.dailyLimit || 50;
     const campaignStore = userSettings.campaignStore || null;
+    const tenantId = userSettings.tenantId || 'default';
     let failCount = 0; 
     let endedEarly = false;
     
@@ -47,11 +45,12 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
     const persist = (operation) => {
         if (!operation) return;
         Promise.resolve(operation).catch(err => {
-            console.error('Campaign state kalıcılaştırma hatası:', err);
+            messengerLogger.error({ err, campaignId }, 'campaign_state_persist_failed');
         });
     };
 
     persist(campaignStore?.setRunStatus(campaignId, 'running'));
+    persist(recipientManager.cleanup(tenantId));
 
     const addLog = (type, message, progress, meta = {}) => {
         const campaign = activeCampaigns.get(campaignId);
@@ -90,7 +89,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
     }
 
     for (let i = 0; i < contacts.length; i++) {
-        const sentToday = recipientManager.getDailyCount();
+        const sentToday = await recipientManager.getDailyCount(tenantId);
         const campaignState = activeCampaigns.get(campaignId);
         if (!campaignState || campaignState.status === 'stopped') {
             addLog('error', '🛑 Gönderim durduruldu.');
@@ -98,11 +97,15 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         }
 
         if (isNightMode()) {
-            addLog('wait', '🌙 Gece yasağı devrede (22:00-09:00). Gönderim duraklatıldı. Sabah devam edilecek.');
-            while (isNightMode() && activeCampaigns.get(campaignId)?.status !== 'stopped') {
-                await delay(60000); 
+            addLog('wait', '🌙 Gece yasağı devrede (22:00-09:00). Kampanya duraklatıldı. Sabah 09:00\'da manuel olarak devam ettirin.');
+            const campaign = activeCampaigns.get(campaignId);
+            if (campaign) {
+                campaign.status = 'paused';
+                activeCampaigns.set(campaignId, campaign);
             }
-            if (activeCampaigns.get(campaignId)?.status === 'stopped') break;
+            persist(campaignStore?.setRunStatus(campaignId, 'paused'));
+            endedEarly = true;
+            break;
         }
 
         if (sentToday >= dailyLimit) {
@@ -136,7 +139,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         if (phone.length === 11 && phone.startsWith('05')) phone = '90' + phone.substring(1);
         if (!phone.includes('@s.whatsapp.net')) phone = `${phone}@s.whatsapp.net`;
 
-        if (recipientManager.isInCooldown(phone)) {
+        if (await recipientManager.isInCooldown(phone, tenantId)) {
             addLog('wait', `⏭️ Atlandı (Cooldown): ${phone} için son 24 saat içinde gönderim yapılmış.`);
             persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'Cooldown aktif'));
             continue;
@@ -158,7 +161,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             continue;
         }
 
-        const finalMsg = personalizeMessage(message, nameLabel);
+        const finalMsg = renderTemplate(message, { ...contact, name: nameLabel }, { choiceMode: 'random' }).text;
 
         try {
             await sock.sendPresenceUpdate('composing', phone);
@@ -180,9 +183,11 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
                 await sock.sendMessage(phone, { text: finalMsg });
             }
 
-            await recipientManager.logSend(phone);
+            await recipientManager.logSend(phone, tenantId);
             persist(campaignStore?.markRecipient(campaignId, contact, 'sent'));
-            addLog('success', `✅ İletildi: ${nameLabel} (${recipientManager.getDailyCount()}/${dailyLimit})`);
+            const dailyCount = await recipientManager.getDailyCount(tenantId);
+            addLog('success', `✅ İletildi: ${nameLabel} (${dailyCount}/${dailyLimit})`);
+            failCount = 0;
 
         } catch (err) {
             failCount++;

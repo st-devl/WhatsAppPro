@@ -6,12 +6,15 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
+const { componentLogger } = require('./logger');
 
-async function getSocketConfig() {
-    const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, '../auth/session'));
+const connectionLogger = componentLogger('connection');
+
+async function getSocketConfig(authPath = path.join(__dirname, '../auth/session')) {
+    const { state, saveCreds } = await useMultiFileAuthState(authPath);
     const { version, isLatest, error } = await fetchLatestBaileysVersion({ timeout: 5000 });
     if (!isLatest && error) {
-        console.warn('Baileys sürüm bilgisi güncel alınamadı, paket içi varsayılan sürüm kullanılacak:', error.message);
+        connectionLogger.warn({ err: error }, 'baileys_version_fetch_failed');
     }
 
     const sock = makeWASocket({

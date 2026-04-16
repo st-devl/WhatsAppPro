@@ -5,6 +5,13 @@ const { createFileSessionStore } = require('../lib/session_store');
 function createSessionMiddleware(baseDir) {
     const sessionName = 'whasappc.sid';
     const secureCookies = process.env.COOKIE_SECURE === 'true';
+    const sessionSecret = process.env.SESSION_SECRET;
+    if (process.env.NODE_ENV === 'production' && !sessionSecret) {
+        throw new Error('SESSION_SECRET production ortaminda zorunludur');
+    }
+    const dataDir = process.env.WHASAPPC_DATA_DIR
+        ? path.resolve(process.env.WHASAPPC_DATA_DIR)
+        : path.join(baseDir, 'data');
     const sessionCookieOptions = {
         secure: secureCookies,
         sameSite: secureCookies ? 'none' : 'lax',
@@ -13,13 +20,13 @@ function createSessionMiddleware(baseDir) {
     };
 
     const sessionStore = createFileSessionStore({
-        filePath: path.join(baseDir, 'data/sessions/sessions.json'),
+        filePath: path.join(dataDir, 'sessions/sessions.json'),
         ttlMs: sessionCookieOptions.maxAge
     });
 
     const sessionMiddleware = session({
         name: sessionName,
-        secret: process.env.SESSION_SECRET || 'fallback-dev-secret',
+        secret: sessionSecret || 'fallback-dev-secret',
         resave: false,
         saveUninitialized: false,
         store: sessionStore,
@@ -36,4 +43,3 @@ function createSessionMiddleware(baseDir) {
 }
 
 module.exports = { createSessionMiddleware };
-

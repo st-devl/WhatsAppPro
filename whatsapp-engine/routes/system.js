@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs-extra');
-const { asyncHandler } = require('../lib/api_errors');
+const { asyncHandler, badRequest } = require('../lib/api_errors');
 const { sendSuccess } = require('../lib/api_response');
 
 function createSystemRouter(options = {}) {
@@ -14,10 +14,15 @@ function createSystemRouter(options = {}) {
     }));
 
     router.get('/runtime-status', (req, res) => {
-        sendSuccess(res, runtime.getStatus(), 'RUNTIME_STATUS');
+        const tenantId = req.session?.user?.tenant_id || 'default';
+        sendSuccess(res, runtime.getStatus(tenantId), 'RUNTIME_STATUS');
     });
 
     router.post('/reset-session', asyncHandler(async (req, res) => {
+        const tenantId = req.session?.user?.tenant_id || 'default';
+        if (!runtime.isTenantSupported(tenantId)) {
+            throw badRequest('Bu tenant icin WhatsApp hesabi yapilandirilmadi.', 'WHATSAPP_ACCOUNT_NOT_CONFIGURED');
+        }
         await runtime.resetSession();
         sendSuccess(res, { success: true, message: 'Oturum temizlendi.' }, 'SESSION_RESET');
     }));

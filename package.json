@@ -4,10 +4,15 @@
   "version": "1.0.0",
   "description": "Deployment wrapper for whatsapp-engine",
   "scripts": {
+    "build:css": "npm --prefix whatsapp-engine run build:css",
+    "lint": "npm --prefix whatsapp-engine run lint",
+    "migrate": "npm --prefix whatsapp-engine run migrate",
     "postinstall": "npm --prefix whatsapp-engine install --omit=dev",
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "npm --prefix whatsapp-engine test",
+    "test:e2e": "npm --prefix whatsapp-engine run test:e2e"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20 <26"
   }
 }

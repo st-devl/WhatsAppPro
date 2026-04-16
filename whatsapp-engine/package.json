@@ -2,9 +2,23 @@
   "name": "whatsapp-engine",
   "description": "Baileys based bulk messaging system",
   "main": "index.js",
+  "engines": {
+    "node": ">=20 <26"
+  },
   "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i ./public/css/tailwind.input.css -o ./public/css/app.css --minify",
+    "lint": "node scripts/lint-js-syntax.js",
+    "migrate": "node scripts/migrate.js",
     "start": "node index.js",
-    "verify:data": "node scripts/verify-data-layer.js"
+    "verify:data": "node scripts/verify-data-layer.js",
+    "verify:runtime-data": "node scripts/verify-runtime-data-policy.js",
+    "test:db": "node --test tests/db_integrity.test.js",
+    "test:message": "node --test tests/message_renderer.test.js",
+    "test:integration": "node --test tests/http_integration.test.js",
+    "test:regression": "node --test tests/regression_api.test.js",
+    "test:security": "node --test tests/upload_security.test.js",
+    "test:e2e": "playwright test",
+    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:db && npm run test:message && npm run test:security && npm run test:integration && npm run test:regression"
   },
   "keywords": [
     "whatsapp",
@@ -13,9 +27,11 @@
   ],
   "author": "Antigravity",
   "license": "ISC",
+  "version": "0.0.23",
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
     "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.9.0",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
@@ -23,10 +39,14 @@
     "fs-extra": "^11.2.0",
     "multer": "^1.4.5-lts.1",
     "pino": "^9.0.0",
-    "qrcode-terminal": "^0.12.0",
     "socket.io": "^4.7.5",
-    "sql.js": "^1.14.1",
     "uuid": "^9.0.1"
   },
-  "version": "0.0.23"
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/container-queries": "^0.1.1",
+    "@tailwindcss/forms": "^0.5.10",
+    "socket.io-client": "^4.7.5",
+    "tailwindcss": "^3.4.17"
+  }
 }

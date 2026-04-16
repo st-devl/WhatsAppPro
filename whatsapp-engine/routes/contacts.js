@@ -6,9 +6,10 @@ const { createContactService } = require('../services/contact_service');
 function createContactRouter(db) {
     const router = express.Router();
     const contactService = createContactService(db);
+    const context = (req) => ({ tenantId: req.session?.user?.tenant_id || 'default' });
 
     router.get('/groups/:groupId/contacts', asyncHandler(async (req, res) => {
-        const result = await contactService.listContactsPage(req.params.groupId, req.query);
+        const result = await contactService.listContactsPage(req.params.groupId, req.query, context(req));
         sendSuccess(res, result.contacts, 'CONTACTS_LISTED', {
             meta: {
                 pagination: result.pagination,
@@ -19,16 +20,16 @@ function createContactRouter(db) {
     }));
 
     router.post('/groups/:groupId/contacts', asyncHandler(async (req, res) => {
-        const contact = await contactService.createContact(req.params.groupId, req.body);
+        const contact = await contactService.createContact(req.params.groupId, req.body, context(req));
         sendCreated(res, contact, 'CONTACT_CREATED');
     }));
 
     router.patch('/groups/:groupId/contacts/:contactId', asyncHandler(async (req, res) => {
-        sendSuccess(res, await contactService.updateContact(req.params.groupId, req.params.contactId, req.body), 'CONTACT_UPDATED');
+        sendSuccess(res, await contactService.updateContact(req.params.groupId, req.params.contactId, req.body, context(req)), 'CONTACT_UPDATED');
     }));
 
     router.delete('/groups/:groupId/contacts/:contactId', asyncHandler(async (req, res) => {
-        sendSuccess(res, await contactService.deleteContact(req.params.groupId, req.params.contactId), 'CONTACT_DELETED');
+        sendSuccess(res, await contactService.deleteContact(req.params.groupId, req.params.contactId, context(req)), 'CONTACT_DELETED');
     }));
 
     return router;

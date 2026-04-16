@@ -8,64 +8,37 @@ on:
       - master
 
 jobs:
-  backend:
+  app:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: architect
-          POSTGRES_PASSWORD: architect
-          POSTGRES_DB: architect_ledger_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U architect -d architect_ledger_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-    defaults:
-      run:
-        working-directory: backend
     env:
-      DATABASE_URL: postgresql+psycopg2://architect:architect@localhost:5432/architect_ledger_test
-      REDIS_URL: redis://localhost:6379/0
-      CELERY_BROKER_URL: redis://localhost:6379/0
-      CELERY_RESULT_BACKEND: redis://localhost:6379/0
-      SECRET_KEY: ci-secret
-      AUTH_ENABLED: "false"
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
-      - run: python -m pip install --upgrade pip
-      - run: pip install -r requirements-dev.txt
-      - run: python -m compileall app alembic
-      - run: alembic upgrade head
-      - run: pytest -q
-
-  frontend:
-    runs-on: ubuntu-latest
+      WHASAPPC_DATA_DIR: ${{ runner.temp }}/whasappc-data
+      SESSION_SECRET: ci-session-secret
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASS_HASH: ci-placeholder
     defaults:
       run:
-        working-directory: frontend
+        working-directory: whatsapp-engine
     steps:
       - uses: actions/checkout@v5
+
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: whatsapp-engine/package-lock.json
+
       - run: npm ci
       - run: npm run lint
-      - run: npm run test -- --run
-      - run: npm run build
+      - run: npm run build:css
+      - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - run: npm run migrate
+      - run: npm audit --omit=dev --audit-level=high
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: app
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t whasappc:${{ github.sha }} .

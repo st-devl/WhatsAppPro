@@ -1,3 +1,7 @@
+const { componentLogger } = require('../lib/logger');
+
+const socketLogger = componentLogger('campaign_socket');
+
 function registerCampaignSocket(io, options = {}) {
     const { runtime, campaignService } = options;
 
@@ -7,13 +11,21 @@ function registerCampaignSocket(io, options = {}) {
     });
 
     io.on('connection', (socket) => {
-        console.log('🔌 Yetkili tarayıcı bağlandı:', socket.id);
-        socket.emit('status', runtime.connected() ? 'connected' : 'disconnected');
-        if (!runtime.connected() && runtime.getLastQR()) socket.emit('qr', runtime.getLastQR());
+        const ownerEmail = socket.request.session.user.email;
+        const tenantId = socket.request.session.user.tenant_id || 'default';
+        const userId = socket.request.session.user.user_id;
+        socket.join(runtime.tenantRoom(tenantId));
+        socketLogger.info({ socketId: socket.id, tenantId, userId }, 'authenticated_socket_connected');
+        socket.emit('status', runtime.connected(tenantId) ? 'connected' : 'disconnected');
+        if (!runtime.connected(tenantId) && runtime.getLastQR() && runtime.isTenantSupported(tenantId)) socket.emit('qr', runtime.getLastQR());
 
-        socket.on('stop-bulk', async () => {
-            await campaignService.stopActive();
-            socket.emit('log', { type: 'error', message: '🛑 İşlem durduruldu.' });
+        socket.on('stop-bulk', async (data = {}) => {
+            try {
+                await campaignService.stopActive(ownerEmail, data?.campaignId || null, tenantId);
+                socket.emit('log', { type: 'error', message: '🛑 İşlem durduruldu.' });
+            } catch (err) {
+                socket.emit('log', { type: 'error', message: `Durdurma hatası: ${err.message}` });
+            }
         });
 
         socket.on('start-bulk', async (data) => {
@@ -21,6 +33,22 @@ function registerCampaignSocket(io, options = {}) {
                 await campaignService.start(data, socket);
             } catch (err) {
                 socket.emit('log', { type: 'error', message: `Gönderim hatası: ${err.message}` });
+            }
+        });
+
+        socket.on('resume-bulk', async (data = {}) => {
+            try {
+                await campaignService.resume(data?.campaignId, ownerEmail, socket, { tenantId });
+            } catch (err) {
+                socket.emit('log', { type: 'error', message: `Devam ettirme hatası: ${err.message}` });
+            }
+        });
+
+        socket.on('retry-bulk', async (data = {}) => {
+            try {
+                await campaignService.retry(data?.campaignId, ownerEmail, socket, { tenantId });
+            } catch (err) {
+                socket.emit('log', { type: 'error', message: `Retry hatası: ${err.message}` });
             }
         });
     });

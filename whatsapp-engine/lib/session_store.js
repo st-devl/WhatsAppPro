@@ -1,6 +1,9 @@
 const session = require('express-session');
 const fs = require('fs-extra');
 const path = require('path');
+const { componentLogger } = require('./logger');
+
+const sessionLogger = componentLogger('session_store');
 
 class FileSessionStore extends session.Store {
     constructor(options = {}) {
@@ -27,7 +30,7 @@ class FileSessionStore extends session.Store {
             const corruptPath = `${this.filePath}.corrupt-${Date.now()}`;
             fs.renameSync(this.filePath, corruptPath);
             this.sessions = {};
-            console.error('Session store okunamadi, bozuk dosya ayrildi:', corruptPath, err);
+            sessionLogger.error({ err, corruptPath }, 'session_store_corrupt_file_moved');
         }
     }
 

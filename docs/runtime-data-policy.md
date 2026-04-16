@@ -8,12 +8,12 @@ Bu sistemde runtime veri kod artifact'i degildir ve Git ile deploy edilmez.
 - `whatsapp-engine/data/database.sqlite`
 - `whatsapp-engine/data/database.sqlite.*`
 - `whatsapp-engine/data/backups/`
-- `whatsapp-engine/data/contacts.json`
-- `whatsapp-engine/data/groups.json`
-- `whatsapp-engine/data/templates.json`
+- `whatsapp-engine/data/contacts.json` (legacy import source only)
+- `whatsapp-engine/data/groups.json` (legacy import source only)
+- `whatsapp-engine/data/templates.json` (legacy import source only)
 - `whatsapp-engine/data/*.migrated`
-- `whatsapp-engine/data/daily_stats.json`
-- `whatsapp-engine/data/recipient_history.json`
+- `whatsapp-engine/data/daily_stats.json` (legacy import source only)
+- `whatsapp-engine/data/recipient_history.json` (legacy import source only)
 - `whatsapp-engine/data/sessions/`
 - `whatsapp-engine/auth/`
 - `whatsapp-engine/uploads/`
@@ -25,4 +25,4 @@ Bu sistemde runtime veri kod artifact'i degildir ve Git ile deploy edilmez.
 - Production deploy, runtime data klasorlerini persistent storage uzerinde tutar.
 - Backup, auth session ve uploads klasorleri deploy artifact'iyle overwrite edilmez.
 - Restore islemi icin once mevcut DB ve uploads snapshot'i alinir.
-
+- Aktif runtime state SQLite icindedir; JSON dosyalari sadece eski kurulumlari migrate etmek icin okunur ve `.migrated` olarak ayrilir.

@@ -6,99 +6,7 @@
     <title>WhasAppC PRO - Login</title>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
-    <script id="tailwind-config">
-        window.tailwind = window.tailwind || {};
-        window.tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        'primary-container': '#1e293b',
-                        'surface-dim': '#d8dadc',
-                        'on-tertiary': '#ffffff',
-                        'on-surface-variant': '#45474c',
-                        'surface-container-lowest': '#ffffff',
-                        'secondary': '#006c49',
-                        'tertiary-container': '#3c2300',
-                        'inverse-primary': '#bcc7de',
-                        'on-error': '#ffffff',
-                        'error': '#ba1a1a',
-                        'surface-container-low': '#f2f4f6',
-                        'background': '#f7f9fb',
-                        'on-secondary-fixed-variant': '#005236',
-                        'inverse-surface': '#2d3133',
-                        'on-primary': '#ffffff',
-                        'outline-variant': '#c5c6cd',
-                        'on-background': '#191c1e',
-                        'inverse-on-surface': '#eff1f3',
-                        'secondary-container': '#6cf8bb',
-                        'secondary-fixed': '#6ffbbe',
-                        'outline': '#75777d',
-                        'on-secondary-container': '#00714d',
-                        'on-primary-fixed-variant': '#3c475a',
-                        'on-tertiary-fixed': '#2a1700',
-                        'surface-container': '#eceef0',
-                        'primary-fixed': '#d8e3fb',
-                        'on-tertiary-container': '#c88000',
-                        'primary': '#091426',
-                        'tertiary': '#201100',
-                        'surface-bright': '#f7f9fb',
-                        'surface-container-highest': '#e0e3e5',
-                        'on-secondary-fixed': '#002113',
-                        'on-primary-container': '#8590a6',
-                        'on-error-container': '#93000a',
-                        'tertiary-fixed': '#ffddb8',
-                        'on-surface': '#191c1e',
-                        'on-tertiary-fixed-variant': '#653e00',
-                        'surface-container-high': '#e6e8ea',
-                        'error-container': '#ffdad6',
-                        'primary-fixed-dim': '#bcc7de',
-                        'on-primary-fixed': '#111c2d',
-                        'surface-variant': '#e0e3e5',
-                        'on-secondary': '#ffffff',
-                        'surface-tint': '#545f73',
-                        'surface': '#f7f9fb',
-                        'tertiary-fixed-dim': '#ffb95f',
-                        'secondary-fixed-dim': '#4edea3'
-                    },
-                    borderRadius: {
-                        DEFAULT: '0.25rem',
-                        lg: '0.5rem',
-                        xl: '0.75rem',
-                        full: '9999px'
-                    },
-                    fontFamily: {
-                        headline: ['Manrope'],
-                        body: ['Inter'],
-                        label: ['Inter']
-                    }
-                }
-            }
-        };
-    </script>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-    <style>
-        body { font-family: 'Inter', sans-serif; min-height: max(884px, 100dvh); }
-        h1, h2, h3 { font-family: 'Manrope', sans-serif; }
-        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-        :root { --wc-primary: #091426; --wc-secondary: #006c49; --wc-error: #ba1a1a; --wc-on-primary: #ffffff; }
-        .bg-primary { background-color: var(--wc-primary); }
-        .bg-secondary { background-color: var(--wc-secondary); }
-        .bg-error { background-color: var(--wc-error); }
-        .text-primary { color: var(--wc-primary); }
-        .text-secondary { color: var(--wc-secondary); }
-        .text-error { color: var(--wc-error); }
-        .text-on-primary { color: var(--wc-on-primary); }
-        .text-white { color: var(--wc-on-primary); }
-        .border-error { border-color: var(--wc-error); }
-        .hover\:bg-primary\/90:hover { background-color: rgba(9, 20, 38, 0.9); }
-        .hover\:bg-secondary\/90:hover { background-color: rgba(0, 108, 73, 0.9); }
-        .hover\:bg-error:hover { background-color: var(--wc-error); }
-        .hover\:bg-error\/90:hover { background-color: rgba(186, 26, 26, 0.9); }
-        .group:hover .group-hover\:bg-primary { background-color: var(--wc-primary); }
-        .group:hover .group-hover\:text-white { color: var(--wc-on-primary); }
-        @keyframes shimmer { 100% { transform: translateX(100%); } }
-    </style>
+    <link href="/css/app.css" rel="stylesheet">
 </head>
 <body class="bg-background min-h-screen flex items-center justify-center p-4">
     <main class="w-full max-w-[1200px] grid md:grid-cols-12 overflow-hidden bg-surface-container-lowest rounded-xl shadow-[0_32px_64px_-12px_rgba(9,20,38,0.08)] border border-outline-variant/10">
@@ -162,7 +70,7 @@
                 </form>
 
                 <div class="mt-12 pt-8 border-t border-outline-variant/20 text-center">
-                    <p class="text-on-surface-variant text-sm font-body">WhasAppC PRO <span class="text-primary font-bold">v1.2.0 GOLD EDITION</span></p>
+                    <p class="text-on-surface-variant text-sm font-body">WhasAppC PRO <span id="login-version" class="text-primary font-bold">version yükleniyor</span></p>
                 </div>
             </div>
         </section>
@@ -173,7 +81,7 @@
         <span class="w-1 h-1 rounded-full bg-outline-variant/40"></span>
         <span>Secure Session</span>
         <span class="w-1 h-1 rounded-full bg-outline-variant/40"></span>
-        <span>v1.2.0 GOLD EDITION</span>
+        <span id="login-footer-version">version yükleniyor</span>
     </footer>
 
     <script>
@@ -240,6 +148,19 @@
             }
         }
 
+        async function loadVersion() {
+            try {
+                const response = await fetch('/app-version', { cache: 'no-store' });
+                const payload = await response.json();
+                const version = unwrapApiPayload(payload)?.version || '0.0.0';
+                document.getElementById('login-version').textContent = `v${version}`;
+                document.getElementById('login-footer-version').textContent = `v${version}`;
+            } catch {
+                document.getElementById('login-version').textContent = 'version bilinmiyor';
+                document.getElementById('login-footer-version').textContent = 'version bilinmiyor';
+            }
+        }
+
         async function redirectWhenSessionReady(maxTry = 10) {
             for (let i = 0; i < maxTry; i++) {
                 const ok = await isAuthenticated();
@@ -287,6 +208,7 @@
         });
 
         document.addEventListener('DOMContentLoaded', async () => {
+            loadVersion();
             if (await isAuthenticated()) {
                 window.location.replace(getDashboardPath());
             }

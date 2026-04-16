@@ -14,26 +14,28 @@ function normalizeContactInput(input) {
 }
 
 function createContactService(db) {
+    const tenantId = (context = {}) => context.tenantId;
+
     return {
-        listContacts(groupId) {
-            return db.getGroupContacts(groupId);
+        listContacts(groupId, context = {}) {
+            return db.getGroupContacts(groupId, tenantId(context));
         },
 
-        listContactsPage(groupId, query = {}) {
-            return db.getGroupContactsPage(groupId, query);
+        listContactsPage(groupId, query = {}, context = {}) {
+            return db.getGroupContactsPage(groupId, query, tenantId(context));
         },
 
-        createContact(groupId, input) {
-            return db.createContact(groupId, normalizeContactInput(input));
+        createContact(groupId, input, context = {}) {
+            return db.createContact(groupId, normalizeContactInput(input), tenantId(context));
         },
 
-        updateContact(groupId, contactId, input) {
+        updateContact(groupId, contactId, input, context = {}) {
             requireAnyField(input, ['phone', 'name', 'surname'], 'Güncellenecek kişi alanı gerekli', 'CONTACT_UPDATE_EMPTY');
-            return db.updateContact(groupId, contactId, normalizeContactInput(input));
+            return db.updateContact(groupId, contactId, normalizeContactInput(input), tenantId(context));
         },
 
-        deleteContact(groupId, contactId) {
-            return db.deleteContact(groupId, contactId);
+        deleteContact(groupId, contactId, context = {}) {
+            return db.deleteContact(groupId, contactId, tenantId(context));
         }
     };
 }

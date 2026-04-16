@@ -12,39 +12,41 @@ function parseListOptions(query = {}) {
 }
 
 function createGroupService(db) {
+    const tenantId = (context = {}) => context.tenantId;
+
     return {
-        async listGroups(query = {}) {
+        async listGroups(query = {}, context = {}) {
             const options = parseListOptions(query);
             if (!options.includeContacts) {
-                return db.getGroups();
+                return db.getGroups(tenantId(context));
             }
 
-            const groups = await db.getGroups();
+            const groups = await db.getGroups(tenantId(context));
             await Promise.all(groups.map(async (group) => {
-                group.contacts = await db.getGroupContacts(group.id);
+                group.contacts = await db.getGroupContacts(group.id, tenantId(context));
                 group.contact_count = group.contacts.length;
             }));
             return groups;
         },
 
-        listGroupSummaries() {
-            return db.getGroups();
+        listGroupSummaries(context = {}) {
+            return db.getGroups(tenantId(context));
         },
 
-        createGroup(input) {
+        createGroup(input, context = {}) {
             const body = requireObject(input);
             const name = requiredString(body.name, 'İsim gerekli', 'GROUP_NAME_REQUIRED');
-            return db.createGroup(uuidv4(), name);
+            return db.createGroup(uuidv4(), name, tenantId(context));
         },
 
-        replaceContacts(groupId, input) {
+        replaceContacts(groupId, input, context = {}) {
             const body = requireObject(input);
             const contacts = requiredArray(body.contacts, 'Contacts gerekli', 'CONTACTS_REQUIRED');
-            return db.updateGroupContacts(groupId, contacts);
+            return db.updateGroupContacts(groupId, contacts, tenantId(context));
         },
 
-        deleteGroup(groupId) {
-            return db.deleteGroup(groupId);
+        deleteGroup(groupId, context = {}) {
+            return db.deleteGroup(groupId, tenantId(context));
         }
     };
 }
