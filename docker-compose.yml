@@ -3,7 +3,7 @@ version: "3.8"
 services:
   whasappc:
     build: .
-    container_name: whasappc
+    container_name: yardimet.site
     restart: unless-stopped
     ports:
       - "3005:3005"

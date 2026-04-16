@@ -2,6 +2,7 @@ node_modules/
 .env
 auth/
 data/database.sqlite
+data/database.sqlite-*
 data/database.sqlite.*
 data/backups/
 data/contacts.json

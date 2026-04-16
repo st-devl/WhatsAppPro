@@ -91,7 +91,9 @@ function maskIp(value) {
 
 function getRequestLogger(req, extra = {}) {
     const base = req?.log || logger;
-    return base.child(requestContext(req, extra));
+    const context = requestContext(req, extra);
+    if (req?.log) delete context.requestId;
+    return base.child(context);
 }
 
 function createRequestLoggerMiddleware() {
