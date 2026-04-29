@@ -342,6 +342,7 @@ deploy_remote() {
 cd $remote_path_q
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo 'HATA: remote working tree temiz degil.' >&2
+    git status --short >&2
     exit 1
 fi
 git fetch --prune origin
