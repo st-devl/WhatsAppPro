@@ -1,6 +1,7 @@
 const BetterSqlite3 = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs-extra');
+const { estimateRemainingSeconds, estimateRemainingMinutes } = require('./campaign_estimate');
 
 const dataDir = process.env.WHASAPPC_DATA_DIR
     ? path.resolve(process.env.WHASAPPC_DATA_DIR)
@@ -13,6 +14,7 @@ const dbFile = process.env.WHASAPPC_DB_FILE
     ? path.resolve(process.env.WHASAPPC_DB_FILE)
     : path.join(dataDir, 'database.sqlite');
 const DEFAULT_TENANT_ID = 'default';
+const ACTIVE_CAMPAIGN_STATUSES = ['queued', 'running', 'paused'];
 let db = null;
 
 class SqliteStatementAdapter {
@@ -359,10 +361,8 @@ function enableForeignKeys(d) {
     d.pragma('foreign_keys = ON');
 }
 
-function runMigrations(d) {
-    ensureBaseTables(d);
-
-    const migrations = [
+function buildMigrations(d) {
+    return [
         {
             id: '001_professional_columns',
             description: 'Add normalized, timestamp, and soft delete columns',
@@ -695,6 +695,12 @@ function runMigrations(d) {
             }
         }
     ];
+}
+
+function runMigrations(d) {
+    ensureBaseTables(d);
+
+    const migrations = buildMigrations(d);
 
     const hasPending = migrations.some(migration => !hasMigration(d, migration.id));
     if (hasPending) requireSuccessfulBackup('before-migrations');
@@ -705,6 +711,60 @@ function runMigrations(d) {
     });
 
     return changed;
+}
+
+function readAppliedMigrations(d) {
+    const hasTable = queryOne(d, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'");
+    if (!hasTable) return [];
+    return queryAll(d, 'SELECT id, description, applied_at FROM schema_migrations ORDER BY id');
+}
+
+function buildMigrationStatus(appliedRows, filePath = dbFile, exists = fs.existsSync(filePath)) {
+    const appliedIds = new Set(appliedRows.map(row => row.id));
+    const catalog = buildMigrations(null).map(({ id, description }) => ({ id, description }));
+    const pending = catalog.filter(migration => !appliedIds.has(migration.id));
+    return {
+        ok: true,
+        db_file: filePath,
+        exists,
+        migration_count: appliedRows.length,
+        total_migrations: catalog.length,
+        latest_migration: appliedRows[appliedRows.length - 1] || null,
+        pending_count: pending.length,
+        pending,
+        applied: appliedRows
+    };
+}
+
+function getMigrationStatusSync(filePath = dbFile) {
+    const resolvedFile = path.resolve(filePath);
+    if (!fs.existsSync(resolvedFile)) {
+        return buildMigrationStatus([], resolvedFile, false);
+    }
+
+    const statusDb = new SqliteDatabaseAdapter(resolvedFile);
+    try {
+        return buildMigrationStatus(readAppliedMigrations(statusDb), resolvedFile, true);
+    } finally {
+        statusDb.close();
+    }
+}
+
+async function getMigrationStatus(filePath = dbFile) {
+    return getMigrationStatusSync(filePath);
+}
+
+async function applyPendingMigrations() {
+    const before = getMigrationStatusSync(dbFile);
+    const d = await getDb();
+    const after = buildMigrationStatus(readAppliedMigrations(d), dbFile, fs.existsSync(dbFile));
+    return {
+        ok: true,
+        before,
+        after,
+        applied_count: Math.max(0, before.pending_count - after.pending_count),
+        backup_dir: backupDir
+    };
 }
 
 function maskPhone(phone) {
@@ -1231,9 +1291,52 @@ function mapCampaignRun(row) {
         completed_at: row.completed_at,
         error: row.error || null,
         metadata: row.metadata ? JSON.parse(row.metadata) : {},
+        estimate_remaining_seconds: 0,
+        estimate_remaining_minutes: 0,
         created_at: row.created_at,
         updated_at: row.updated_at
     };
+}
+
+function applyCampaignRecipientSummary(d, run) {
+    if (!run?.id) return run;
+    const row = queryOne(d, `
+        SELECT
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+            SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent_count,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+            SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped_count
+        FROM campaign_recipients
+        WHERE campaign_run_id = ?
+    `, [run.id]) || {};
+    const pending = Number(row.pending_count || 0);
+    const failed = Number(row.failed_count || 0);
+    const skipped = Number(row.skipped_count || 0);
+    const sent = Number(row.sent_count || run.sent_count || 0);
+    const remaining = pending + failed;
+
+    run.pending_count = pending;
+    run.sent_count = sent;
+    run.failed_count = failed;
+    run.skipped_count = skipped;
+    run.remaining_count = remaining;
+    run.processed = sent + failed + skipped;
+    run.progress = run.total > 0 ? Math.min(100, (run.processed / run.total) * 100) : 0;
+    run.estimate_remaining_seconds = estimateRemainingSeconds({
+        remaining,
+        delay_min_ms: run.delay_min_ms,
+        delay_max_ms: run.delay_max_ms,
+        batchSize: run.metadata?.batch_size,
+        batchPauseMinutes: run.metadata?.batch_pause_minutes
+    });
+    run.estimate_remaining_minutes = estimateRemainingMinutes({
+        remaining,
+        delay_min_ms: run.delay_min_ms,
+        delay_max_ms: run.delay_max_ms,
+        batchSize: run.metadata?.batch_size,
+        batchPauseMinutes: run.metadata?.batch_pause_minutes
+    });
+    return run;
 }
 
 function mapCampaignLog(row) {
@@ -1262,12 +1365,33 @@ function ensureCampaignOwner(d, campaignId, ownerEmail, tenantId = null) {
     return row;
 }
 
+function assertNoActiveCampaign(d, ownerEmail, tenantId, excludeCampaignId = null) {
+    const owner = requireCampaignOwner(ownerEmail);
+    const tenant = resolveTenantId(tenantId);
+    const params = [tenant, owner, ...ACTIVE_CAMPAIGN_STATUSES];
+    let excludeSql = '';
+
+    if (excludeCampaignId) {
+        excludeSql = ' AND id != ?';
+        params.push(excludeCampaignId);
+    }
+
+    const row = queryOne(d, `
+        SELECT id, status FROM campaign_runs
+        WHERE tenant_id = ? AND owner_email = ? AND status IN (${ACTIVE_CAMPAIGN_STATUSES.map(() => '?').join(', ')})${excludeSql}
+        ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+        LIMIT 1
+    `, params);
+    if (row) throw new DbError('Bu kullanıcı için zaten aktif bir kampanya var', 409, 'CAMPAIGN_ALREADY_ACTIVE');
+}
+
 const createCampaignRun = async (input = {}) => withWriteTransaction('create-campaign-run', (d) => {
     const campaignId = String(input.id || '').trim();
     if (!campaignId) throw new DbError('Campaign id zorunlu', 400, 'CAMPAIGN_ID_REQUIRED');
     const tenant = resolveTenantId(input.tenantId);
     ensureTenant(d, tenant);
     const ownerEmail = requireCampaignOwner(input.ownerEmail);
+    assertNoActiveCampaign(d, ownerEmail, tenant);
     const normalized = normalizeContactsDetailed(input.contacts || []);
     if (normalized.contacts.length === 0) throw new DbError('Gönderilecek geçerli kişi yok', 400, 'CAMPAIGN_CONTACTS_REQUIRED');
 
@@ -1292,6 +1416,8 @@ const createCampaignRun = async (input = {}) => withWriteTransaction('create-cam
         current,
         toSqlJson({
             import_summary: normalized.summary,
+            batch_size: input.batchSize,
+            batch_pause_minutes: input.batchPauseMinutes,
             media_count: Number(input.mediaCount || 0),
             media_files: Array.isArray(input.mediaFiles) ? input.mediaFiles : []
         }),
@@ -1394,7 +1520,7 @@ function getCampaignRunStatusWithDb(d, campaignId, ownerEmail = null, tenantId =
         if (!row) return null;
         if (row.tenant_id !== resolveTenantId(tenantId)) throw new DbError('Bu kampanyaya erişim yetkiniz yok', 403, 'CAMPAIGN_FORBIDDEN');
     }
-    const run = mapCampaignRun(queryOne(d, 'SELECT * FROM campaign_runs WHERE id = ?', [campaignId]));
+    const run = applyCampaignRecipientSummary(d, mapCampaignRun(queryOne(d, 'SELECT * FROM campaign_runs WHERE id = ?', [campaignId])));
     if (!run) return null;
     run.logs = queryAll(d, `
         SELECT id, type, message, progress, metadata, created_at
@@ -1497,9 +1623,10 @@ const prepareCampaignRunForRestart = async (campaignId, ownerEmail, mode, tenant
     const row = ensureCampaignOwner(d, campaignId, owner, tenant);
     if (row.status === 'running') throw new DbError('Çalışan kampanya yeniden başlatılamaz', 409, 'CAMPAIGN_ALREADY_RUNNING');
     if (!['resume', 'retry'].includes(mode)) throw new DbError('Geçersiz kampanya yeniden başlatma modu', 400, 'CAMPAIGN_RESTART_MODE_INVALID');
+    assertNoActiveCampaign(d, owner, tenant, campaignId);
 
     const current = now();
-    if (mode === 'retry') {
+    if (mode === 'retry' || mode === 'resume') {
         d.run(`
             UPDATE campaign_recipients
             SET status = 'pending', last_error = NULL, sent_at = NULL, updated_at = ?
@@ -1712,6 +1839,8 @@ module.exports = {
     createBackup,
     requireSuccessfulBackup,
     resolveBackupRetentionCount,
+    getMigrationStatus,
+    applyPendingMigrations,
     migrateJSONs,
     DEFAULT_TENANT_ID,
     normalizePhone,

@@ -8,7 +8,10 @@
   "scripts": {
     "build:css": "tailwindcss -c tailwind.config.js -i ./public/css/tailwind.input.css -o ./public/css/app.css --minify",
     "lint": "node scripts/lint-js-syntax.js",
-    "migrate": "node scripts/migrate.js",
+    "migrate": "node scripts/migrate.js apply",
+    "migrate:status": "node scripts/migrate.js status",
+    "migrate:apply": "node scripts/migrate.js apply",
+    "release:manifest": "node scripts/release-manifest.js",
     "start": "node index.js",
     "verify:data": "node scripts/verify-data-layer.js",
     "verify:runtime-data": "node scripts/verify-runtime-data-policy.js",
@@ -17,8 +20,9 @@
     "test:integration": "node --test tests/http_integration.test.js",
     "test:regression": "node --test tests/regression_api.test.js",
     "test:security": "node --test tests/upload_security.test.js",
+    "test:campaign": "node --test tests/campaign_safety.test.js",
     "test:e2e": "playwright test",
-    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:db && npm run test:message && npm run test:security && npm run test:integration && npm run test:regression"
+    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:db && npm run test:message && npm run test:security && npm run test:campaign && npm run test:integration && npm run test:regression"
   },
   "keywords": [
     "whatsapp",
@@ -27,7 +31,7 @@
   ],
   "author": "Antigravity",
   "license": "ISC",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
     "bcryptjs": "^3.0.3",
@@ -40,7 +44,11 @@
     "multer": "^1.4.5-lts.1",
     "pino": "^9.0.0",
     "socket.io": "^4.7.5",
-    "uuid": "^9.0.1"
+    "uuid": "^14.0.0"
+  },
+  "overrides": {
+    "protobufjs": "^7.5.5",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

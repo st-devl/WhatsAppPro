@@ -109,9 +109,14 @@ async function createHarness(options = {}) {
 }
 
 async function requestJson(harness, method, route, body = null, headers = {}) {
+    const stateChanging = !['GET', 'HEAD', 'OPTIONS'].includes(method);
     const response = await fetch(`${harness.baseUrl}${route}`, {
         method,
-        headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...headers },
+        headers: {
+            ...(stateChanging && !headers.Origin && !headers.Referer ? { Origin: harness.baseUrl } : {}),
+            ...(body ? { 'content-type': 'application/json' } : {}),
+            ...headers
+        },
         body: body ? JSON.stringify(body) : undefined,
         redirect: 'manual'
     });
@@ -166,7 +171,8 @@ function uploadFile(baseUrl, cookie, route, fieldName, buffer, fileName, content
             headers: {
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
                 'Content-Length': body.length,
-                'Cookie': cookie
+                'Cookie': cookie,
+                'Origin': baseUrl
             }
         };
 

@@ -42,6 +42,19 @@
         </div>
     </header>
 
+    <div id="release-update-banner" class="hidden sticky top-[72px] z-40 border-y border-amber-200 bg-amber-50 px-4 lg:px-8 py-3">
+        <div class="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex min-w-0 items-center gap-3">
+                <span class="material-symbols-outlined text-amber-600 text-lg">new_releases</span>
+                <span id="release-update-text" class="text-xs font-bold text-amber-900 uppercase tracking-wide">Yeni sürüm yayında</span>
+            </div>
+            <button id="release-refresh-btn" type="button" class="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-primary/90">
+                <span class="material-symbols-outlined text-sm">refresh</span>
+                Yenile
+            </button>
+        </div>
+    </div>
+
     <main class="flex flex-1 min-h-[calc(100dvh-72px)]">
         <aside class="hidden lg:sticky lg:top-[72px] lg:flex lg:max-h-[calc(100dvh-72px)] z-40 flex-col p-4 bg-slate-50 w-80 shadow-xl space-y-6 overflow-y-auto no-scrollbar pb-24">
             <section class="space-y-4">
@@ -222,9 +235,9 @@
                                 <div class="space-y-2">
                                     <div class="flex justify-between items-center text-xs font-bold text-slate-600">
                                         <span>Günlük Limit</span>
-                                        <span class="text-primary"><span id="daily-limit-label">50</span> Mesaj</span>
+                                        <span class="text-primary"><span id="daily-limit-label">250</span> Mesaj</span>
                                     </div>
-                                    <input id="daily-limit" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" type="number" value="50">
+                                    <input id="daily-limit" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" type="number" value="250">
                                 </div>
                             </div>
                         </div>
@@ -242,6 +255,8 @@
                             </div>
                             <div class="flex justify-between text-[10px] font-bold text-white/60">
                                 <span id="prog-total">TOPLAM: 0</span>
+                                <span id="prog-eta">TAHMİN: --</span>
+                                <span id="prog-batch-pause">MOLA: --</span>
                                 <span>BAŞARILI: --</span>
                                 <span>HATALI: --</span>
                             </div>
@@ -258,7 +273,7 @@
                             </button>
                             <button id="resume-btn" class="hidden bg-surface-container-low text-primary border border-outline-variant/60 py-4 rounded-lg font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 hover:bg-surface-container transition-colors active:scale-[0.98]">
                                 <span class="material-symbols-outlined text-lg">restart_alt</span>
-                                DEVAM
+                                KALDIĞIN YERDEN DEVAM ET
                             </button>
                             <button id="retry-btn" class="hidden bg-amber-500 text-white py-4 rounded-lg font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 hover:bg-amber-600 transition-colors active:scale-[0.98]">
                                 <span class="material-symbols-outlined text-lg">replay</span>

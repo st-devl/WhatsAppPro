@@ -3,8 +3,13 @@ const {
     sendBulkWithProgress,
     stopCampaign
 } = require('../lib/messenger');
-const { badRequest } = require('../lib/api_errors');
+const { badRequest, createApiError } = require('../lib/api_errors');
 const { componentLogger } = require('../lib/logger');
+const {
+    DEFAULT_BATCH_PAUSE_MINUTES,
+    DEFAULT_BATCH_SIZE,
+    estimateRemainingMinutes
+} = require('../lib/campaign_estimate');
 const { renderTemplate, validateTemplate } = require('../shared/message_renderer');
 
 function getOwnerFromSocket(socket) {
@@ -44,13 +49,52 @@ function assertValidCampaignMessage(message, sampleContact = {}) {
     return rendered;
 }
 
+function conflict(message, code) {
+    return createApiError(409, message, code);
+}
+
+function normalizeCampaignLimits(data = {}) {
+    const dailyLimit = data.dailyLimit === undefined || data.dailyLimit === null || data.dailyLimit === ''
+        ? 50
+        : Number.parseInt(data.dailyLimit, 10);
+    if (!Number.isFinite(dailyLimit) || dailyLimit < 1 || dailyLimit > 500) {
+        throw badRequest('Günlük limit 1 ile 500 arasında olmalı', 'CAMPAIGN_DAILY_LIMIT_INVALID');
+    }
+
+    const delayRange = Array.isArray(data.delayRange) ? data.delayRange : [20, 90];
+    const minDelay = Number.parseInt(delayRange[0], 10);
+    const maxDelay = Number.parseInt(delayRange[1], 10);
+    if (!Number.isFinite(minDelay) || !Number.isFinite(maxDelay) || minDelay < 5 || maxDelay > 3600 || minDelay > maxDelay) {
+        throw badRequest('Gecikme aralığı 5 ile 3600 saniye arasında ve min <= max olmalı', 'CAMPAIGN_DELAY_RANGE_INVALID');
+    }
+
+    return { dailyLimit, delayRange: [minDelay, maxDelay] };
+}
+
+function resolveBatchSettings(data = {}) {
+    const batchSize = Number.parseInt(data.batchSize ?? process.env.CAMPAIGN_BATCH_SIZE ?? DEFAULT_BATCH_SIZE, 10);
+    const batchPauseMinutes = Number.parseInt(data.batchPauseMinutes ?? process.env.CAMPAIGN_BATCH_PAUSE_MINUTES ?? DEFAULT_BATCH_PAUSE_MINUTES, 10);
+    return {
+        batchSize: Number.isFinite(batchSize) && batchSize > 0 ? Math.min(batchSize, 500) : DEFAULT_BATCH_SIZE,
+        batchPauseMinutes: Number.isFinite(batchPauseMinutes) && batchPauseMinutes > 0 ? Math.min(batchPauseMinutes, 1440) : DEFAULT_BATCH_PAUSE_MINUTES
+    };
+}
+
 class CampaignService {
     constructor(options = {}) {
         this.db = options.db;
         this.runtime = options.runtime;
         this.mediaStore = options.mediaStore;
+        this.keepAwake = options.keepAwake || null;
         this.logger = options.logger || componentLogger('campaign_service');
         this.activeRunIds = new Map();
+    }
+
+    assertNoInMemoryActive(ownerEmail, tenantId, allowCampaignId = null) {
+        const activeRunId = this.activeRunIds.get(activeKey(ownerEmail, tenantId));
+        if (activeRunId && activeRunId !== allowCampaignId) {
+            throw conflict('Bu kullanıcı için zaten aktif bir kampanya var', 'CAMPAIGN_ALREADY_ACTIVE');
+        }
     }
 
     async audit(action, campaignId, metadata = {}, tenantId = 'default') {
@@ -71,13 +115,15 @@ class CampaignService {
         if (contacts.length === 0) throw badRequest('Gönderilecek kişi yok', 'CAMPAIGN_CONTACTS_REQUIRED');
         if (!message) throw badRequest('Mesaj içeriği zorunlu', 'CAMPAIGN_MESSAGE_REQUIRED');
         assertValidCampaignMessage(message, contacts[0]);
+        this.assertNoInMemoryActive(ownerEmail, tenantId);
 
         const sock = this.assertConnected(tenantId);
 
         const mediaFiles = this.mediaStore.list(tenantId);
         const campaignId = uuidv4();
-        const dailyLimit = Number.parseInt(data.dailyLimit, 10) || 50;
-        const delayRange = Array.isArray(data.delayRange) ? data.delayRange : [20, 90];
+        const { dailyLimit, delayRange } = normalizeCampaignLimits(data);
+        const batchSettings = resolveBatchSettings(data);
+        const activeKeyValue = activeKey(ownerEmail, tenantId);
 
         const run = await this.db.createCampaignRun({
             id: campaignId,
@@ -87,6 +133,8 @@ class CampaignService {
             message,
             delayRange,
             dailyLimit,
+            batchSize: batchSettings.batchSize,
+            batchPauseMinutes: batchSettings.batchPauseMinutes,
             mediaCount: mediaFiles.length,
             mediaFiles: mediaFiles.map(file => ({
                 path: file.path,
@@ -95,11 +143,14 @@ class CampaignService {
                 size: file.size
             }))
         });
-        this.activeRunIds.set(activeKey(ownerEmail, tenantId), campaignId);
+        this.activeRunIds.set(activeKeyValue, campaignId);
+        this.keepAwake?.start(activeKeyValue);
         await this.audit('campaign_started', campaignId, {
             total_count: contacts.length,
             daily_limit: dailyLimit,
             delay_range: delayRange,
+            batch_size: batchSettings.batchSize,
+            batch_pause_minutes: batchSettings.batchPauseMinutes,
             media_count: mediaFiles.length
         }, tenantId);
 
@@ -109,14 +160,18 @@ class CampaignService {
         try {
             await sendBulkWithProgress(sock, contacts, message, socket, delayRange, mediaFiles, campaignId, {
                 dailyLimit,
+                batchSize: batchSettings.batchSize,
+                batchPauseMinutes: batchSettings.batchPauseMinutes,
                 campaignStore: this,
                 tenantId
             });
             this.mediaStore.clear(tenantId);
-            this.activeRunIds.delete(activeKey(ownerEmail, tenantId));
+            this.activeRunIds.delete(activeKeyValue);
+            this.keepAwake?.stop(activeKeyValue);
         } catch (err) {
             await this.setRunStatus(campaignId, 'paused', { error: err.message });
-            this.activeRunIds.delete(activeKey(ownerEmail, tenantId));
+            this.activeRunIds.delete(activeKeyValue);
+            this.keepAwake?.stop(activeKeyValue);
             throw err;
         }
     }
@@ -131,6 +186,7 @@ class CampaignService {
         if (stoppedRun?.id) stopCampaign(stoppedRun.id);
         if (stoppedRun) {
             this.activeRunIds.delete(key);
+            this.keepAwake?.stop(key);
             await this.audit('campaign_stopped', stoppedRun.id, {
                 status: stoppedRun.status,
                 processed: stoppedRun.processed,
@@ -153,10 +209,11 @@ class CampaignService {
     async resume(campaignId, ownerEmail, socket, options = {}) {
         const tenantId = options.tenantId || getTenantFromSocket(socket);
         this.assertConnected(tenantId);
-        const pendingContacts = await this.db.getCampaignRecipientsForRun(campaignId, ownerEmail, ['pending'], tenantId);
-        if (pendingContacts.length === 0) throw badRequest('Devam edilecek bekleyen kişi yok', 'CAMPAIGN_RESUME_EMPTY');
+        this.assertNoInMemoryActive(ownerEmail, tenantId, campaignId);
+        const unsentContacts = await this.db.getCampaignRecipientsForRun(campaignId, ownerEmail, ['pending', 'failed'], tenantId);
+        if (unsentContacts.length === 0) throw badRequest('Devam edilecek bekleyen kişi yok', 'CAMPAIGN_RESUME_EMPTY');
         const run = await this.db.prepareCampaignRunForRestart(campaignId, ownerEmail, 'resume', tenantId);
-        const execution = this.runExistingCampaign(run, pendingContacts, ownerEmail, tenantId, socket, 'Kampanya kaldığı yerden devam ediyor.');
+        const execution = this.runExistingCampaign(run, unsentContacts, ownerEmail, tenantId, socket, 'Kampanya kaldığı yerden devam ediyor.');
         if (options.detached) {
             execution.catch(err => this.logger.error({ err, tenantId, campaignId }, 'campaign_resume_failed'));
             return run;
@@ -167,6 +224,7 @@ class CampaignService {
     async retry(campaignId, ownerEmail, socket, options = {}) {
         const tenantId = options.tenantId || getTenantFromSocket(socket);
         this.assertConnected(tenantId);
+        this.assertNoInMemoryActive(ownerEmail, tenantId, campaignId);
         const failedContacts = await this.db.getCampaignRecipientsForRun(campaignId, ownerEmail, ['failed'], tenantId);
         if (failedContacts.length === 0) throw badRequest('Retry edilecek başarısız kişi yok', 'CAMPAIGN_RETRY_EMPTY');
         const run = await this.db.prepareCampaignRunForRestart(campaignId, ownerEmail, 'retry', tenantId);
@@ -185,29 +243,47 @@ class CampaignService {
         assertValidCampaignMessage(run.message, contacts[0]);
 
         const key = activeKey(ownerEmail, tenantId);
+        const emitter = socket || {
+            emit: (event, payload) => this.runtime?.emitToTenant?.(event, payload, tenantId)
+        };
         this.activeRunIds.set(key, run.id);
-        socket?.emit('campaign-started', { campaignId: run.id, status: run });
-        socket?.emit('log', { type: 'info', message });
+        this.keepAwake?.start(key);
+        emitter.emit('campaign-started', { campaignId: run.id, status: run });
+        emitter.emit('log', {
+            type: 'info',
+            message,
+            estimate_remaining_minutes: estimateRemainingMinutes({
+                remaining: contacts.length,
+                delay_min_ms: run.delay_min_ms,
+                delay_max_ms: run.delay_max_ms,
+                batchSize: run.metadata?.batch_size,
+                batchPauseMinutes: run.metadata?.batch_pause_minutes
+            })
+        });
 
         try {
             await sendBulkWithProgress(
                 sock,
                 contacts,
                 run.message,
-                socket,
+                emitter,
                 getDelayRangeFromRun(run),
                 getMediaFilesFromRun(run),
                 run.id,
                 {
                     dailyLimit: Number(run.daily_limit || 50),
+                    batchSize: run.metadata?.batch_size,
+                    batchPauseMinutes: run.metadata?.batch_pause_minutes,
                     campaignStore: this,
                     tenantId
                 }
             );
             this.activeRunIds.delete(key);
+            this.keepAwake?.stop(key);
         } catch (err) {
             await this.setRunStatus(run.id, 'paused', { error: err.message });
             this.activeRunIds.delete(key);
+            this.keepAwake?.stop(key);
             throw err;
         }
     }

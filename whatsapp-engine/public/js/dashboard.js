@@ -4,6 +4,9 @@ const API_BASE = window.WhasAppCApi.API_BASE;
 const appState = window.WhasAppCState;
 const ui = window.WhasAppCUI;
 const messageRenderer = window.WhasAppCMessageRenderer;
+let batchPauseCountdownTimer = null;
+let currentFrontendRevision = null;
+let releaseWatcherTimer = null;
 appState.expose([
     'currentContacts',
     'visibleContacts',
@@ -56,6 +59,58 @@ async function fetchApiEnvelope(url, options = {}, timeoutMs = 8000) {
     return window.WhasAppCApi.fetchEnvelope(url, options, timeoutMs);
 }
 
+function releaseRevision(versionData = {}) {
+    const version = versionData.version || '0.0.0';
+    const revision = versionData.frontend_revision || versionData.frontendRevision;
+    if (revision) return revision;
+    return `${version}-${versionData.commit || 'unknown'}`;
+}
+
+function renderVersion(versionData = {}) {
+    const element = document.getElementById('sys-version');
+    if (!element) return;
+    const version = versionData.version || '0.0.0';
+    const shortCommit = versionData.short_commit || String(versionData.commit || '').slice(0, 7);
+    element.innerText = shortCommit && shortCommit !== 'unknown'
+        ? `v${version} · ${shortCommit}`
+        : `v${version}`;
+}
+
+async function fetchVersion() {
+    return fetchJson(`${API_BASE}/version`, {}, 5000);
+}
+
+async function initReleaseVersion() {
+    const versionData = await fetchVersion().catch(() => ({ version: '0.0.0', commit: 'unknown' }));
+    currentFrontendRevision = releaseRevision(versionData);
+    renderVersion(versionData);
+}
+
+function showReleaseUpdate(versionData = {}) {
+    const banner = document.getElementById('release-update-banner');
+    const text = document.getElementById('release-update-text');
+    if (!banner) return;
+    if (text) text.innerText = `Yeni sürüm yayında: v${versionData.version || '0.0.0'}`;
+    banner.classList.remove('hidden');
+}
+
+function startReleaseWatcher() {
+    if (releaseWatcherTimer) clearInterval(releaseWatcherTimer);
+    releaseWatcherTimer = setInterval(async () => {
+        try {
+            const versionData = await fetchVersion();
+            const nextRevision = releaseRevision(versionData);
+            if (currentFrontendRevision && nextRevision !== currentFrontendRevision) {
+                showReleaseUpdate(versionData);
+                clearInterval(releaseWatcherTimer);
+                releaseWatcherTimer = null;
+            }
+        } catch (err) {
+            console.warn('Sürüm kontrolü yapılamadı', err);
+        }
+    }, 60000);
+}
+
 function setActionButton(id, visible) {
     const button = document.getElementById(id);
     if (!button) return;
@@ -79,6 +134,71 @@ function setCampaignControls(status) {
     setActionButton('stop-btn', running);
     setActionButton('resume-btn', resumable && !!getActiveCampaignId());
     setActionButton('retry-btn', retryable && !!getActiveCampaignId());
+}
+
+function formatEstimateMinutes(minutes) {
+    const value = Number(minutes || 0);
+    if (!Number.isFinite(value) || value <= 0) return 'TAHMİN: --';
+    if (value < 60) return `TAHMİN: ${Math.ceil(value)} DK`;
+    const hours = Math.floor(value / 60);
+    const rest = Math.ceil(value % 60);
+    return rest > 0 ? `TAHMİN: ${hours} SA ${rest} DK` : `TAHMİN: ${hours} SA`;
+}
+
+function estimateMinutesForContacts(total) {
+    const count = Math.max(0, Number(total || 0));
+    if (count === 0) return 0;
+    const minDelay = Number.parseInt(document.getElementById('min-delay')?.value || '20', 10);
+    const maxDelay = Number.parseInt(document.getElementById('max-delay')?.value || '90', 10);
+    const averageDelay = ((Number.isFinite(minDelay) ? minDelay : 20) + (Number.isFinite(maxDelay) ? maxDelay : 90)) / 2;
+    const batchPauseSeconds = Math.floor(Math.max(0, count - 1) / 50) * 40 * 60;
+    return Math.max(1, Math.ceil(((count * (averageDelay + 3)) + batchPauseSeconds) / 60));
+}
+
+function updateCampaignEstimate(minutes) {
+    const element = document.getElementById('prog-eta');
+    if (element) element.innerText = formatEstimateMinutes(minutes);
+}
+
+function formatCountdown(ms) {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function updateBatchPauseCountdown(untilIso) {
+    const element = document.getElementById('prog-batch-pause');
+    if (!element) return;
+    if (batchPauseCountdownTimer) {
+        clearInterval(batchPauseCountdownTimer);
+        batchPauseCountdownTimer = null;
+    }
+
+    if (!untilIso) {
+        element.innerText = 'MOLA: --';
+        return;
+    }
+
+    const until = new Date(untilIso).getTime();
+    if (!Number.isFinite(until)) {
+        element.innerText = 'MOLA: --';
+        return;
+    }
+
+    const render = () => {
+        const remainingMs = until - Date.now();
+        if (remainingMs <= 0) {
+            element.innerText = 'MOLA: BAŞLIYOR';
+            clearInterval(batchPauseCountdownTimer);
+            batchPauseCountdownTimer = null;
+            return;
+        }
+        element.innerText = `MOLA: ${formatCountdown(remainingMs)}`;
+    };
+
+    render();
+    batchPauseCountdownTimer = setInterval(render, 1000);
 }
 
 async function logout() {
@@ -291,6 +411,7 @@ function updateCampaignTargetSummary() {
     }
     const totalEl = document.getElementById('prog-total');
     if (totalEl) totalEl.innerText = `TOPLAM: ${total}`;
+    updateCampaignEstimate(estimateMinutesForContacts(total));
 }
 
 function toggleCampaignGroup(groupId, checked) {
@@ -424,6 +545,8 @@ socket?.on('status', status => setWhatsAppUiStatus(status));
 socket?.on('campaign-started', data => {
     setActiveCampaignId(data?.campaignId || data?.status?.id || getActiveCampaignId());
     setCampaignControls('running');
+    updateCampaignEstimate(data?.status?.estimate_remaining_minutes);
+    updateBatchPauseCountdown(null);
     if (data?.status?.progress !== undefined) {
         document.getElementById('prog-box').classList.remove('hidden');
         document.getElementById('prog-bar').style.width = `${data.status.progress}%`;
@@ -446,12 +569,16 @@ socket?.on('log', data => {
         document.getElementById('prog-text').innerText = `${Math.round(data.progress)}%`;
         document.getElementById('prog-count').innerText = data.message;
     }
+    if (data.estimate_remaining_minutes !== undefined) updateCampaignEstimate(data.estimate_remaining_minutes);
+    if (data.batch_pause_until !== undefined) updateBatchPauseCountdown(data.batch_pause_until);
 
     if (data.done) {
         document.getElementById('prog-box').classList.remove('hidden');
         document.getElementById('prog-bar').style.width = '100%';
         document.getElementById('prog-text').innerText = '100%';
         document.getElementById('prog-count').innerText = data.message;
+        updateCampaignEstimate(0);
+        updateBatchPauseCountdown(null);
         setCampaignControls('completed');
         showCampaignCompleteModal();
         return;
@@ -971,8 +1098,6 @@ function filterContacts(query) {
 
 async function initTemplates() {
     try {
-        const vData = await fetchJson(`${API_BASE}/version`).catch(() => ({ version: '0.0.0' }));
-        document.getElementById('sys-version').innerText = `v${vData.version}`;
         templates = await fetchJson(`${API_BASE}/templates`);
         document.getElementById('template-select').innerHTML = '<option value="">ŞABLONLAR</option>' + templates.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
     } catch (err) {
@@ -1026,6 +1151,8 @@ async function startCampaign() {
     setActiveCampaignId(null);
     setCampaignControls('running');
     document.getElementById('prog-box').classList.remove('hidden');
+    updateCampaignEstimate(estimateMinutesForContacts(targetContacts.length));
+    updateBatchPauseCountdown(null);
 
     const delayRange = [
         parseInt(document.getElementById('min-delay').value),
@@ -1218,6 +1345,8 @@ async function checkActiveCampaign() {
             document.getElementById('prog-box').classList.remove('hidden');
             document.getElementById('prog-bar').style.width = `${data.campaign.progress}%`;
             document.getElementById('prog-text').innerText = `${Math.round(data.campaign.progress)}%`;
+            updateCampaignEstimate(data.campaign.estimate_remaining_minutes);
+            updateBatchPauseCountdown(null);
             document.getElementById('prog-count').innerText = data.campaign.status === 'running'
                 ? 'Kampanya devam ediyor...'
                 : `Son durum: ${data.campaign.status}`;
@@ -1292,6 +1421,7 @@ function bindStaticControls() {
     bindClick('template-save-btn', saveTemplate);
     bindClick('campaign-complete-close-btn', closeCampaignCompleteModal);
     bindClick('mobile-manual-open-btn', () => showModal('manual-modal'));
+    bindClick('release-refresh-btn', () => window.location.reload());
 
     byId('template-select')?.addEventListener('change', event => loadTemplate(event.target.value));
     byId('message')?.addEventListener('input', updatePreview);
@@ -1352,6 +1482,7 @@ function initializeDashboard() {
     });
     setWhatsAppUiStatus('disconnected', 'BAĞLI DEĞİL');
     updateDelayLabel();
+    initReleaseVersion().then(startReleaseWatcher);
     initTemplates();
     loadGroups();
     refreshRuntimeStatus();

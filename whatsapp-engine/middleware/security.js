@@ -44,7 +44,7 @@ function requireSameOriginForStateChanges(req, res, next) {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
 
     const origin = requestOrigin(req);
-    if (!origin) return next();
+    if (!origin) return res.status(403).json({ error: 'Istek kaynagi zorunlu' });
     if (origin === expectedOrigin(req)) return next();
 
     return res.status(403).json({ error: 'Gecersiz istek kaynagi' });

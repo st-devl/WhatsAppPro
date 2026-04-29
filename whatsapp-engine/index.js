@@ -10,9 +10,13 @@ const db = require('./lib/db');
 const { LoginRateLimiter } = require('./lib/login_rate_limiter');
 const { MediaStore } = require('./lib/media_store');
 const { createUploadMiddleware } = require('./lib/upload_middleware');
+const { createTenantUploadMiddleware } = require('./lib/tenant_uploads');
 const { WhatsAppRuntime } = require('./lib/whatsapp_runtime');
+const { KeepAwake } = require('./lib/keep_awake');
 const { createErrorMiddleware, createNotFoundMiddleware } = require('./lib/api_errors');
 const { componentLogger, createRequestLoggerMiddleware, logger } = require('./lib/logger');
+const { parseTrustProxy } = require('./lib/proxy_config');
+const { readReleaseManifest } = require('./lib/release_manifest');
 const { requireAuth } = require('./middleware/auth');
 const { createSecurityHeaders, requireSameOriginForStateChanges } = require('./middleware/security');
 const { createSessionMiddleware } = require('./middleware/session');
@@ -32,7 +36,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 const serverLogger = componentLogger('server');
 
-app.set('trust proxy', 1);
+app.set('trust proxy', parseTrustProxy());
 app.disable('x-powered-by');
 
 fs.ensureDirSync(path.join(__dirname, 'uploads'));
@@ -43,6 +47,7 @@ const loginLimiter = new LoginRateLimiter({
     maxAttempts: process.env.LOGIN_RATE_LIMIT_MAX
 });
 const mediaStore = new MediaStore();
+const keepAwake = new KeepAwake();
 const upload = createUploadMiddleware(__dirname);
 const runtime = new WhatsAppRuntime({
     io,
@@ -51,7 +56,7 @@ const runtime = new WhatsAppRuntime({
     maxAutoRetries: process.env.WHATSAPP_MAX_AUTO_RETRIES || '3',
     logger: componentLogger('whatsapp_runtime')
 });
-const campaignService = new CampaignService({ db, runtime, mediaStore, logger: componentLogger('campaign_service') });
+const campaignService = new CampaignService({ db, runtime, mediaStore, keepAwake, logger: componentLogger('campaign_service') });
 const authRouterOptions = {
     adminEmail: process.env.ADMIN_EMAIL,
     adminPassHash: process.env.ADMIN_PASS_HASH,
@@ -96,8 +101,8 @@ app.use('/api', createAuthRouter(authRouterOptions));
 app.use('/api/v1', createAuthRouter(authRouterOptions));
 
 app.get('/app-version', async (req, res) => {
-    const pkg = await fs.readJson(path.join(__dirname, 'package.json')).catch(() => ({ version: '0.0.0' }));
-    res.json({ data: { version: pkg.version }, error: null, code: 'VERSION' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ data: await readReleaseManifest(__dirname), error: null, code: 'VERSION' });
 });
 
 app.get('/healthz', (req, res) => {
@@ -145,10 +150,20 @@ app.get('/healthz/details', (req, res) => {
 });
 
 app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'public/login.html')));
-app.use('/css', express.static(path.join(__dirname, 'public/css')));
-app.use(requireAuth, express.static(path.join(__dirname, 'public')));
-app.use('/shared', requireAuth, express.static(path.join(__dirname, 'shared')));
-app.use('/uploads', requireAuth, express.static(path.join(__dirname, 'uploads')));
+app.get('/release.json', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.join(__dirname, 'public/release.json'));
+});
+app.use('/css', express.static(path.join(__dirname, 'public/css'), {
+    setHeaders: res => res.setHeader('Cache-Control', 'no-cache')
+}));
+app.use(requireAuth, express.static(path.join(__dirname, 'public'), {
+    setHeaders: res => res.setHeader('Cache-Control', 'no-cache')
+}));
+app.use('/shared', requireAuth, express.static(path.join(__dirname, 'shared'), {
+    setHeaders: res => res.setHeader('Cache-Control', 'no-cache')
+}));
+app.get('/uploads/:tenantId/*', requireAuth, createTenantUploadMiddleware(__dirname));
 app.use('/api', requireAuth);
 mountProtectedApi('/api/v1', protectedApiOptions);
 app.use('/api', legacyApiDeprecationHeaders);

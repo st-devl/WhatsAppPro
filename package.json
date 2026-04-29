@@ -6,7 +6,11 @@
   "scripts": {
     "build:css": "npm --prefix whatsapp-engine run build:css",
     "lint": "npm --prefix whatsapp-engine run lint",
-    "migrate": "npm --prefix whatsapp-engine run migrate",
+    "migrate": "npm --prefix whatsapp-engine run migrate:apply",
+    "migrate:status": "npm --prefix whatsapp-engine run migrate:status",
+    "migrate:apply": "npm --prefix whatsapp-engine run migrate:apply",
+    "release:manifest": "npm --prefix whatsapp-engine run release:manifest",
+    "release": "./release.sh check",
     "postinstall": "npm --prefix whatsapp-engine install --omit=dev",
     "start": "node index.js",
     "test": "npm --prefix whatsapp-engine test",

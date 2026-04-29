@@ -25,6 +25,8 @@ const { createGroupRouter } = require('../routes/groups');
 const { createContactRouter } = require('../routes/contacts');
 const { createErrorMiddleware, createNotFoundMiddleware } = require('../lib/api_errors');
 const { registerCampaignSocket } = require('../socket/campaign_socket');
+const { createTenantUploadMiddleware } = require('../lib/tenant_uploads');
+const { parseTrustProxy } = require('../lib/proxy_config');
 
 const ADMIN_EMAIL = 'admin@example.com';
 const ADMIN_PASSWORD = 'correct-password';
@@ -44,7 +46,7 @@ async function createHarness(options = {}) {
         maxAttempts: options.maxAttempts || 5
     });
 
-    app.set('trust proxy', 1);
+    app.set('trust proxy', options.trustProxy ?? false);
     app.use(sessionMiddleware);
     io.engine.use(sessionMiddleware);
     app.use(createRequestLoggerMiddleware());
@@ -61,6 +63,7 @@ async function createHarness(options = {}) {
         defaultTenantId: 'default'
     }));
     app.use('/api', requireAuth);
+    app.get('/uploads/:tenantId/*', requireAuth, createTenantUploadMiddleware(tempDir));
     app.use('/api', createGroupRouter(db));
     app.use('/api', createContactRouter(db));
     app.use('/api', createNotFoundMiddleware());
@@ -94,9 +97,11 @@ async function createHarness(options = {}) {
 }
 
 async function requestJson(harness, method, route, body = null, headers = {}) {
+    const stateChanging = !['GET', 'HEAD', 'OPTIONS'].includes(method);
     const response = await fetch(`${harness.baseUrl}${route}`, {
         method,
         headers: {
+            ...(stateChanging && !headers.Origin && !headers.Referer ? { Origin: harness.baseUrl } : {}),
             ...(body ? { 'content-type': 'application/json' } : {}),
             ...headers
         },
@@ -186,6 +191,22 @@ test('cross-origin state-changing request is blocked', async () => {
     }
 });
 
+test('state-changing request without origin is blocked', async () => {
+    const harness = await createHarness();
+    try {
+        const response = await fetch(`${harness.baseUrl}/api/login`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+        });
+        const body = await response.json();
+        assert.equal(response.status, 403);
+        assert.equal(body.error, 'Istek kaynagi zorunlu');
+    } finally {
+        await harness.close();
+    }
+});
+
 test('login brute force is rate limited', async () => {
     const harness = await createHarness({ maxAttempts: 2 });
     try {
@@ -198,6 +219,25 @@ test('login brute force is rate limited', async () => {
     } finally {
         await harness.close();
     }
+});
+
+test('rate limit ignores spoofed forwarded IP when proxy trust is disabled', async () => {
+    const harness = await createHarness({ maxAttempts: 2, trustProxy: false });
+    try {
+        const payload = { email: ADMIN_EMAIL, password: 'wrong-password' };
+        assert.equal((await requestJson(harness, 'POST', '/api/login', payload, { 'X-Forwarded-For': '198.51.100.1' })).status, 401);
+        assert.equal((await requestJson(harness, 'POST', '/api/login', payload, { 'X-Forwarded-For': '198.51.100.2' })).status, 401);
+        const blocked = await requestJson(harness, 'POST', '/api/login', payload, { 'X-Forwarded-For': '198.51.100.3' });
+        assert.equal(blocked.status, 429);
+    } finally {
+        await harness.close();
+    }
+});
+
+test('trust proxy parser defaults closed and accepts explicit proxy settings', () => {
+    assert.equal(parseTrustProxy(undefined), false);
+    assert.equal(parseTrustProxy('1'), 1);
+    assert.equal(parseTrustProxy('loopback'), 'loopback');
 });
 
 test('group and contact CRUD routes require an authenticated session', async () => {
@@ -240,6 +280,28 @@ test('group and contact CRUD routes require an authenticated session', async () 
 
         const deletedGroup = await requestJson(harness, 'DELETE', `/api/groups/${groupId}`, null, { Cookie: cookie });
         assert.equal(deletedGroup.status, 200);
+    } finally {
+        await harness.close();
+    }
+});
+
+test('uploaded files are only served for the session tenant', async () => {
+    const harness = await createHarness();
+    try {
+        fs.mkdirSync(path.join(tempDir, 'uploads', 'default'), { recursive: true });
+        fs.mkdirSync(path.join(tempDir, 'uploads', 'other'), { recursive: true });
+        fs.writeFileSync(path.join(tempDir, 'uploads', 'default', 'own.txt'), 'own-file');
+        fs.writeFileSync(path.join(tempDir, 'uploads', 'other', 'private.txt'), 'other-file');
+
+        const cookie = await login(harness);
+        const own = await fetch(`${harness.baseUrl}/uploads/default/own.txt`, { headers: { Cookie: cookie } });
+        assert.equal(own.status, 200);
+        assert.equal(await own.text(), 'own-file');
+
+        const other = await fetch(`${harness.baseUrl}/uploads/other/private.txt`, { headers: { Cookie: cookie } });
+        const body = await other.json();
+        assert.equal(other.status, 403);
+        assert.equal(body.code, 'UPLOAD_FORBIDDEN');
     } finally {
         await harness.close();
     }

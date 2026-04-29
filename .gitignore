@@ -16,3 +16,6 @@ dist-ssr/
 # Playwright
 test-results/
 playwright-report/
+
+# Generated at release time
+whatsapp-engine/public/release.json

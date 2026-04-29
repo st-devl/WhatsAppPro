@@ -7,6 +7,7 @@ const path = require('node:path');
 const { createSampleWorkbookBuffer, readWorkbookObjectsInWorker } = require('../lib/excel_import');
 const { MediaStore } = require('../lib/media_store');
 const { createUploadService } = require('../services/upload_service');
+const { resolveTenantUploadPath } = require('../lib/tenant_uploads');
 
 async function createTempBaseDir() {
     const baseDir = await fs.mkdtemp(path.join(os.tmpdir(), 'whatsappc-upload-test-'));
@@ -58,6 +59,20 @@ test('media removal rejects path traversal', async () => {
             () => service.removeMedia('../package.json'),
             err => err.code === 'INVALID_UPLOAD_PATH'
         );
+    } finally {
+        await cleanup(baseDir);
+    }
+});
+
+test('tenant upload resolver rejects cross-tenant traversal', async () => {
+    const baseDir = await createTempBaseDir();
+    try {
+        await fs.mkdir(path.join(baseDir, 'uploads', 'other'), { recursive: true });
+        const valid = resolveTenantUploadPath(baseDir, 'default', 'file.jpg');
+        const invalid = resolveTenantUploadPath(baseDir, 'default', '../other/file.jpg');
+
+        assert.equal(valid, path.join(baseDir, 'uploads', 'default', 'file.jpg'));
+        assert.equal(invalid, null);
     } finally {
         await cleanup(baseDir);
     }

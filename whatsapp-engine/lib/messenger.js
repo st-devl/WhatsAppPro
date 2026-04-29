@@ -3,8 +3,13 @@ const path = require('path');
 const fs = require('fs-extra');
 const { renderTemplate } = require('../shared/message_renderer');
 const { componentLogger } = require('./logger');
+const {
+    DEFAULT_BATCH_PAUSE_MINUTES,
+    DEFAULT_BATCH_SIZE,
+    estimateRemainingMinutes
+} = require('./campaign_estimate');
 
-const delay = ms => new Promise(res => setTimeout(res, ms));
+const defaultDelay = ms => new Promise(res => setTimeout(res, ms));
 const messengerLogger = componentLogger('messenger');
 
 // Campaign state in memory
@@ -25,11 +30,45 @@ function isNightMode() {
     return hour >= 22 || hour < 9;
 }
 
+function isStopped(campaignId) {
+    return activeCampaigns.get(campaignId)?.status === 'stopped';
+}
+
+async function interruptibleDelay(campaignId, ms, options = {}) {
+    const sleep = options.sleep || defaultDelay;
+    const pollMs = Math.max(25, Number.parseInt(options.stopPollMs || '250', 10));
+    const scale = Number.isFinite(Number(options.delayScale)) ? Number(options.delayScale) : 1;
+    const deadline = Date.now() + Math.max(0, Number(ms || 0) * scale);
+
+    while (!isStopped(campaignId)) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return true;
+        await sleep(Math.min(pollMs, remaining));
+    }
+
+    return false;
+}
+
 async function sendBulkWithProgress(sock, contacts, message, socket, delayRange, mediaFiles = [], campaignId, userSettings = {}) {
     const [min, max] = delayRange || [20, 90];
     const dailyLimit = userSettings.dailyLimit || 50;
+    const batchSize = Math.max(1, Number.parseInt(userSettings.batchSize ?? DEFAULT_BATCH_SIZE, 10) || DEFAULT_BATCH_SIZE);
+    const batchPauseMinutes = Math.max(0, Number.parseInt(userSettings.batchPauseMinutes ?? DEFAULT_BATCH_PAUSE_MINUTES, 10) || DEFAULT_BATCH_PAUSE_MINUTES);
     const campaignStore = userSettings.campaignStore || null;
     const tenantId = userSettings.tenantId || 'default';
+    const delayOptions = {
+        sleep: userSettings.sleep,
+        stopPollMs: userSettings.stopPollMs,
+        delayScale: userSettings.delayScale
+    };
+    const estimateFor = (remaining) => ({
+        estimate_remaining_minutes: estimateRemainingMinutes({
+            remaining,
+            delayRange: [min, max],
+            batchSize,
+            batchPauseMinutes
+        })
+    });
     let failCount = 0; 
     let endedEarly = false;
     
@@ -42,17 +81,20 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         progress: 0
     });
 
-    const persist = (operation) => {
+    const persist = async (operation, { critical = false } = {}) => {
         if (!operation) return;
-        Promise.resolve(operation).catch(err => {
+        try {
+            await operation;
+        } catch (err) {
             messengerLogger.error({ err, campaignId }, 'campaign_state_persist_failed');
-        });
+            if (critical) throw err;
+        }
     };
 
-    persist(campaignStore?.setRunStatus(campaignId, 'running'));
-    persist(recipientManager.cleanup(tenantId));
+    await persist(campaignStore?.setRunStatus(campaignId, 'running'), { critical: true });
+    await persist(recipientManager.cleanup(tenantId));
 
-    const addLog = (type, message, progress, meta = {}) => {
+    const addLog = async (type, message, progress, meta = {}) => {
         const campaign = activeCampaigns.get(campaignId);
         if(campaign) {
             campaign.logs.push({ type, message, timestamp: Date.now() });
@@ -60,23 +102,23 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             if (meta.done) campaign.done = true;
             activeCampaigns.set(campaignId, campaign);
         }
-        persist(campaignStore?.addLog(campaignId, type, message, progress, meta));
+        await persist(campaignStore?.addLog(campaignId, type, message, progress, meta));
         if(socket) socket.emit('log', { type, message, progress, ...meta });
     };
 
     const preparedMedia = [];
     if (mediaFiles && mediaFiles.length > 0) {
-        addLog('info', `${mediaFiles.length} medya gönderim için hazırlanıyor...`);
+        await addLog('info', `${mediaFiles.length} medya gönderim için hazırlanıyor...`);
         for (const file of mediaFiles) {
             const type = file.mimetype?.startsWith('image/') ? 'image' : file.mimetype?.startsWith('video/') ? 'video' : null;
             if (!type) {
-                addLog('error', `Desteklenmeyen medya türü atlandı: ${file.name || file.path}`);
+                await addLog('error', `Desteklenmeyen medya türü atlandı: ${file.name || file.path}`);
                 continue;
             }
 
             const absolutePath = path.resolve(__dirname, '..', file.path);
             if (!absolutePath.startsWith(path.resolve(__dirname, '..', 'uploads') + path.sep) || !fs.existsSync(absolutePath)) {
-                addLog('error', `Medya dosyası bulunamadı: ${file.name || file.path}`);
+                await addLog('error', `Medya dosyası bulunamadı: ${file.name || file.path}`);
                 continue;
             }
 
@@ -84,7 +126,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         }
 
         if (preparedMedia.length > 0) {
-            addLog('success', `${preparedMedia.length} medya gönderime hazır.`);
+            await addLog('success', `${preparedMedia.length} medya gönderime hazır.`);
         }
     }
 
@@ -92,44 +134,37 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         const sentToday = await recipientManager.getDailyCount(tenantId);
         const campaignState = activeCampaigns.get(campaignId);
         if (!campaignState || campaignState.status === 'stopped') {
-            addLog('error', '🛑 Gönderim durduruldu.');
+            await addLog('error', '🛑 Gönderim durduruldu.');
             break;
         }
 
-        if (isNightMode()) {
-            addLog('wait', '🌙 Gece yasağı devrede (22:00-09:00). Kampanya duraklatıldı. Sabah 09:00\'da manuel olarak devam ettirin.');
+        if (!userSettings.disableNightMode && isNightMode()) {
+            await addLog('wait', '🌙 Gece yasağı devrede (22:00-09:00). Kampanya duraklatıldı. Sabah 09:00\'da manuel olarak devam ettirin.');
             const campaign = activeCampaigns.get(campaignId);
             if (campaign) {
                 campaign.status = 'paused';
                 activeCampaigns.set(campaignId, campaign);
             }
-            persist(campaignStore?.setRunStatus(campaignId, 'paused'));
+            await persist(campaignStore?.setRunStatus(campaignId, 'paused'), { critical: true });
             endedEarly = true;
             break;
         }
 
         if (sentToday >= dailyLimit) {
-            addLog('error', `🚫 Günlük limite ulaşıldı (${dailyLimit}). Güvenlik gereği bugünlük durduruldu.`);
+            await addLog('error', `🚫 Günlük limite ulaşıldı (${dailyLimit}). Güvenlik gereği bugünlük durduruldu.`);
             endedEarly = true;
             break;
         }
 
         if (failCount >= 5) {
-            addLog('error', '🛑 Çok fazla ardışık hata! Ban riskine karşı kampanya güvenlik nedeniyle durduruldu.');
+            await addLog('error', '🛑 Çok fazla ardışık hata! Ban riskine karşı kampanya güvenlik nedeniyle durduruldu.');
             endedEarly = true;
             break;
         }
 
-        if (i > 0) {
-            if (i % 40 === 0) {
-                const longBreak = Math.floor(Math.random() * (45 - 20 + 1) + 20);
-                addLog('wait', `☕ Uzun mola zamanı (40 mesajda bir). ${longBreak} dakika bekleniyor...`);
-                await delay(longBreak * 60000);
-            } else if (i % 12 === 0) {
-                const shortBreak = Math.floor(Math.random() * (8 - 3 + 1) + 3);
-                addLog('wait', `🥤 Kısa mola (12 mesajda bir). ${shortBreak} dakika bekleniyor...`);
-                await delay(shortBreak * 60000);
-            }
+        if (isStopped(campaignId)) {
+            await addLog('error', '🛑 Gönderim durduruldu.');
+            break;
         }
 
         const contact = contacts[i];
@@ -140,15 +175,15 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         if (!phone.includes('@s.whatsapp.net')) phone = `${phone}@s.whatsapp.net`;
 
         if (await recipientManager.isInCooldown(phone, tenantId)) {
-            addLog('wait', `⏭️ Atlandı (Cooldown): ${phone} için son 24 saat içinde gönderim yapılmış.`);
-            persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'Cooldown aktif'));
+            await addLog('wait', `⏭️ Atlandı (Cooldown): ${phone} için son 24 saat içinde gönderim yapılmış.`);
+            await persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'Cooldown aktif'), { critical: true });
             continue;
         }
 
         const nameLabel = contact.name && contact.name !== 'Bilinmeyen' ? contact.name : 'Müşterimiz';
         const currentProgress = ((i + 1) / contacts.length) * 100;
         
-        addLog('process', `[${i + 1}/${contacts.length}] İşleniyor: ${nameLabel}`, currentProgress);
+        await addLog('process', `[${i + 1}/${contacts.length}] İşleniyor: ${nameLabel}`, currentProgress, estimateFor(contacts.length - i));
         
         if(campaignState) {
              campaignState.processed = i + 1;
@@ -156,8 +191,8 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
 
         const exists = await recipientManager.validateOnWhatsApp(sock, phone);
         if (!exists) {
-            addLog('error', `❌ Atlandı: ${phone} numaralı kullanıcı WhatsApp kullanmıyor.`);
-            persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'WhatsApp kullanıcısı değil'));
+            await addLog('error', `❌ Atlandı: ${phone} numaralı kullanıcı WhatsApp kullanmıyor.`);
+            await persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'WhatsApp kullanıcısı değil'), { critical: true });
             continue;
         }
 
@@ -165,7 +200,8 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
 
         try {
             await sock.sendPresenceUpdate('composing', phone);
-            await delay(Math.floor(Math.random() * 4000) + 2000);
+            await interruptibleDelay(campaignId, userSettings.typingDelayMs ?? (Math.floor(Math.random() * 4000) + 2000), delayOptions);
+            if (isStopped(campaignId)) break;
             await sock.sendPresenceUpdate('paused', phone);
 
             if (preparedMedia.length > 0) {
@@ -177,28 +213,44 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
 
                     if (j === 0) payload.caption = finalMsg;
                     await sock.sendMessage(phone, payload);
-                    await delay(getHumanDelay(2, 5)); 
+                    const completed = await interruptibleDelay(campaignId, getHumanDelay(2, 5), delayOptions);
+                    if (!completed) break;
                 }
+                if (isStopped(campaignId)) break;
             } else {
                 await sock.sendMessage(phone, { text: finalMsg });
             }
 
             await recipientManager.logSend(phone, tenantId);
-            persist(campaignStore?.markRecipient(campaignId, contact, 'sent'));
+            await persist(campaignStore?.markRecipient(campaignId, contact, 'sent'), { critical: true });
             const dailyCount = await recipientManager.getDailyCount(tenantId);
-            addLog('success', `✅ İletildi: ${nameLabel} (${dailyCount}/${dailyLimit})`);
+            await addLog('success', `✅ İletildi: ${nameLabel} (${dailyCount}/${dailyLimit})`, currentProgress, estimateFor(contacts.length - i - 1));
             failCount = 0;
+
+            const hasMoreContacts = i < contacts.length - 1;
+            const reachedBatchPause = batchPauseMinutes > 0 && batchSize > 0 && dailyCount > 0 && dailyCount % batchSize === 0;
+            if (hasMoreContacts && reachedBatchPause && dailyCount < dailyLimit) {
+                const pauseMs = batchPauseMinutes * 60 * 1000;
+                const pauseUntil = new Date(Date.now() + pauseMs).toISOString();
+                await addLog('wait', `${batchSize} gönderim tamamlandı. ${batchPauseMinutes} dk zorunlu mola başladı.`, undefined, {
+                    ...estimateFor(contacts.length - i - 1),
+                    batch_pause_until: pauseUntil,
+                    batch_pause_minutes: batchPauseMinutes
+                });
+                const completed = await interruptibleDelay(campaignId, pauseMs, delayOptions);
+                if (!completed) break;
+            }
 
         } catch (err) {
             failCount++;
-            persist(campaignStore?.markRecipient(campaignId, contact, 'failed', err.message));
-            addLog('error', `❌ Hata: ${err.message}`);
+            await persist(campaignStore?.markRecipient(campaignId, contact, 'failed', err.message), { critical: true });
+            await addLog('error', `❌ Hata: ${err.message}`);
         }
 
         if (i < contacts.length - 1 && activeCampaigns.get(campaignId)?.status !== 'stopped') {
             const waitTime = getHumanDelay(min, max);
-            addLog('wait', `⏳ ${waitTime/1000}sn bekleniyor...`);
-            await delay(waitTime);
+            await addLog('wait', `⏳ ${waitTime/1000}sn bekleniyor...`, undefined, estimateFor(contacts.length - i - 1));
+            await interruptibleDelay(campaignId, waitTime, delayOptions);
         }
     }
     
@@ -209,14 +261,14 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         finalState.processed = finalState.total;
         finalState.progress = 100;
         activeCampaigns.set(campaignId, finalState);
-        persist(campaignStore?.setRunStatus(campaignId, 'completed'));
-        addLog('success', 'Gönderiler tamamlandı.', 100, { done: true });
+        await persist(campaignStore?.setRunStatus(campaignId, 'completed'), { critical: true });
+        await addLog('success', 'Gönderiler tamamlandı.', 100, { done: true });
     } else if (finalState && finalState.status !== 'stopped') {
         finalState.status = 'paused';
         activeCampaigns.set(campaignId, finalState);
-        persist(campaignStore?.setRunStatus(campaignId, 'paused'));
+        await persist(campaignStore?.setRunStatus(campaignId, 'paused'), { critical: true });
     } else if (finalState && finalState.status === 'stopped') {
-        persist(campaignStore?.setRunStatus(campaignId, 'stopped'));
+        await persist(campaignStore?.setRunStatus(campaignId, 'stopped'), { critical: true });
     }
 }
 
