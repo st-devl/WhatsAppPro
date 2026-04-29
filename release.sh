@@ -385,11 +385,15 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
     fi
 
     node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }\"
-    if [ ! -f whatsapp-engine/package-lock.json ]; then
+    if [ ! -s whatsapp-engine/package-lock.json ]; then
         if ! git show HEAD:whatsapp-engine/package-lock.json > whatsapp-engine/package-lock.json; then
             echo 'HATA: whatsapp-engine/package-lock.json remote checkout icinde yok ve committen geri yuklenemedi.' >&2
             exit 1
         fi
+    fi
+    if [ ! -s whatsapp-engine/package-lock.json ]; then
+        echo 'HATA: whatsapp-engine/package-lock.json bos veya okunamiyor.' >&2
+        exit 1
     fi
     old_node_modules=''
     failed_node_modules=''
@@ -398,7 +402,8 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
         mv whatsapp-engine/node_modules \"\$old_node_modules\"
     fi
     rm -rf .npm-release-cache || true
-    if ! npm --prefix whatsapp-engine ci --omit=dev --cache \"\$PWD/.npm-release-cache\" --prefer-online --no-audit --no-fund; then
+    npm_cache_dir=\"\$PWD/.npm-release-cache\"
+    if ! (cd whatsapp-engine && npm ci --omit=dev --cache \"\$npm_cache_dir\" --prefer-online --no-audit --no-fund); then
         echo 'HATA: npm ci basarisiz oldu. Eski node_modules geri yuklenecek.' >&2
         failed_node_modules=\"whatsapp-engine/.node_modules-failed-\$(date +%s)\"
         if [ -d whatsapp-engine/node_modules ]; then
@@ -412,7 +417,7 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
     if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
         rm -rf \"\$old_node_modules\" || true
     fi
-    npm --prefix whatsapp-engine run migrate:apply
+    (cd whatsapp-engine && npm run migrate:apply)
 
     if [ -n $restart_cmd_q ]; then
         eval $restart_cmd_q
