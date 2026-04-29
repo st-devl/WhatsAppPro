@@ -366,12 +366,26 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
     fi
 
     node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }\"
-    rm -rf whatsapp-engine/node_modules .npm-release-cache
+    old_node_modules=''
+    failed_node_modules=''
+    if [ -d whatsapp-engine/node_modules ]; then
+        old_node_modules=\"whatsapp-engine/.node_modules-old-\$(date +%s)\"
+        mv whatsapp-engine/node_modules \"\$old_node_modules\"
+    fi
+    rm -rf .npm-release-cache || true
     if ! npm --prefix whatsapp-engine ci --omit=dev --cache \"\$PWD/.npm-release-cache\" --prefer-online --no-audit --no-fund; then
-        echo 'UYARI: npm ci basarisiz oldu. Cache ve node_modules temizlenip tekrar denenecek.' >&2
-        npm cache clean --force || true
-        rm -rf whatsapp-engine/node_modules .npm-release-cache
-        npm --prefix whatsapp-engine ci --omit=dev --cache \"\$PWD/.npm-release-cache\" --prefer-online --no-audit --no-fund
+        echo 'HATA: npm ci basarisiz oldu. Eski node_modules geri yuklenecek.' >&2
+        failed_node_modules=\"whatsapp-engine/.node_modules-failed-\$(date +%s)\"
+        if [ -d whatsapp-engine/node_modules ]; then
+            mv whatsapp-engine/node_modules \"\$failed_node_modules\" || true
+        fi
+        if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
+            mv \"\$old_node_modules\" whatsapp-engine/node_modules || true
+        fi
+        exit 1
+    fi
+    if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
+        rm -rf \"\$old_node_modules\" || true
     fi
     npm --prefix whatsapp-engine run migrate:apply
 
