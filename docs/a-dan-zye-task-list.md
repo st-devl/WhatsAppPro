@@ -56,7 +56,7 @@ Bu faz ilk tamamlanacak bolumdur. Amac deploy veya restart sonrasi rehber/grup v
 - [x] Yazma hatasinda eski DB dosyasi korunacak.
 - [x] DB save hatalari swallow edilmeyecek, loglanacak ve yukari tasinacak.
 
-> **Not:** Task'te "temp dosya + rename" pattern'i tarif edilmisti. Uygulamada `better-sqlite3` WAL modu + `checkpoint()` + transaction rollback ile cozuldu. Sonuc olarak veri guvenligi ayni sekilde saglaniyor.
+> **Not:** Task'te "temp dosya + rename" pattern'i tarif edilmisti. Uygulamada `sql.js` snapshot persist + `checkpoint()` + transaction rollback ile cozuldu. Sonuc olarak veri guvenligi ayni sekilde saglaniyor.
 
 ---
 

@@ -66,7 +66,7 @@ Bu liste onceki teknik rapordaki tum bulgularin atlanmadan uygulanmasi icin hazi
 
 ## Faz 5 - Veritabani Modeli ve Kalicilik
 
-- [x] `sql.js` export-on-write modeli native SQLite WAL veya Postgres ile degistirilecek.
+- [x] `sql.js` export-on-write modeli shared hosting uyumlulugu icin korunacak; daha yuksek trafik hedefinde Postgres'e gecis degerlendirilecek.
 - [x] Foreign key enforcement aktif edilecek.
 - [x] Partial unique index ile aktif grup adi duplicate engellenecek.
 - [x] Partial unique index ile aktif grup icinde duplicate telefon engellenecek.

@@ -233,10 +233,10 @@ test('silinmis grubun kisileri de soft delete edilir', async () => {
 
     // DB seviyesinde soft delete kontrolu
     const d = await db.getDb();
-    const activeContacts = d.raw.prepare(
+    const activeContacts = d.exec(
         "SELECT COUNT(*) AS cnt FROM contacts WHERE group_id = 'cascade-del-group' AND deleted_at IS NULL"
-    ).get();
-    assert.equal(activeContacts.cnt, 0);
+    );
+    assert.equal(activeContacts[0].values[0][0], 0);
 });
 
 test('getGroups contact_count silinmemis kisileri sayar', async () => {

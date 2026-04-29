@@ -6,7 +6,7 @@
 - Express
 - Socket.IO
 - Baileys
-- SQLite via `better-sqlite3`
+- SQLite via `sql.js` to avoid native addon requirements on shared hosting
 - `pino` structured logging
 
 ## Frontend

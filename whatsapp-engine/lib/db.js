@@ -1,6 +1,6 @@
-const BetterSqlite3 = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs-extra');
+const initSqlJs = require('sql.js');
 const { estimateRemainingSeconds, estimateRemainingMinutes } = require('./campaign_estimate');
 
 const dataDir = process.env.WHASAPPC_DATA_DIR
@@ -16,80 +16,60 @@ const dbFile = process.env.WHASAPPC_DB_FILE
 const DEFAULT_TENANT_ID = 'default';
 const ACTIVE_CAMPAIGN_STATUSES = ['queued', 'running', 'paused'];
 let db = null;
+let sqlModulePromise = null;
 
-class SqliteStatementAdapter {
-    constructor(statement) {
-        this.statement = statement;
-        this.iterator = null;
-        this.current = null;
-    }
-
-    bind(params = []) {
-        this.iterator = this.statement.iterate(params);
-        this.current = null;
-    }
-
-    step() {
-        if (!this.iterator) this.bind();
-        const next = this.iterator.next();
-        this.current = next.value || null;
-        return !next.done;
-    }
-
-    getAsObject() {
-        return this.current || {};
-    }
-
-    free() {
-        this.iterator = null;
-        this.current = null;
-    }
+function getSqlModule() {
+    if (!sqlModulePromise) sqlModulePromise = initSqlJs();
+    return sqlModulePromise;
 }
 
 class SqliteDatabaseAdapter {
-    constructor(filePath) {
+    constructor(SQL, filePath) {
         this.filePath = filePath;
-        this.raw = new BetterSqlite3(filePath);
-        this.raw.pragma('journal_mode = WAL');
-        this.raw.pragma('synchronous = NORMAL');
-        this.raw.pragma('busy_timeout = 5000');
-        this.raw.pragma('foreign_keys = ON');
+        const data = fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+        this.raw = data ? new SQL.Database(data) : new SQL.Database();
+        this.closed = false;
+        this.raw.run('PRAGMA foreign_keys = ON');
+    }
+
+    static async open(filePath) {
+        const SQL = await getSqlModule();
+        return new SqliteDatabaseAdapter(SQL, filePath);
     }
 
     run(sql, params = []) {
-        const stmt = this.raw.prepare(sql);
-        return Array.isArray(params) && params.length > 0 ? stmt.run(params) : stmt.run();
+        this.raw.run(sql, params);
+        return { changes: this.raw.getRowsModified() };
     }
 
     prepare(sql) {
-        return new SqliteStatementAdapter(this.raw.prepare(sql));
+        return this.raw.prepare(sql);
     }
 
     exec(sql) {
-        const stmt = this.raw.prepare(sql);
-        if (!stmt.reader) {
-            this.raw.exec(sql);
-            return [];
-        }
-
-        const columns = stmt.columns().map(column => column.name);
-        const rows = stmt.all();
-        return [{
-            columns,
-            values: rows.map(row => columns.map(column => row[column]))
-        }];
+        return this.raw.exec(sql);
     }
 
     pragma(sql, options = undefined) {
-        return options ? this.raw.pragma(sql, options) : this.raw.pragma(sql);
+        const result = this.raw.exec(`PRAGMA ${sql}`);
+        if (options?.simple) return result[0]?.values?.[0]?.[0];
+        return result;
     }
 
     checkpoint() {
-        this.raw.pragma('wal_checkpoint(FULL)');
+        if (this.closed) return;
+        fs.ensureDirSync(path.dirname(this.filePath));
+        const tempFile = `${this.filePath}.tmp-${process.pid}`;
+        fs.writeFileSync(tempFile, Buffer.from(this.raw.export()));
+        fs.renameSync(tempFile, this.filePath);
+        this.raw.run('PRAGMA foreign_keys = ON');
     }
 
     close() {
+        if (this.closed) return;
+        this.checkpoint();
         this.raw.close();
+        this.closed = true;
     }
 }
 
@@ -319,9 +299,11 @@ function runInSqlTransaction(d, fn) {
     try {
         const result = fn();
         d.run('COMMIT');
+        enableForeignKeys(d);
         return result;
     } catch (err) {
         try { d.run('ROLLBACK'); } catch (_) {}
+        try { enableForeignKeys(d); } catch (_) {}
         throw err;
     }
 }
@@ -736,13 +718,13 @@ function buildMigrationStatus(appliedRows, filePath = dbFile, exists = fs.exists
     };
 }
 
-function getMigrationStatusSync(filePath = dbFile) {
+async function getMigrationStatus(filePath = dbFile) {
     const resolvedFile = path.resolve(filePath);
     if (!fs.existsSync(resolvedFile)) {
         return buildMigrationStatus([], resolvedFile, false);
     }
 
-    const statusDb = new SqliteDatabaseAdapter(resolvedFile);
+    const statusDb = await SqliteDatabaseAdapter.open(resolvedFile);
     try {
         return buildMigrationStatus(readAppliedMigrations(statusDb), resolvedFile, true);
     } finally {
@@ -750,12 +732,8 @@ function getMigrationStatusSync(filePath = dbFile) {
     }
 }
 
-async function getMigrationStatus(filePath = dbFile) {
-    return getMigrationStatusSync(filePath);
-}
-
 async function applyPendingMigrations() {
-    const before = getMigrationStatusSync(dbFile);
+    const before = await getMigrationStatus(dbFile);
     const d = await getDb();
     const after = buildMigrationStatus(readAppliedMigrations(d), dbFile, fs.existsSync(dbFile));
     return {
@@ -992,13 +970,14 @@ async function migrateJSONs() {
 async function getDb() {
     if (db) return db;
 
-    db = new SqliteDatabaseAdapter(dbFile);
+    db = await SqliteDatabaseAdapter.open(dbFile);
 
     enableForeignKeys(db);
     const changed = runMigrations(db);
     if (changed || !fs.existsSync(dbFile)) save();
     migrateJSONsWithDb(db);
     migrateRecipientRuntimeJsonsWithDb(db);
+    enableForeignKeys(db);
 
     return db;
 }

@@ -1,10 +1,10 @@
 # Decision Log
 
-## SQLite WAL
+## SQLite Runtime
 
-Decision: use native SQLite through `better-sqlite3` with WAL mode.
+Decision: use SQLite through `sql.js` with explicit export-on-write persistence.
 
-Reason: simpler deployment than Postgres for the current single-instance target, while preserving relational constraints and migrations.
+Reason: the production host does not support Docker Compose or native Node addon builds. `sql.js` keeps the existing relational schema and migrations while removing GLIBC, symlink, and node-gyp requirements.
 
 ## Minimal Modular Frontend
 

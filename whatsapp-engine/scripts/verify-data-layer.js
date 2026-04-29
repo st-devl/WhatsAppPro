@@ -130,8 +130,8 @@ async function expectStatus(status, fn, message) {
         assert(auditMetadata.message === '[masked]', 'audit message was not masked');
 
         const d = await db.getDb();
-        const journalMode = d.pragma('journal_mode', { simple: true });
-        assert(String(journalMode).toLowerCase() === 'wal', `database is not using WAL mode: ${journalMode}`);
+        const journalMode = d.pragma('journal_mode', { simple: true }) || 'snapshot';
+        assert(['wal', 'delete', 'memory', 'off', 'snapshot'].includes(String(journalMode).toLowerCase()), `unexpected SQLite journal mode: ${journalMode}`);
 
         const foreignKeys = d.pragma('foreign_keys', { simple: true });
         assert(Number(foreignKeys) === 1, 'foreign key enforcement is not enabled');
@@ -142,7 +142,7 @@ async function expectStatus(status, fn, message) {
         const backups = fs.readdirSync(path.join(tempDir, 'backups')).filter(file => file.endsWith('.sqlite'));
         assert(backups.length > 0, 'backup files were not created for write operations');
 
-        console.log(JSON.stringify({ ok: true, tempDir, backups: backups.length, journalMode }, null, 2));
+        console.log(JSON.stringify({ ok: true, tempDir, backups: backups.length, journalMode, driver: 'sql.js' }, null, 2));
     } finally {
         fs.removeSync(tempDir);
     }
