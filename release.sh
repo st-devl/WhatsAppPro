@@ -454,7 +454,9 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
         eval $restart_cmd_q
     elif command -v pm2 >/dev/null 2>&1; then
         app_dir=\"\$PWD/whatsapp-engine\"
-        pm2 reload whasappc --update-env || pm2 restart whasappc --update-env || pm2 reload yardimet.site --update-env || pm2 restart yardimet.site --update-env || pm2 start npm --name whasappc --cwd \"\$app_dir\" -- start
+        pm2 delete whasappc >/dev/null 2>&1 || true
+        pm2 delete yardimet.site >/dev/null 2>&1 || true
+        pm2 start \"\$app_dir/index.js\" --name whasappc --cwd \"\$app_dir\" --update-env
         pm2 save || true
     else
         echo 'HATA: node runtime icin restart yontemi bulunamadi.' >&2
