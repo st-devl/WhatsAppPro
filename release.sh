@@ -405,27 +405,40 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
         echo 'HATA: whatsapp-engine/index.js bos veya okunamiyor.' >&2
         exit 1
     fi
-    old_node_modules=''
-    failed_node_modules=''
-    if [ -d whatsapp-engine/node_modules ]; then
-        old_node_modules=\"whatsapp-engine/.node_modules-old-\$(date +%s)\"
-        mv whatsapp-engine/node_modules \"\$old_node_modules\"
+    lock_hash=\$(node -e \"const fs = require('fs'); const crypto = require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync('whatsapp-engine/package-lock.json')).digest('hex'));\")
+    install_marker='whatsapp-engine/node_modules/.package-lock.sha256'
+    deps_ready=0
+    if [ -d whatsapp-engine/node_modules ] && [ -s \"\$install_marker\" ] && [ \"\$(cat \"\$install_marker\" 2>/dev/null)\" = \"\$lock_hash\" ]; then
+        deps_ready=1
+    elif [ -d whatsapp-engine/node_modules ] && (cd whatsapp-engine && npm ls --omit=dev --depth=0 >/dev/null 2>&1); then
+        printf '%s\n' \"\$lock_hash\" > \"\$install_marker\"
+        deps_ready=1
     fi
-    rm -rf .npm-release-cache || true
-    npm_cache_dir=\"\$PWD/.npm-release-cache\"
-    if ! (cd whatsapp-engine && npm ci --omit=dev --cache \"\$npm_cache_dir\" --prefer-online --no-audit --no-fund); then
-        echo 'HATA: npm ci basarisiz oldu. Eski node_modules geri yuklenecek.' >&2
-        failed_node_modules=\"whatsapp-engine/.node_modules-failed-\$(date +%s)\"
+
+    if [ \"\$deps_ready\" -eq 0 ]; then
+        old_node_modules=''
+        failed_node_modules=''
         if [ -d whatsapp-engine/node_modules ]; then
-            mv whatsapp-engine/node_modules \"\$failed_node_modules\" || true
+            old_node_modules=\"whatsapp-engine/.node_modules-old-\$(date +%s)\"
+            mv whatsapp-engine/node_modules \"\$old_node_modules\"
         fi
+        rm -rf .npm-release-cache || true
+        npm_cache_dir=\"\$PWD/.npm-release-cache\"
+        if ! (cd whatsapp-engine && npm ci --omit=dev --cache \"\$npm_cache_dir\" --prefer-online --no-audit --no-fund); then
+            echo 'HATA: npm ci basarisiz oldu. Eski node_modules geri yuklenecek.' >&2
+            failed_node_modules=\"whatsapp-engine/.node_modules-failed-\$(date +%s)\"
+            if [ -d whatsapp-engine/node_modules ]; then
+                mv whatsapp-engine/node_modules \"\$failed_node_modules\" || true
+            fi
+            if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
+                mv \"\$old_node_modules\" whatsapp-engine/node_modules || true
+            fi
+            exit 1
+        fi
+        printf '%s\n' \"\$lock_hash\" > \"\$install_marker\"
         if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
-            mv \"\$old_node_modules\" whatsapp-engine/node_modules || true
+            rm -rf \"\$old_node_modules\" || true
         fi
-        exit 1
-    fi
-    if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
-        rm -rf \"\$old_node_modules\" || true
     fi
     (cd whatsapp-engine && npm run migrate:apply)
 
