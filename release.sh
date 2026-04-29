@@ -365,7 +365,12 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
     fi
 
     node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }\"
-    npm install --omit=dev
+    if ! npm --prefix whatsapp-engine ci --omit=dev --prefer-online; then
+        echo 'UYARI: npm ci basarisiz oldu. Cache ve node_modules temizlenip tekrar denenecek.' >&2
+        npm cache clean --force || true
+        rm -rf whatsapp-engine/node_modules
+        npm --prefix whatsapp-engine ci --omit=dev --prefer-online
+    fi
     npm --prefix whatsapp-engine run migrate:apply
 
     if [ -n $restart_cmd_q ]; then
