@@ -12,6 +12,7 @@ DEPLOY_REMOTE_HOST="${DEPLOY_REMOTE_HOST:-}"
 DEPLOY_REMOTE_SSH_PORT="${DEPLOY_REMOTE_SSH_PORT:-22}"
 DEPLOY_REMOTE_PATH="${DEPLOY_REMOTE_PATH:-}"
 DEPLOY_REMOTE_BRANCH="${DEPLOY_REMOTE_BRANCH:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
+DEPLOY_REMOTE_REPO_URL="${DEPLOY_REMOTE_REPO_URL:-$(git remote get-url origin 2>/dev/null || echo '')}"
 DEPLOY_REMOTE_HEALTH_URL="${DEPLOY_REMOTE_HEALTH_URL:-}"
 DEPLOY_HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-90}"
 DEPLOY_RUNTIME="${DEPLOY_RUNTIME:-docker}"
@@ -57,6 +58,7 @@ Remote environment:
   DEPLOY_REMOTE_SSH_PORT             Default: 22
   DEPLOY_REMOTE_PATH                 Example: /opt/WhasAppC
   DEPLOY_REMOTE_BRANCH               Default: current branch
+  DEPLOY_REMOTE_REPO_URL             Default: local origin URL
   DEPLOY_REMOTE_HEALTH_URL           Optional public health URL
   DEPLOY_RUNTIME                     docker or node. Default: docker
   DEPLOY_REMOTE_RESTART_CMD          Required for node runtime unless PM2 can be auto-detected
@@ -290,6 +292,7 @@ commit_and_push_if_requested() {
 ensure_remote_inputs() {
     [ -n "$DEPLOY_REMOTE_HOST" ] || fail "DEPLOY_REMOTE_HOST gerekli."
     [ -n "$DEPLOY_REMOTE_PATH" ] || fail "DEPLOY_REMOTE_PATH gerekli."
+    [ -n "$DEPLOY_REMOTE_REPO_URL" ] || fail "DEPLOY_REMOTE_REPO_URL gerekli."
     require_command ssh
 
     if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -326,11 +329,13 @@ deploy_remote() {
     local commit
     local remote_path_q
     local branch_q
+    local repo_url_q
     local compose_file_q
     local compose_service_q
     commit="$(git rev-parse HEAD)"
     remote_path_q="$(shell_quote "$DEPLOY_REMOTE_PATH")"
     branch_q="$(shell_quote "$DEPLOY_REMOTE_BRANCH")"
+    repo_url_q="$(shell_quote "$DEPLOY_REMOTE_REPO_URL")"
     compose_file_q="$(shell_quote "$COMPOSE_FILE")"
     compose_service_q="$(shell_quote "$COMPOSE_SERVICE")"
 
@@ -339,7 +344,21 @@ deploy_remote() {
 
     info "Remote deploy: $DEPLOY_REMOTE_HOST:$DEPLOY_REMOTE_PATH commit=$commit runtime=$DEPLOY_RUNTIME"
     ssh -p "$DEPLOY_REMOTE_SSH_PORT" "$DEPLOY_REMOTE_HOST" "set -euo pipefail
-cd $remote_path_q
+remote_path=$remote_path_q
+if [ ! -d \"\$remote_path\" ]; then
+    if ! command -v git >/dev/null 2>&1; then
+        echo 'HATA: remote git bulunamadi.' >&2
+        exit 1
+    fi
+    remote_parent=\$(dirname \"\$remote_path\")
+    mkdir -p \"\$remote_parent\"
+    git clone --branch $branch_q $repo_url_q \"\$remote_path\"
+fi
+cd \"\$remote_path\"
+if [ ! -d .git ]; then
+    echo 'HATA: DEPLOY_REMOTE_PATH bir git repository degil.' >&2
+    exit 1
+fi
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo 'HATA: remote working tree temiz degil.' >&2
     git status --short >&2
