@@ -395,6 +395,16 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
         echo 'HATA: whatsapp-engine/package-lock.json bos veya okunamiyor.' >&2
         exit 1
     fi
+    if [ ! -s whatsapp-engine/index.js ]; then
+        if ! git show HEAD:whatsapp-engine/index.js > whatsapp-engine/index.js; then
+            echo 'HATA: whatsapp-engine/index.js remote checkout icinde yok ve committen geri yuklenemedi.' >&2
+            exit 1
+        fi
+    fi
+    if [ ! -s whatsapp-engine/index.js ]; then
+        echo 'HATA: whatsapp-engine/index.js bos veya okunamiyor.' >&2
+        exit 1
+    fi
     old_node_modules=''
     failed_node_modules=''
     if [ -d whatsapp-engine/node_modules ]; then
@@ -422,7 +432,8 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
     if [ -n $restart_cmd_q ]; then
         eval $restart_cmd_q
     elif command -v pm2 >/dev/null 2>&1; then
-        pm2 reload whasappc || pm2 restart whasappc || pm2 reload yardimet.site || pm2 restart yardimet.site || pm2 start whatsapp-engine/index.js --name whasappc
+        app_dir=\"\$PWD/whatsapp-engine\"
+        pm2 reload whasappc --update-env || pm2 restart whasappc --update-env || pm2 reload yardimet.site --update-env || pm2 restart yardimet.site --update-env || pm2 start npm --name whasappc --cwd \"\$app_dir\" -- start
         pm2 save || true
     else
         echo 'HATA: node runtime icin restart yontemi bulunamadi.' >&2
