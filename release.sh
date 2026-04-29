@@ -14,6 +14,8 @@ DEPLOY_REMOTE_PATH="${DEPLOY_REMOTE_PATH:-}"
 DEPLOY_REMOTE_BRANCH="${DEPLOY_REMOTE_BRANCH:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
 DEPLOY_REMOTE_HEALTH_URL="${DEPLOY_REMOTE_HEALTH_URL:-}"
 DEPLOY_HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-90}"
+DEPLOY_RUNTIME="${DEPLOY_RUNTIME:-docker}"
+DEPLOY_REMOTE_RESTART_CMD="${DEPLOY_REMOTE_RESTART_CMD:-}"
 
 MODE="check"
 VERSION_BUMP="none"
@@ -56,12 +58,15 @@ Remote environment:
   DEPLOY_REMOTE_PATH                 Example: /opt/WhasAppC
   DEPLOY_REMOTE_BRANCH               Default: current branch
   DEPLOY_REMOTE_HEALTH_URL           Optional public health URL
+  DEPLOY_RUNTIME                     docker or node. Default: docker
+  DEPLOY_REMOTE_RESTART_CMD          Required for node runtime unless PM2 can be auto-detected
   COMPOSE_FILE                       Default: docker-compose.yml
   COMPOSE_SERVICE                    Default: whasappc
 
 Notes:
   production mode never overwrites dirty files on the server. It stops if the
-  remote working tree has uncommitted changes.
+  remote working tree has uncommitted changes. Use DEPLOY_RUNTIME=node for
+  shared hosting servers where Docker Compose is not available.
 USAGE
 }
 
@@ -187,6 +192,13 @@ detect_compose() {
     fail "Docker Compose bulunamadi."
 }
 
+validate_runtime() {
+    case "$DEPLOY_RUNTIME" in
+        docker|node) ;;
+        *) fail "DEPLOY_RUNTIME docker veya node olmali. Gelen: $DEPLOY_RUNTIME" ;;
+    esac
+}
+
 wait_for_url() {
     local url="$1"
     local timeout="$2"
@@ -211,6 +223,7 @@ run_preflight() {
     require_command node
     require_command npm
     validate_env_file
+    validate_runtime
 
     node -e "const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }"
     git diff --check
@@ -321,7 +334,10 @@ deploy_remote() {
     compose_file_q="$(shell_quote "$COMPOSE_FILE")"
     compose_service_q="$(shell_quote "$COMPOSE_SERVICE")"
 
-    info "Remote deploy: $DEPLOY_REMOTE_HOST:$DEPLOY_REMOTE_PATH commit=$commit"
+    local restart_cmd_q
+    restart_cmd_q="$(shell_quote "$DEPLOY_REMOTE_RESTART_CMD")"
+
+    info "Remote deploy: $DEPLOY_REMOTE_HOST:$DEPLOY_REMOTE_PATH commit=$commit runtime=$DEPLOY_RUNTIME"
     ssh -p "$DEPLOY_REMOTE_SSH_PORT" "$DEPLOY_REMOTE_HOST" "set -euo pipefail
 cd $remote_path_q
 if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -338,22 +354,53 @@ if [ \"\$actual_commit\" != \"$commit\" ]; then
 fi
 node whatsapp-engine/scripts/release-manifest.js --environment production --commit \"$commit\"
 
-if docker compose version >/dev/null 2>&1; then
-    COMPOSE='docker compose'
-elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE='docker-compose'
-else
-    echo 'HATA: remote Docker Compose bulunamadi.' >&2
-    exit 1
-fi
+if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
+    if ! command -v node >/dev/null 2>&1; then
+        echo 'HATA: remote node bulunamadi.' >&2
+        exit 1
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        echo 'HATA: remote npm bulunamadi.' >&2
+        exit 1
+    fi
 
-\$COMPOSE -f $compose_file_q build $compose_service_q
-\$COMPOSE -f $compose_file_q run --rm --no-deps $compose_service_q npm run migrate:apply
-\$COMPOSE -f $compose_file_q up -d --remove-orphans $compose_service_q
+    node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }\"
+    npm install --omit=dev
+    npm --prefix whatsapp-engine run migrate:apply
+
+    if [ -n $restart_cmd_q ]; then
+        eval $restart_cmd_q
+    elif command -v pm2 >/dev/null 2>&1; then
+        pm2 reload whasappc || pm2 restart whasappc || pm2 reload yardimet.site || pm2 restart yardimet.site || pm2 start whatsapp-engine/index.js --name whasappc
+        pm2 save || true
+    else
+        echo 'HATA: node runtime icin restart yontemi bulunamadi.' >&2
+        echo 'DEPLOY_REMOTE_RESTART_CMD ayarlayin veya sunucuda PM2 kullanin.' >&2
+        exit 1
+    fi
+else
+    if docker compose version >/dev/null 2>&1; then
+        COMPOSE='docker compose'
+    elif command -v docker-compose >/dev/null 2>&1; then
+        COMPOSE='docker-compose'
+    else
+        echo 'HATA: remote Docker Compose bulunamadi. Bu sunucu icin DEPLOY_RUNTIME=node kullanin.' >&2
+        exit 1
+    fi
+
+    \$COMPOSE -f $compose_file_q build $compose_service_q
+    \$COMPOSE -f $compose_file_q run --rm --no-deps $compose_service_q npm run migrate:apply
+    \$COMPOSE -f $compose_file_q up -d --remove-orphans $compose_service_q
+fi
 
 deadline=\$((SECONDS + $DEPLOY_HEALTH_TIMEOUT_SECONDS))
 while [ \"\$SECONDS\" -lt \"\$deadline\" ]; do
-    if \$COMPOSE -f $compose_file_q exec -T $compose_service_q node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 3005) + '/readyz').then(res => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\" >/dev/null 2>&1; then
+    if [ \"$DEPLOY_RUNTIME\" = 'docker' ]; then
+        \$COMPOSE -f $compose_file_q exec -T $compose_service_q node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 3005) + '/readyz').then(res => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\" >/dev/null 2>&1 && {
+            echo 'Remote container health check OK.'
+            exit 0
+        }
+    elif node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 3005) + '/readyz').then(res => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\" >/dev/null 2>&1; then
         echo 'Remote container health check OK.'
         exit 0
     fi
