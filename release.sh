@@ -366,6 +366,12 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
     fi
 
     node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }\"
+    if [ ! -f whatsapp-engine/package-lock.json ]; then
+        if ! git show HEAD:whatsapp-engine/package-lock.json > whatsapp-engine/package-lock.json; then
+            echo 'HATA: whatsapp-engine/package-lock.json remote checkout icinde yok ve committen geri yuklenemedi.' >&2
+            exit 1
+        fi
+    fi
     old_node_modules=''
     failed_node_modules=''
     if [ -d whatsapp-engine/node_modules ]; then
