@@ -359,6 +359,14 @@ if [ ! -d .git ]; then
     echo 'HATA: DEPLOY_REMOTE_PATH bir git repository degil.' >&2
     exit 1
 fi
+remote_status=\$(git status --short)
+if [ -n \"\$remote_status\" ]; then
+    if printf '%s\n' \"\$remote_status\" | awk 'NF && \$0 !~ /^ D whatsapp-engine\// && \$0 != \"?? .npm-release-cache/\" { bad = 1 } END { exit bad }'; then
+        echo 'UYARI: remote working tree onceki yarim deploy kalintilarindan temizleniyor.' >&2
+        git restore -- whatsapp-engine
+        rm -rf .npm-release-cache || true
+    fi
+fi
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo 'HATA: remote working tree temiz degil.' >&2
     git status --short >&2
