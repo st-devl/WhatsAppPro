@@ -22,7 +22,7 @@ function createSystemRouter(options = {}) {
         if (!runtime.isTenantSupported(tenantId)) {
             throw badRequest('Bu tenant icin WhatsApp hesabi yapilandirilmadi.', 'WHATSAPP_ACCOUNT_NOT_CONFIGURED');
         }
-        await runtime.resetSession();
+        await runtime.resetSession(tenantId);
         sendSuccess(res, { success: true, message: 'Oturum temizlendi.' }, 'SESSION_RESET');
     }));
 

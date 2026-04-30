@@ -13,6 +13,8 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'whatsappc-http-test-'));
 process.env.WHASAPPC_DATA_DIR = tempDir;
 process.env.SESSION_SECRET = 'test-session-secret';
 process.env.LOG_LEVEL = 'silent';
+process.env.ADMIN_EMAIL = 'admin@example.com';
+process.env.ADMIN_PASS_HASH = bcrypt.hashSync('correct-password', 8);
 
 const db = require('../lib/db');
 const { LoginRateLimiter } = require('../lib/login_rate_limiter');

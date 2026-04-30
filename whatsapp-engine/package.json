@@ -31,7 +31,7 @@
   ],
   "author": "Antigravity",
   "license": "ISC",
-  "version": "0.0.43",
+  "version": "0.0.46",
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.9",
     "bcryptjs": "^3.0.3",

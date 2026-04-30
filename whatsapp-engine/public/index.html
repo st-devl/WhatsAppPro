@@ -20,6 +20,7 @@
             <nav class="hidden md:flex gap-6 items-center">
                 <button id="tab-campaign" data-tab="campaign" class="text-secondary font-bold border-b-2 border-secondary py-1 text-sm font-headline tracking-wide">Kampanya Hazırla</button>
                 <button id="tab-contacts" data-tab="contacts" class="text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm">Rehberim &amp; Kişi Listesi</button>
+                <button id="tab-users" data-tab="users" class="hidden text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm">Kullanıcılar</button>
             </nav>
         </div>
         <div class="flex items-center gap-2 lg:gap-4">
@@ -394,6 +395,64 @@
                             </div>
                         </div>
                     </section>
+                </div>
+            </div>
+
+            <div id="view-users" class="hidden max-w-6xl mx-auto space-y-8 pb-24">
+                <div class="grid grid-cols-12 gap-8">
+                    <div class="col-span-12 lg:col-span-4 space-y-6">
+                        <header class="mb-6">
+                            <h2 class="text-3xl font-headline font-bold text-primary tracking-tight">Kullanıcı Yönetimi</h2>
+                            <p class="text-on-surface-variant text-sm mt-1">Sisteme yeni kullanıcılar ekleyin ve yönetin. Sadece Super Admin yetkisindedir.</p>
+                        </header>
+
+                        <div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm space-y-4">
+                            <h3 class="font-headline font-bold text-slate-900 text-lg">Yeni Kullanıcı Ekle</h3>
+                            <form id="create-user-form" class="space-y-4">
+                                <div>
+                                    <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Görünür İsim (Opsiyonel)</label>
+                                    <input id="new-user-name" type="text" placeholder="Şirket / Kişi Adı" class="w-full bg-surface-container-low border-0 rounded-lg text-sm h-11 px-4 focus:ring-2 focus:ring-secondary/20">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">E-posta (Giriş için)</label>
+                                    <input id="new-user-email" type="email" required placeholder="ornek@firma.com" class="w-full bg-surface-container-low border-0 rounded-lg text-sm h-11 px-4 focus:ring-2 focus:ring-secondary/20">
+                                </div>
+                                <div>
+                                    <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest px-1">Şifre</label>
+                                    <input id="new-user-password" type="password" required minlength="6" placeholder="En az 6 karakter" class="w-full bg-surface-container-low border-0 rounded-lg text-sm h-11 px-4 focus:ring-2 focus:ring-secondary/20">
+                                </div>
+                                <button type="submit" class="w-full bg-primary text-white py-3 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-primary/90 transition-colors flex items-center justify-center gap-2">
+                                    <span class="material-symbols-outlined text-sm">person_add</span> Kullanıcı Ekle
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-8 space-y-6">
+                        <div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm overflow-hidden">
+                            <div class="flex items-center justify-between mb-4">
+                                <h3 class="font-headline font-bold text-slate-900 text-lg">Sistem Kullanıcıları</h3>
+                                <button id="refresh-users-btn" class="text-slate-500 hover:text-primary transition-colors p-1" title="Yenile">
+                                    <span class="material-symbols-outlined text-sm">refresh</span>
+                                </button>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left border-collapse">
+                                    <thead class="bg-slate-50/50">
+                                        <tr>
+                                            <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Kullanıcı</th>
+                                            <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">E-posta</th>
+                                            <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Yetki</th>
+                                            <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase text-right">İşlem</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="users-table-body" class="divide-y divide-outline-variant/5">
+                                        <tr><td colspan="4" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Yükleniyor...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>

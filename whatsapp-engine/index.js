@@ -11,7 +11,7 @@ const { LoginRateLimiter } = require('./lib/login_rate_limiter');
 const { MediaStore } = require('./lib/media_store');
 const { createUploadMiddleware, uploadStorageBaseDir } = require('./lib/upload_middleware');
 const { createTenantUploadMiddleware } = require('./lib/tenant_uploads');
-const { WhatsAppRuntime } = require('./lib/whatsapp_runtime');
+const { WhatsAppRegistry } = require('./lib/whatsapp_registry');
 const { KeepAwake } = require('./lib/keep_awake');
 const { createErrorMiddleware, createNotFoundMiddleware } = require('./lib/api_errors');
 const { componentLogger, createRequestLoggerMiddleware, logger } = require('./lib/logger');
@@ -23,6 +23,7 @@ const { createSecurityHeaders, requireSameOriginForStateChanges } = require('./m
 const { createSessionMiddleware } = require('./middleware/session');
 const { createAuthRouter } = require('./routes/auth');
 const { createSystemRouter } = require('./routes/system');
+const { createUsersRouter } = require('./routes/users');
 const { createTemplateRouter } = require('./routes/templates');
 const { createGroupRouter } = require('./routes/groups');
 const { createContactRouter } = require('./routes/contacts');
@@ -51,27 +52,30 @@ const loginLimiter = new LoginRateLimiter({
 const mediaStore = new MediaStore();
 const keepAwake = new KeepAwake();
 const upload = createUploadMiddleware(__dirname);
-const runtime = new WhatsAppRuntime({
+const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'default';
+const runtime = new WhatsAppRegistry({
     io,
     baseDir: __dirname,
-    defaultTenantId: process.env.DEFAULT_TENANT_ID || 'default',
     maxAutoRetries: process.env.WHATSAPP_MAX_AUTO_RETRIES || '3',
     logger: componentLogger('whatsapp_runtime')
 });
+
+// Admin server başladıktan sonra auth check veya lazy-init
+runtime.getOrCreate(defaultTenantId);
+
 const campaignService = new CampaignService({ db, runtime, mediaStore, keepAwake, logger: componentLogger('campaign_service') });
 const authRouterOptions = {
-    adminEmail: process.env.ADMIN_EMAIL,
-    adminPassHash: process.env.ADMIN_PASS_HASH,
     db,
     loginLimiter,
     sessionName,
     sessionCookieOptions,
-    defaultTenantId: process.env.DEFAULT_TENANT_ID || 'default'
+    defaultTenantId
 };
 const protectedApiOptions = { baseDir: __dirname, runtime, upload, mediaStore, db, campaignService };
 
 function mountProtectedApi(prefix, options) {
     app.use(prefix, createSystemRouter({ baseDir: options.baseDir, runtime: options.runtime }));
+    app.use(prefix + '/users', createUsersRouter(options.db));
     app.use(prefix, createTemplateRouter(options.db));
     app.use(prefix, createGroupRouter(options.db));
     app.use(prefix, createContactRouter(options.db));
@@ -111,7 +115,7 @@ app.get('/healthz', (req, res) => {
     res.json({
         ok: true,
         status: {
-            http: runtime.getStatus().http,
+            http: runtime.getStatus(defaultTenantId).http,
             uptime_seconds: Math.round(process.uptime())
         }
     });
@@ -121,7 +125,7 @@ app.get('/readyz', async (req, res) => {
     try {
         const d = await db.getDb();
         const journalMode = d.pragma('journal_mode', { simple: true });
-        const status = runtime.getStatus();
+        const status = runtime.getStatus(defaultTenantId);
         const ready = status.http === 'listening';
         res.status(ready ? 200 : 503).json({
             ok: ready,
@@ -144,7 +148,8 @@ app.get('/readyz', async (req, res) => {
 });
 
 app.get('/healthz/details', requireAuth, (req, res) => {
-    const status = runtime.getStatus();
+    const tenantId = req.session?.user?.tenant_id || defaultTenantId;
+    const status = runtime.getStatus(tenantId);
     res.json({
         ok: status.http === 'listening',
         status

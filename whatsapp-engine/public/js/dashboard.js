@@ -512,11 +512,21 @@ function handleManualNumbersInput(input) {
 function switchTab(tab) {
     document.getElementById('view-campaign').classList.toggle('hidden', tab !== 'campaign');
     document.getElementById('view-contacts').classList.toggle('hidden', tab !== 'contacts');
+    document.getElementById('view-users').classList.toggle('hidden', tab !== 'users');
+
     document.getElementById('tab-campaign').className = tab === 'campaign' ? navActive : navInactive;
     document.getElementById('tab-contacts').className = tab === 'contacts' ? navActive : navInactive;
+
+    const tabUsers = document.getElementById('tab-users');
+    if (tabUsers && !tabUsers.classList.contains('hidden')) {
+        tabUsers.className = tab === 'users' ? navActive : navInactive;
+    }
+
     document.getElementById('mobile-tab-campaign').className = tab === 'campaign' ? 'flex flex-col items-center justify-center text-secondary p-2' : 'flex flex-col items-center justify-center text-slate-400 p-2 opacity-60';
     document.getElementById('mobile-tab-contacts').className = tab === 'contacts' ? 'flex flex-col items-center justify-center text-secondary p-2' : 'flex flex-col items-center justify-center text-slate-400 p-2 opacity-60';
+
     if (tab === 'contacts') updateContactsTable();
+    if (tab === 'users') loadUsers();
 }
 
 if (!socket) {
@@ -1488,9 +1498,100 @@ function initializeDashboard() {
     initTemplates();
     loadGroups();
     refreshRuntimeStatus();
+    checkUserRole();
     setInterval(refreshRuntimeStatus, 15000);
     setTimeout(checkActiveCampaign, 1000);
 }
+
+// -- USER MANAGEMENT --
+async function checkUserRole() {
+    try {
+        const res = await fetchJson(`${API_BASE}/check-auth`);
+        if (res.authenticated && res.user && (res.user.role === 'super_admin' || res.user.role === 'owner')) {
+            const tabUsers = document.getElementById('tab-users');
+            if (tabUsers) tabUsers.classList.remove('hidden');
+        }
+    } catch (err) {
+        console.error('Auth kontrolü hatası', err);
+    }
+}
+
+async function loadUsers() {
+    const tbody = document.getElementById('users-table-body');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Yükleniyor...</td></tr>';
+
+    try {
+        const data = await fetchJson(`${API_BASE}/users`);
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Kayıtlı kullanıcı yok</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.map(user => `
+            <tr>
+                <td class="px-4 py-3 text-sm font-medium text-slate-900">${escapeHtml(user.display_name || user.tenant_id)}</td>
+                <td class="px-4 py-3 text-sm text-slate-600">${escapeHtml(user.email)}</td>
+                <td class="px-4 py-3 text-sm">
+                    <span class="px-2 py-1 rounded bg-slate-100 text-[10px] font-bold text-slate-600 uppercase tracking-widest">${escapeHtml(user.role)}</span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                    <button onclick="deleteUser('${user.id}')" class="text-error hover:text-error/80 p-1 transition-colors" title="Sil">
+                        <span class="material-symbols-outlined text-sm">delete</span>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-error font-bold uppercase text-xs">Hata: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+async function handleCreateUser(e) {
+    e.preventDefault();
+
+    const name = document.getElementById('new-user-name').value;
+    const email = document.getElementById('new-user-email').value;
+    const password = document.getElementById('new-user-password').value;
+
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">refresh</span> Ekleniyor...';
+
+    try {
+        await fetchJson(`${API_BASE}/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ displayName: name, email, password })
+        });
+
+        showToast('Kullanıcı başarıyla eklendi', 'success');
+        e.target.reset();
+        loadUsers();
+    } catch (err) {
+        showToast(err.message || 'Kullanıcı eklenemedi', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function deleteUser(userId) {
+    if (!confirm('Bu kullanıcıyı silmek istediğinize emin misiniz? (Tenant verileri otomatik silinmez)')) return;
+
+    try {
+        await fetchJson(`${API_BASE}/users/${userId}`, { method: 'DELETE' });
+        showToast('Kullanıcı silindi', 'success');
+        loadUsers();
+    } catch (err) {
+        showToast(err.message || 'Kullanıcı silinemedi', 'error');
+    }
+}
+
+document.getElementById('create-user-form')?.addEventListener('submit', handleCreateUser);
+document.getElementById('refresh-users-btn')?.addEventListener('click', loadUsers);
 
 initializeDashboard();
 switchTab('campaign');

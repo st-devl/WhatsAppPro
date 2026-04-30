@@ -17,7 +17,7 @@ function registerCampaignSocket(io, options = {}) {
         socket.join(runtime.tenantRoom(tenantId));
         socketLogger.info({ socketId: socket.id, tenantId, userId }, 'authenticated_socket_connected');
         socket.emit('status', runtime.connected(tenantId) ? 'connected' : 'disconnected');
-        if (!runtime.connected(tenantId) && runtime.getLastQR() && runtime.isTenantSupported(tenantId)) socket.emit('qr', runtime.getLastQR());
+        if (!runtime.connected(tenantId) && runtime.getLastQR(tenantId) && runtime.isTenantSupported(tenantId)) socket.emit('qr', runtime.getLastQR(tenantId));
 
         socket.on('stop-bulk', async (data = {}) => {
             try {

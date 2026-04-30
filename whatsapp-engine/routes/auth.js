@@ -37,8 +37,6 @@ async function writeAuthAudit(db, req, action, metadata = {}, tenantId = 'defaul
 function createAuthRouter(options = {}) {
     const router = express.Router();
     const {
-        adminEmail,
-        adminPassHash,
         db,
         loginLimiter,
         sessionName,
@@ -51,24 +49,22 @@ function createAuthRouter(options = {}) {
         const email = String(req.body?.email || '').trim();
         try {
             const password = String(req.body?.password || '');
-            if (!adminEmail || !adminPassHash) {
-                log.error('auth_config_missing');
-                return res.status(500).json({ data: null, error: 'Sunucu giriş yapılandırması eksik.', code: 'AUTH_CONFIG_MISSING' });
-            }
 
             loginLimiter.assertAllowed(req, email);
 
-            if (email !== adminEmail) {
+            const user = await db.getUserByEmail(email);
+
+            if (!user || !user.password_hash) {
                 loginLimiter.recordFailure(req, email);
                 await writeAuthAudit(db, req, 'login_failed', { email, reason: 'unknown_email' }, defaultTenantId);
                 log.warn({ email, authResult: 'failed', reason: 'unknown_email' }, 'login_failed');
                 return res.status(401).json({ data: null, error: 'Geçersiz e-posta veya şifre', code: 'INVALID_CREDENTIALS' });
             }
 
-            const match = await bcrypt.compare(password, adminPassHash);
+            const match = await bcrypt.compare(password, user.password_hash);
             if (!match) {
                 loginLimiter.recordFailure(req, email);
-                await writeAuthAudit(db, req, 'login_failed', { email, reason: 'bad_password' }, defaultTenantId);
+                await writeAuthAudit(db, req, 'login_failed', { email, reason: 'bad_password' }, user.tenant_id);
                 log.warn({ email, authResult: 'failed', reason: 'bad_password' }, 'login_failed');
                 return res.status(401).json({ data: null, error: 'Geçersiz e-posta veya şifre', code: 'INVALID_CREDENTIALS' });
             }
@@ -80,10 +76,11 @@ function createAuthRouter(options = {}) {
                 return res.status(500).json({ data: null, error: 'Oturum başlatılamadı.', code: 'SESSION_REGENERATE_FAILED' });
             }
             req.session.user = {
-                email,
-                tenant_id: defaultTenantId,
-                user_id: `${defaultTenantId}:admin`,
-                role: 'owner'
+                email: user.email,
+                tenant_id: user.tenant_id,
+                user_id: user.id,
+                role: user.role,
+                display_name: user.display_name
             };
             try {
                 await sessionSave(req);
@@ -93,8 +90,16 @@ function createAuthRouter(options = {}) {
             }
 
             loginLimiter.clear(req, email);
-            await writeAuthAudit(db, req, 'login_success', { email, user_id: req.session.user.user_id }, defaultTenantId, req.session.user.user_id);
+            await writeAuthAudit(db, req, 'login_success', { email, user_id: req.session.user.user_id }, user.tenant_id, req.session.user.user_id);
             getRequestLogger(req, { component: 'auth' }).info({ authResult: 'success' }, 'login_success');
+
+            // Last login tarihini güncelle
+            try {
+                await db.updateUserLastLogin(user.id);
+            } catch (e) {
+                log.warn({ err: e, userId: user.id }, 'failed_to_update_last_login');
+            }
+
             sendSuccess(res, { success: true }, 'LOGIN_SUCCESS');
         } catch (err) {
             if (err.status === 429) {
@@ -139,7 +144,15 @@ function createAuthRouter(options = {}) {
     });
 
     router.get('/check-auth', (req, res) => {
-        sendSuccess(res, { authenticated: !!(req.session && req.session.user) }, 'AUTH_STATUS');
+        const user = req.session?.user;
+        sendSuccess(res, {
+            authenticated: !!user,
+            user: user ? {
+                email: user.email,
+                role: user.role,
+                display_name: user.display_name
+            } : null
+        }, 'AUTH_STATUS');
     });
 
     return router;

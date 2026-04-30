@@ -690,6 +690,26 @@ function buildMigrations(d) {
 
                 d.run('CREATE INDEX IF NOT EXISTS idx_app_sessions_expires_at ON app_sessions(expires_at)');
             }
+        },
+        {
+            id: '014_user_authentication',
+            description: 'Add password hash and authentication fields to users',
+            run: () => {
+                ensureColumn(d, 'users', 'password_hash', 'password_hash TEXT');
+                ensureColumn(d, 'users', 'display_name', 'display_name TEXT');
+                ensureColumn(d, 'users', 'last_login_at', 'last_login_at TEXT');
+
+                // Migrate the existing admin user using env vars
+                const adminEmail = cleanText(process.env.ADMIN_EMAIL || 'admin@example.com');
+                const adminPassHash = process.env.ADMIN_PASS_HASH || '';
+
+                d.run('UPDATE users SET password_hash = ?, display_name = ? WHERE email = ? AND tenant_id = ?', [
+                    adminPassHash,
+                    'Super Admin',
+                    adminEmail,
+                    DEFAULT_TENANT_ID
+                ]);
+            }
         }
     ];
 }
@@ -1868,6 +1888,60 @@ const pruneExpiredSessions = async (nowMs = Date.now()) => withWriteTransaction(
     return { deleted: Number(result?.changes || 0) };
 });
 
+const getUserByEmail = async (email) => {
+    const d = await getDb();
+    return queryOne(d, 'SELECT * FROM users WHERE email = ? AND status = ?', [cleanText(email), 'active']);
+};
+
+const createUser = async (tenantId, email, passwordHash, role, displayName) => withWriteTransaction('create-user', (d) => {
+    const tenant = resolveTenantId(tenantId);
+    ensureTenant(d, tenant);
+    const userEmail = cleanText(email);
+    if (!userEmail) throw new DbError('Email zorunlu', 400, 'USER_EMAIL_REQUIRED');
+
+    const existing = queryOne(d, 'SELECT id FROM users WHERE tenant_id = ? AND email = ?', [tenant, userEmail]);
+    if (existing) throw new DbError('Bu email adresi zaten kullanımda', 409, 'DUPLICATE_USER_EMAIL');
+
+    const userId = `${tenant}:${Date.now()}`;
+    const current = now();
+
+    d.run('INSERT INTO users (id, tenant_id, email, password_hash, role, status, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+        userId,
+        tenant,
+        userEmail,
+        passwordHash,
+        role || 'user',
+        'active',
+        cleanText(displayName) || 'User',
+        current,
+        current
+    ]);
+
+    audit(d, 'user_created', 'user', userId, { email: userEmail, role }, tenant);
+    return { id: userId, tenant_id: tenant, email: userEmail, role: role || 'user', status: 'active', display_name: displayName, created_at: current, updated_at: current };
+});
+
+const updateUserLastLogin = async (userId) => withWriteTransaction(null, (d) => {
+    const current = now();
+    d.run('UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?', [current, current, userId]);
+});
+
+const getAllUsers = async () => {
+    const d = await getDb();
+    return queryAll(d, 'SELECT id, tenant_id, email, role, status, display_name, last_login_at, created_at FROM users ORDER BY created_at DESC');
+};
+
+const getUserCount = async () => {
+    const d = await getDb();
+    const row = queryOne(d, 'SELECT COUNT(*) as count FROM users');
+    return Number(row?.count || 0);
+};
+
+const deleteUser = async (userId) => withWriteTransaction('delete-user', (d) => {
+    // Note: Deleting a user does not delete the tenant data automatically
+    d.run('DELETE FROM users WHERE id = ?', [userId]);
+});
+
 module.exports = {
     DbError,
     getDb,
@@ -1918,5 +1992,11 @@ module.exports = {
     setSession,
     touchSession,
     destroySession,
-    pruneExpiredSessions
+    pruneExpiredSessions,
+    getUserByEmail,
+    createUser,
+    updateUserLastLogin,
+    getAllUsers,
+    getUserCount,
+    deleteUser
 };
