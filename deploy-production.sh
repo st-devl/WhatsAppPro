@@ -77,7 +77,9 @@ node -e "const major = Number(process.versions.node.split('.')[0]); if (major < 
 commit="$(git rev-parse HEAD)"
 short_commit="$(git rev-parse --short=12 HEAD)"
 tmp_dir="$(mktemp -d)"
-control_path="$tmp_dir/ssh-control-%r@%h:%p"
+control_dir="/tmp/whc-deploy-$$"
+mkdir -p "$control_dir"
+control_path="$control_dir/ctl"
 artifact="$tmp_dir/whatsappc-production-$short_commit.tar.gz"
 remote_artifact="/tmp/whatsappc-production-$short_commit.tar.gz"
 ssh_master_started=0
@@ -89,6 +91,7 @@ cleanup() {
             -O exit "$REMOTE_HOST" >/dev/null 2>&1 || true
     fi
     rm -rf "$tmp_dir"
+    rm -rf "$control_dir"
 }
 trap cleanup EXIT
 
