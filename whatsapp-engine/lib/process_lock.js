@@ -32,6 +32,18 @@ function parseLockFile(lockPath) {
     }
 }
 
+function lockWaitMs() {
+    const raw = Number.parseInt(process.env.PROCESS_LOCK_WAIT_MS || '15000', 10);
+    if (!Number.isFinite(raw) || raw < 0) return 15000;
+    return raw;
+}
+
+function sleepSync(ms) {
+    if (ms <= 0) return;
+    const view = new Int32Array(new SharedArrayBuffer(4));
+    Atomics.wait(view, 0, 0, ms);
+}
+
 function acquireProcessLock(baseDir, options = {}) {
     if (String(process.env.DISABLE_PROCESS_LOCK || '').toLowerCase() === 'true') return null;
     const lockPath = options.lockPath || path.join(storageBaseDir(baseDir), 'runtime/app.lock');
@@ -54,7 +66,14 @@ function acquireProcessLock(baseDir, options = {}) {
         if (err.code !== 'EEXIST') throw err;
         const existing = parseLockFile(lockPath);
         if (isPidRunning(existing.pid)) {
-            throw new Error(`Ayni data dizini icin baska WhasAppC process'i calisiyor. pid=${existing.pid} lock=${lockPath}`);
+            const started = Date.now();
+            const maxWaitMs = lockWaitMs();
+            while (Date.now() - started < maxWaitMs && isPidRunning(existing.pid)) {
+                sleepSync(250);
+            }
+            if (isPidRunning(existing.pid)) {
+                throw new Error(`Ayni data dizini icin baska WhasAppC process'i calisiyor. pid=${existing.pid} lock=${lockPath}`);
+            }
         }
         lockLogger.warn({ lockPath, pid: existing.pid, startedAt: existing.started_at }, 'stale_process_lock_removed');
         fs.rmSync(lockPath, { force: true });

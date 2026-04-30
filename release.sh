@@ -542,6 +542,7 @@ if [ \"$DEPLOY_RUNTIME\" = 'hostinger-passenger' ]; then
     set_env_file \"\$passenger_path/.env\" TRUST_PROXY 1
     set_env_file \"\$passenger_path/.env\" COOKIE_SECURE true
     set_env_file \"\$passenger_path/.env\" WHASAPPC_DATA_DIR \"\$data_path\"
+    set_env_file \"\$passenger_path/.env\" PROCESS_LOCK_WAIT_MS 15000
     validate_runtime_env \"\$passenger_path/.env\"
 
     if command -v pm2 >/dev/null 2>&1; then
