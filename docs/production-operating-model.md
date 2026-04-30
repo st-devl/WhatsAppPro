@@ -5,6 +5,7 @@ WhasAppC production davranisi su an bilincli olarak single-tenant ve single-proc
 ## Runtime
 
 - Production hedefi Hostinger icin `DEPLOY_RUNTIME=hostinger-passenger` olmalidir.
+- Gunluk production deploy komutu `./deploy.sh` olmalidir. Bu komut Hostinger Passenger hedefini varsayilan alir ve git push/clean working tree zorunlulugu olmadan deploy eder.
 - Public runtime Passenger app root'tur; PM2 ayni data dizinini kullanan ikinci process olarak calistirilmamalidir.
 - `release.sh` Hostinger Passenger deploy hedefinde PM2 kalintilarini kapatir.
 - Uygulama startup'ta `WHASAPPC_DATA_DIR/runtime/app.lock` dosyasi ile ayni data dizinini ikinci bir Node process'in acmasini engeller.

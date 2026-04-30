@@ -364,8 +364,9 @@ deploy_remote() {
     restart_cmd_q="$(shell_quote "$DEPLOY_REMOTE_RESTART_CMD")"
 
     cleanup_bundle() {
-        if [ -n "$bundle_tmp" ] && [ -d "$bundle_tmp" ]; then
-            rm -rf "$bundle_tmp"
+        local current_bundle_tmp="${bundle_tmp:-}"
+        if [ -n "$current_bundle_tmp" ] && [ -d "$current_bundle_tmp" ]; then
+            rm -rf "$current_bundle_tmp"
         fi
     }
     trap cleanup_bundle RETURN
@@ -383,7 +384,11 @@ deploy_remote() {
         (cd "$bundle_tmp/whatsapp-engine" && npm ci --omit=dev --omit=optional --no-audit --no-fund --no-bin-links)
         node -e "const fs = require('fs'); const crypto = require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync('$bundle_tmp/whatsapp-engine/package-lock.json')).digest('hex'));" > "$bundle_tmp/whatsapp-engine/node_modules/.package-lock.sha256"
         node_modules_bundle="$bundle_tmp/node_modules.tar.gz"
-        COPYFILE_DISABLE=1 tar -C "$bundle_tmp/whatsapp-engine" -czf "$node_modules_bundle" node_modules
+        tar_create_args=()
+        if COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 tar --no-mac-metadata -cf /dev/null --files-from /dev/null >/dev/null 2>&1; then
+            tar_create_args+=(--no-mac-metadata)
+        fi
+        COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 tar "${tar_create_args[@]}" -C "$bundle_tmp/whatsapp-engine" -czf "$node_modules_bundle" node_modules
 
         info "Node dependencies bundle remote'a yukleniyor..."
         scp -P "$DEPLOY_REMOTE_SSH_PORT" "$node_modules_bundle" "$DEPLOY_REMOTE_HOST:$remote_node_modules_bundle"

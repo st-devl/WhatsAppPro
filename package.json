@@ -10,6 +10,8 @@
     "migrate:status": "npm --prefix whatsapp-engine run migrate:status",
     "migrate:apply": "npm --prefix whatsapp-engine run migrate:apply",
     "release:manifest": "npm --prefix whatsapp-engine run release:manifest",
+    "deploy": "./deploy.sh",
+    "deploy:production": "./deploy-production.sh",
     "release": "./release.sh check",
     "postinstall": "npm --prefix whatsapp-engine install --omit=dev",
     "start": "node index.js",
