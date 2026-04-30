@@ -313,10 +313,14 @@ if command -v pm2 >/dev/null 2>&1; then
     pm2 save >/dev/null 2>&1 || true
 fi
 
-staging=\"\$passenger_path/.deploy-staging-\$(date +%s)-\$\$\"
+staging=\"\$(mktemp -d /tmp/whatsappc-staging.XXXXXX)\"
 rm -rf \"\$staging\"
 mkdir -p \"\$staging\"
-tar -xzf \"\$artifact\" -C \"\$staging\"
+tar_extract_args=''
+if tar --warning=no-unknown-keyword -tf \"\$artifact\" >/dev/null 2>&1; then
+    tar_extract_args='--warning=no-unknown-keyword'
+fi
+tar \$tar_extract_args -xzf \"\$artifact\" -C \"\$staging\"
 test -s \"\$staging/index.js\"
 test -s \"\$staging/package.json\"
 test -d \"\$staging/node_modules\"
