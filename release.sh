@@ -332,19 +332,47 @@ deploy_remote() {
     local repo_url_q
     local compose_file_q
     local compose_service_q
+    local remote_node_modules_bundle
+    local remote_node_modules_bundle_q
+    local node_modules_bundle
+    local bundle_tmp
     commit="$(git rev-parse HEAD)"
     remote_path_q="$(shell_quote "$DEPLOY_REMOTE_PATH")"
     branch_q="$(shell_quote "$DEPLOY_REMOTE_BRANCH")"
     repo_url_q="$(shell_quote "$DEPLOY_REMOTE_REPO_URL")"
     compose_file_q="$(shell_quote "$COMPOSE_FILE")"
     compose_service_q="$(shell_quote "$COMPOSE_SERVICE")"
+    remote_node_modules_bundle="/tmp/whatsappc-node-modules-$commit.tar.gz"
+    remote_node_modules_bundle_q="$(shell_quote "$remote_node_modules_bundle")"
+    node_modules_bundle=""
+    bundle_tmp=""
 
     local restart_cmd_q
     restart_cmd_q="$(shell_quote "$DEPLOY_REMOTE_RESTART_CMD")"
 
+    if [ "$DEPLOY_RUNTIME" = "node" ]; then
+        require_command node
+        require_command npm
+        require_command tar
+        require_command scp
+
+        bundle_tmp="$(mktemp -d)"
+        mkdir -p "$bundle_tmp/whatsapp-engine"
+        cp whatsapp-engine/package.json whatsapp-engine/package-lock.json "$bundle_tmp/whatsapp-engine/"
+        info "Node dependencies bundle hazirlaniyor..."
+        (cd "$bundle_tmp/whatsapp-engine" && npm ci --omit=dev --omit=optional --no-audit --no-fund --no-bin-links)
+        node -e "const fs = require('fs'); const crypto = require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync('$bundle_tmp/whatsapp-engine/package-lock.json')).digest('hex'));" > "$bundle_tmp/whatsapp-engine/node_modules/.package-lock.sha256"
+        node_modules_bundle="$bundle_tmp/node_modules.tar.gz"
+        tar -C "$bundle_tmp/whatsapp-engine" -czf "$node_modules_bundle" node_modules
+
+        info "Node dependencies bundle remote'a yukleniyor..."
+        scp -P "$DEPLOY_REMOTE_SSH_PORT" "$node_modules_bundle" "$DEPLOY_REMOTE_HOST:$remote_node_modules_bundle"
+    fi
+
     info "Remote deploy: $DEPLOY_REMOTE_HOST:$DEPLOY_REMOTE_PATH commit=$commit runtime=$DEPLOY_RUNTIME"
     ssh -p "$DEPLOY_REMOTE_SSH_PORT" "$DEPLOY_REMOTE_HOST" "set -euo pipefail
 remote_path=$remote_path_q
+remote_node_modules_bundle=$remote_node_modules_bundle_q
 if [ ! -d \"\$remote_path\" ]; then
     if ! command -v git >/dev/null 2>&1; then
         echo 'HATA: remote git bulunamadi.' >&2
@@ -386,10 +414,6 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
         echo 'HATA: remote node bulunamadi.' >&2
         exit 1
     fi
-    if ! command -v npm >/dev/null 2>&1; then
-        echo 'HATA: remote npm bulunamadi.' >&2
-        exit 1
-    fi
 
     node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }\"
     if [ ! -s whatsapp-engine/package-lock.json ]; then
@@ -421,38 +445,38 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
     deps_ready=0
     if [ -d whatsapp-engine/node_modules ] && [ -s \"\$install_marker\" ] && [ \"\$(cat \"\$install_marker\" 2>/dev/null)\" = \"\$lock_hash\" ]; then
         deps_ready=1
-    elif [ -d whatsapp-engine/node_modules ] && (cd whatsapp-engine && npm ls --omit=dev --depth=0 >/dev/null 2>&1); then
-        printf '%s\n' \"\$lock_hash\" > \"\$install_marker\"
-        deps_ready=1
     fi
 
     if [ \"\$deps_ready\" -eq 0 ]; then
         old_node_modules=''
-        failed_node_modules=''
         if [ -d whatsapp-engine/node_modules ]; then
             old_node_modules=\"whatsapp-engine/.node_modules-old-\$(date +%s)\"
             mv whatsapp-engine/node_modules \"\$old_node_modules\"
         fi
-        npm_cache_dir=\$(mktemp -d \"\${TMPDIR:-/tmp}/whatsappc-npm-cache.XXXXXX\")
-        if ! (cd whatsapp-engine && npm_config_maxsockets=1 npm ci --omit=dev --omit=optional --cache \"\$npm_cache_dir\" --prefer-online --no-audit --no-fund --no-bin-links); then
-            echo 'HATA: npm ci basarisiz oldu. Eski node_modules geri yuklenecek.' >&2
-            failed_node_modules=\"whatsapp-engine/.node_modules-failed-\$(date +%s)\"
+        if [ ! -s \"\$remote_node_modules_bundle\" ]; then
+            echo 'HATA: node_modules bundle remote sunucuda bulunamadi.' >&2
+            if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
+                mv \"\$old_node_modules\" whatsapp-engine/node_modules || true
+            fi
+            exit 1
+        fi
+        if ! tar -xzf \"\$remote_node_modules_bundle\" -C whatsapp-engine; then
+            echo 'HATA: node_modules bundle acilamadi. Eski node_modules geri yuklenecek.' >&2
             if [ -d whatsapp-engine/node_modules ]; then
-                mv whatsapp-engine/node_modules \"\$failed_node_modules\" || true
+                mv whatsapp-engine/node_modules \"whatsapp-engine/.node_modules-failed-\$(date +%s)\" || true
             fi
             if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
                 mv \"\$old_node_modules\" whatsapp-engine/node_modules || true
             fi
-            rm -rf \"\$npm_cache_dir\" || true
             exit 1
         fi
-        rm -rf \"\$npm_cache_dir\" || true
-        printf '%s\n' \"\$lock_hash\" > \"\$install_marker\"
+        rm -f \"\$remote_node_modules_bundle\" || true
         if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
             rm -rf \"\$old_node_modules\" || true
         fi
     fi
-    (cd whatsapp-engine && npm run migrate:apply)
+    rm -f \"\$remote_node_modules_bundle\" || true
+    (cd whatsapp-engine && node scripts/migrate.js apply)
 
     if [ -n $restart_cmd_q ]; then
         eval $restart_cmd_q
