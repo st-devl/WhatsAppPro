@@ -12,10 +12,16 @@ function safeTenantSegment(tenantId = 'default') {
     return String(tenantId || 'default').trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'default';
 }
 
+function uploadStorageBaseDir(baseDir) {
+    return process.env.WHASAPPC_DATA_DIR
+        ? path.resolve(process.env.WHASAPPC_DATA_DIR)
+        : baseDir;
+}
+
 function createUploadMiddleware(baseDir) {
     const storage = multer.diskStorage({
         destination: (req, file, cb) => {
-            const uploadDir = path.join(baseDir, 'uploads', safeTenantSegment(req.session?.user?.tenant_id));
+            const uploadDir = path.join(uploadStorageBaseDir(baseDir), 'uploads', safeTenantSegment(req.session?.user?.tenant_id));
             fs.ensureDirSync(uploadDir);
             cb(null, uploadDir);
         },
@@ -45,4 +51,4 @@ function createUploadMiddleware(baseDir) {
     });
 }
 
-module.exports = { createUploadMiddleware, uploadFileSizeLimit, safeTenantSegment };
+module.exports = { createUploadMiddleware, uploadFileSizeLimit, safeTenantSegment, uploadStorageBaseDir };

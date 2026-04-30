@@ -30,7 +30,7 @@ function createService(baseDir, policy = {}) {
                 return { contacts: list, summary: { total: list.length, valid: list.length, invalid: 0, duplicate: 0 } };
             }
         },
-        mediaStore: new MediaStore(),
+        mediaStore: new MediaStore({ filePath: path.join(baseDir, 'media-store.json') }),
         mediaPolicy: {
             totalQuotaBytes: policy.totalQuotaBytes || 1024 * 1024,
             retentionMs: policy.retentionMs === undefined ? 60 * 60 * 1000 : policy.retentionMs
@@ -130,6 +130,22 @@ test('media retention removes expired upload files before accepting new media', 
         assert.equal(files[0].path, 'uploads/default/new.jpg');
         await assert.rejects(() => fs.stat(oldPath), { code: 'ENOENT' });
         await fs.stat(newPath);
+    } finally {
+        await cleanup(baseDir);
+    }
+});
+
+test('media store persists selected media between instances', async () => {
+    const baseDir = await createTempBaseDir();
+    try {
+        const storePath = path.join(baseDir, 'media-store.json');
+        const firstStore = new MediaStore({ filePath: storePath });
+        firstStore.replace([{ path: 'uploads/default/new.jpg', mimetype: 'image/jpeg', name: 'new.jpg' }], 'default');
+
+        const secondStore = new MediaStore({ filePath: storePath });
+        assert.deepEqual(secondStore.list('default'), [
+            { path: 'uploads/default/new.jpg', mimetype: 'image/jpeg', name: 'new.jpg' }
+        ]);
     } finally {
         await cleanup(baseDir);
     }

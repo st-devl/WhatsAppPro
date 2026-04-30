@@ -9,12 +9,13 @@ const fs = require('fs-extra');
 const db = require('./lib/db');
 const { LoginRateLimiter } = require('./lib/login_rate_limiter');
 const { MediaStore } = require('./lib/media_store');
-const { createUploadMiddleware } = require('./lib/upload_middleware');
+const { createUploadMiddleware, uploadStorageBaseDir } = require('./lib/upload_middleware');
 const { createTenantUploadMiddleware } = require('./lib/tenant_uploads');
 const { WhatsAppRuntime } = require('./lib/whatsapp_runtime');
 const { KeepAwake } = require('./lib/keep_awake');
 const { createErrorMiddleware, createNotFoundMiddleware } = require('./lib/api_errors');
 const { componentLogger, createRequestLoggerMiddleware, logger } = require('./lib/logger');
+const { acquireProcessLock } = require('./lib/process_lock');
 const { parseTrustProxy } = require('./lib/proxy_config');
 const { readReleaseManifest } = require('./lib/release_manifest');
 const { requireAuth } = require('./middleware/auth');
@@ -35,11 +36,12 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 const serverLogger = componentLogger('server');
+const processLock = acquireProcessLock(__dirname);
 
 app.set('trust proxy', parseTrustProxy());
 app.disable('x-powered-by');
 
-fs.ensureDirSync(path.join(__dirname, 'uploads'));
+fs.ensureDirSync(path.join(uploadStorageBaseDir(__dirname), 'uploads'));
 
 const { sessionName, sessionCookieOptions, sessionMiddleware } = createSessionMiddleware(__dirname);
 const loginLimiter = new LoginRateLimiter({
@@ -141,7 +143,7 @@ app.get('/readyz', async (req, res) => {
     }
 });
 
-app.get('/healthz/details', (req, res) => {
+app.get('/healthz/details', requireAuth, (req, res) => {
     const status = runtime.getStatus();
     res.json({
         ok: status.http === 'listening',
@@ -209,7 +211,7 @@ server.on('error', (err) => {
 
 server.listen(PORT, HOST, () => {
     runtime.setHttpStatus('listening');
-    serverLogger.info({ host: HOST, port: PORT }, 'http_server_listening');
+    serverLogger.info({ host: HOST, port: PORT, processLockPath: processLock?.lockPath || null }, 'http_server_listening');
     scheduleAuditRetention();
     runtime.scheduleInit();
     recoverRunningCampaigns();

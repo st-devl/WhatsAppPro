@@ -675,6 +675,21 @@ function buildMigrations(d) {
                 d.run('CREATE INDEX IF NOT EXISTS idx_recipient_history_tenant_last_sent ON recipient_history(tenant_id, last_sent_at)');
                 d.run('CREATE INDEX IF NOT EXISTS idx_daily_send_stats_tenant_date ON daily_send_stats(tenant_id, send_date)');
             }
+        },
+        {
+            id: '013_session_store',
+            description: 'Move HTTP sessions to SQLite',
+            run: () => {
+                d.run(`CREATE TABLE IF NOT EXISTS app_sessions (
+                    sid TEXT PRIMARY KEY,
+                    session_json TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )`);
+
+                d.run('CREATE INDEX IF NOT EXISTS idx_app_sessions_expires_at ON app_sessions(expires_at)');
+            }
         }
     ];
 }
@@ -1811,6 +1826,48 @@ const cleanupRecipientHistory = async (tenantId = DEFAULT_TENANT_ID, retentionMs
     });
 };
 
+const getSession = async (sid) => {
+    const d = await getDb();
+    const row = queryOne(d, 'SELECT session_json, expires_at FROM app_sessions WHERE sid = ?', [String(sid)]);
+    if (!row) return null;
+    if (Number(row.expires_at) <= Date.now()) {
+        await destroySession(sid);
+        return null;
+    }
+    return JSON.parse(row.session_json);
+};
+
+const setSession = async (sid, sess, expiresAt) => withWriteTransaction(null, (d) => {
+    const current = now();
+    d.run(`
+        INSERT INTO app_sessions (sid, session_json, expires_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(sid) DO UPDATE SET
+            session_json = excluded.session_json,
+            expires_at = excluded.expires_at,
+            updated_at = excluded.updated_at
+    `, [String(sid), JSON.stringify(sess || {}), Number(expiresAt), current, current]);
+});
+
+const touchSession = async (sid, sess, expiresAt) => withWriteTransaction(null, (d) => {
+    const current = now();
+    d.run('UPDATE app_sessions SET session_json = ?, expires_at = ?, updated_at = ? WHERE sid = ?', [
+        JSON.stringify(sess || {}),
+        Number(expiresAt),
+        current,
+        String(sid)
+    ]);
+});
+
+const destroySession = async (sid) => withWriteTransaction(null, (d) => {
+    d.run('DELETE FROM app_sessions WHERE sid = ?', [String(sid)]);
+});
+
+const pruneExpiredSessions = async (nowMs = Date.now()) => withWriteTransaction(null, (d) => {
+    const result = d.run('DELETE FROM app_sessions WHERE expires_at <= ?', [Number(nowMs)]);
+    return { deleted: Number(result?.changes || 0) };
+});
+
 module.exports = {
     DbError,
     getDb,
@@ -1856,5 +1913,10 @@ module.exports = {
     getDailySendCount,
     isRecipientInCooldown,
     recordRecipientSend,
-    cleanupRecipientHistory
+    cleanupRecipientHistory,
+    getSession,
+    setSession,
+    touchSession,
+    destroySession,
+    pruneExpiredSessions
 };

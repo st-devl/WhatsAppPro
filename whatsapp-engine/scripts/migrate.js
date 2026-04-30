@@ -1,3 +1,6 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 const db = require('../lib/db');
 
 const command = process.argv[2] || 'status';

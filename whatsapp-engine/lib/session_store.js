@@ -100,6 +100,65 @@ class FileSessionStore extends session.Store {
     }
 }
 
+class DbSessionStore extends session.Store {
+    constructor(options = {}) {
+        super();
+        this.db = options.db;
+        this.ttlMs = options.ttlMs || 24 * 60 * 60 * 1000;
+    }
+
+    get(sid, callback) {
+        this.db.getSession(sid)
+            .then(sess => callback(null, sess))
+            .catch(err => {
+                sessionLogger.error({ err }, 'session_store_db_get_failed');
+                callback(err);
+            });
+    }
+
+    set(sid, sess, callback = () => {}) {
+        this.db.setSession(sid, sess, this.getExpiry(sess))
+            .then(() => callback())
+            .catch(err => {
+                sessionLogger.error({ err }, 'session_store_db_set_failed');
+                callback(err);
+            });
+    }
+
+    touch(sid, sess, callback = () => {}) {
+        this.db.touchSession(sid, sess, this.getExpiry(sess))
+            .then(() => callback())
+            .catch(err => {
+                sessionLogger.error({ err }, 'session_store_db_touch_failed');
+                callback(err);
+            });
+    }
+
+    destroy(sid, callback = () => {}) {
+        this.db.destroySession(sid)
+            .then(() => callback())
+            .catch(err => {
+                sessionLogger.error({ err }, 'session_store_db_destroy_failed');
+                callback(err);
+            });
+    }
+
+    pruneExpired(callback = () => {}) {
+        this.db.pruneExpiredSessions()
+            .then(() => callback())
+            .catch(err => {
+                sessionLogger.error({ err }, 'session_store_db_prune_failed');
+                callback(err);
+            });
+    }
+
+    getExpiry(sess) {
+        const cookieExpires = sess?.cookie?.expires ? new Date(sess.cookie.expires).getTime() : null;
+        if (cookieExpires && !Number.isNaN(cookieExpires)) return cookieExpires;
+        return Date.now() + this.ttlMs;
+    }
+}
+
 function createFileSessionStore(options = {}) {
     const store = new FileSessionStore(options);
     const pruneIntervalMs = options.pruneIntervalMs || 15 * 60 * 1000;
@@ -108,4 +167,13 @@ function createFileSessionStore(options = {}) {
     return store;
 }
 
-module.exports = { FileSessionStore, createFileSessionStore };
+function createDbSessionStore(options = {}) {
+    if (!options.db) throw new Error('createDbSessionStore requires db');
+    const store = new DbSessionStore(options);
+    const pruneIntervalMs = options.pruneIntervalMs || 15 * 60 * 1000;
+    const timer = setInterval(() => store.pruneExpired(), pruneIntervalMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    return store;
+}
+
+module.exports = { FileSessionStore, DbSessionStore, createFileSessionStore, createDbSessionStore };

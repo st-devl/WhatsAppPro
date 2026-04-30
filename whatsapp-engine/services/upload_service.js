@@ -6,7 +6,7 @@ const {
     validateMediaFiles,
     removeUploadedFiles
 } = require('../lib/file_validation');
-const { safeTenantSegment } = require('../lib/upload_middleware');
+const { safeTenantSegment, uploadStorageBaseDir } = require('../lib/upload_middleware');
 const {
     createSampleWorkbookBuffer,
     readWorkbookObjectsInWorker
@@ -39,8 +39,11 @@ function findColumn(row, aliases) {
 }
 
 function assertInsideUploads(baseDir, filePath, tenantId = 'default') {
-    const uploadsDir = path.resolve(baseDir, 'uploads', safeTenantSegment(tenantId));
-    const absolutePath = path.resolve(baseDir, filePath);
+    const storageBaseDir = uploadStorageBaseDir(baseDir);
+    const uploadsDir = path.resolve(storageBaseDir, 'uploads', safeTenantSegment(tenantId));
+    const absolutePath = path.isAbsolute(filePath)
+        ? path.resolve(filePath)
+        : path.resolve(storageBaseDir, filePath);
     if (!absolutePath.startsWith(uploadsDir + path.sep)) {
         throw badRequest('Geçersiz dosya yolu', 'INVALID_UPLOAD_PATH');
     }
@@ -48,8 +51,9 @@ function assertInsideUploads(baseDir, filePath, tenantId = 'default') {
 }
 
 function publicMediaPath(baseDir, filePath, tenantId = 'default') {
+    const storageBaseDir = uploadStorageBaseDir(baseDir);
     const absolutePath = assertInsideUploads(baseDir, filePath, tenantId);
-    return path.relative(baseDir, absolutePath).split(path.sep).join('/');
+    return path.relative(storageBaseDir, absolutePath).split(path.sep).join('/');
 }
 
 function createUploadService(options = {}) {

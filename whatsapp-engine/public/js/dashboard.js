@@ -647,10 +647,11 @@ function updatePreview() {
     const inner = document.getElementById('media-preview-inner');
     if (mediaFiles.length > 0) {
         inner.classList.remove('hidden');
+        const mediaPath = escapeHtml(mediaFiles[0].path);
         if (mediaFiles[0].mimetype.startsWith('video/')) {
-            inner.innerHTML = `<video src="/${mediaFiles[0].path}" class="w-full rounded-md max-h-[200px] object-cover" controls></video>`;
+            inner.innerHTML = `<video src="/${mediaPath}" class="w-full rounded-md max-h-[200px] object-cover" controls></video>`;
         } else {
-            inner.innerHTML = `<img src="/${mediaFiles[0].path}" class="w-full rounded-md object-cover">`;
+            inner.innerHTML = `<img src="/${mediaPath}" class="w-full rounded-md object-cover">`;
         }
     } else {
         inner.classList.add('hidden');
@@ -674,9 +675,10 @@ function setMediaUploadStatus(state, message) {
 
 function renderMediaPreview() {
     document.getElementById('media-preview').innerHTML = mediaFiles.map((f, index) => {
+        const mediaPath = escapeHtml(f.path);
         const preview = f.mimetype.startsWith('video/')
             ? '<div class="w-full h-full bg-white rounded-lg border border-outline-variant/20 flex items-center justify-center"><span class="material-symbols-outlined text-primary text-3xl">movie</span></div>'
-            : `<img src="/${f.path}" class="w-full h-full object-cover rounded-lg" alt="Medya önizleme">`;
+            : `<img src="/${mediaPath}" class="w-full h-full object-cover rounded-lg" alt="Medya önizleme">`;
 
         return `
             <div class="aspect-square bg-white rounded-lg border border-outline-variant/20 relative group overflow-hidden">

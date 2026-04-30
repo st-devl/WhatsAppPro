@@ -100,15 +100,18 @@
                 info: 'bg-surface-container-high text-on-surface-variant'
             };
             if (!text) {
-                messageEl.innerHTML = '';
+                messageEl.replaceChildren();
                 return;
             }
-            messageEl.innerHTML = `
-                <div class="flex items-center gap-3 p-4 rounded-xl ${colors[type] || colors.info}">
-                    <span class="material-symbols-outlined text-lg">${type === 'error' ? 'error' : type === 'success' ? 'check_circle' : 'info'}</span>
-                    <span>${text}</span>
-                </div>
-            `;
+            const container = document.createElement('div');
+            container.className = `flex items-center gap-3 p-4 rounded-xl ${colors[type] || colors.info}`;
+            const icon = document.createElement('span');
+            icon.className = 'material-symbols-outlined text-lg';
+            icon.textContent = type === 'error' ? 'error' : type === 'success' ? 'check_circle' : 'info';
+            const label = document.createElement('span');
+            label.textContent = text;
+            container.append(icon, label);
+            messageEl.replaceChildren(container);
         }
 
         function setSubmitLoading(isLoading) {

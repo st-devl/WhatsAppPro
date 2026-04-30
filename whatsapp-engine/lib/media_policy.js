@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs-extra');
-const { safeTenantSegment } = require('./upload_middleware');
+const { safeTenantSegment, uploadStorageBaseDir } = require('./upload_middleware');
 
 const DEFAULT_MEDIA_TOTAL_QUOTA_BYTES = 500 * 1024 * 1024;
 const DEFAULT_MEDIA_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -25,8 +25,8 @@ function createMediaPolicy(options = {}) {
 
 function uploadsDir(baseDir, tenantId = null) {
     return tenantId
-        ? path.resolve(baseDir, 'uploads', safeTenantSegment(tenantId))
-        : path.resolve(baseDir, 'uploads');
+        ? path.resolve(uploadStorageBaseDir(baseDir), 'uploads', safeTenantSegment(tenantId))
+        : path.resolve(uploadStorageBaseDir(baseDir), 'uploads');
 }
 
 async function listUploadFiles(baseDir, tenantId = null) {

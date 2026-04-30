@@ -1,9 +1,9 @@
 const path = require('path');
 const fs = require('fs-extra');
-const { safeTenantSegment } = require('./upload_middleware');
+const { safeTenantSegment, uploadStorageBaseDir } = require('./upload_middleware');
 
 function tenantUploadsDir(baseDir, tenantId = 'default') {
-    return path.resolve(baseDir, 'uploads', safeTenantSegment(tenantId));
+    return path.resolve(uploadStorageBaseDir(baseDir), 'uploads', safeTenantSegment(tenantId));
 }
 
 function resolveTenantUploadPath(baseDir, tenantId, relativePath = '') {

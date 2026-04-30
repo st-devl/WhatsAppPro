@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const { renderTemplate } = require('../shared/message_renderer');
 const { componentLogger } = require('./logger');
+const { uploadStorageBaseDir } = require('./upload_middleware');
 const {
     DEFAULT_BATCH_PAUSE_MINUTES,
     DEFAULT_BATCH_SIZE,
@@ -116,8 +117,10 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
                 continue;
             }
 
-            const absolutePath = path.resolve(__dirname, '..', file.path);
-            if (!absolutePath.startsWith(path.resolve(__dirname, '..', 'uploads') + path.sep) || !fs.existsSync(absolutePath)) {
+            const storageBaseDir = uploadStorageBaseDir(path.resolve(__dirname, '..'));
+            const uploadsDir = path.resolve(storageBaseDir, 'uploads');
+            const absolutePath = path.resolve(storageBaseDir, file.path);
+            if (!absolutePath.startsWith(uploadsDir + path.sep) || !fs.existsSync(absolutePath)) {
                 await addLog('error', `Medya dosyası bulunamadı: ${file.name || file.path}`);
                 continue;
             }

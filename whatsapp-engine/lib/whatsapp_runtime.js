@@ -66,19 +66,25 @@ class WhatsAppRuntime {
         return this.isConnected;
     }
 
+    storageBaseDir() {
+        return process.env.WHASAPPC_DATA_DIR
+            ? path.resolve(process.env.WHASAPPC_DATA_DIR)
+            : this.baseDir;
+    }
+
     getLastQR() {
         return this.lastQR;
     }
 
     sessionPath(tenantId = this.defaultTenantId) {
         if (this.isTenantSupported(tenantId)) {
-            return path.join(this.baseDir, 'auth/session');
+            return path.join(this.storageBaseDir(), 'auth/session');
         }
-        return path.join(this.baseDir, 'auth/tenants', safeTenantSegment(tenantId), 'session');
+        return path.join(this.storageBaseDir(), 'auth/tenants', safeTenantSegment(tenantId), 'session');
     }
 
     sessionPathForConfiguredTenant() {
-        return path.join(this.baseDir, 'auth/session');
+        return path.join(this.storageBaseDir(), 'auth/session');
     }
 
     async resetSession() {

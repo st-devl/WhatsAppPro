@@ -17,6 +17,8 @@ DEPLOY_REMOTE_HEALTH_URL="${DEPLOY_REMOTE_HEALTH_URL:-}"
 DEPLOY_HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-90}"
 DEPLOY_RUNTIME="${DEPLOY_RUNTIME:-docker}"
 DEPLOY_REMOTE_RESTART_CMD="${DEPLOY_REMOTE_RESTART_CMD:-}"
+DEPLOY_REMOTE_PASSENGER_PATH="${DEPLOY_REMOTE_PASSENGER_PATH:-}"
+DEPLOY_REMOTE_DATA_PATH="${DEPLOY_REMOTE_DATA_PATH:-}"
 
 MODE="check"
 VERSION_BUMP="none"
@@ -59,16 +61,18 @@ Remote environment:
   DEPLOY_REMOTE_PATH                 Example: /opt/WhasAppC
   DEPLOY_REMOTE_BRANCH               Default: current branch
   DEPLOY_REMOTE_REPO_URL             Default: local origin URL
-  DEPLOY_REMOTE_HEALTH_URL           Optional public health URL
-  DEPLOY_RUNTIME                     docker or node. Default: docker
+  DEPLOY_REMOTE_HEALTH_URL           Public health URL. Required for production deploys.
+  DEPLOY_RUNTIME                     docker, node, or hostinger-passenger. Default: docker
   DEPLOY_REMOTE_RESTART_CMD          Required for node runtime unless PM2 can be auto-detected
+  DEPLOY_REMOTE_PASSENGER_PATH       Required for hostinger-passenger runtime. Example: /home/user/domains/site/nodejs
+  DEPLOY_REMOTE_DATA_PATH            Optional persistent data dir for hostinger-passenger. Default: sibling app-data dir
   COMPOSE_FILE                       Default: docker-compose.yml
   COMPOSE_SERVICE                    Default: whasappc
 
 Notes:
   production mode never overwrites dirty files on the server. It stops if the
-  remote working tree has uncommitted changes. Use DEPLOY_RUNTIME=node for
-  shared hosting servers where Docker Compose is not available.
+  remote working tree has uncommitted changes. Use DEPLOY_RUNTIME=hostinger-passenger
+  for Hostinger Passenger apps, or DEPLOY_RUNTIME=node for PM2/systemd Node apps.
 USAGE
 }
 
@@ -196,8 +200,8 @@ detect_compose() {
 
 validate_runtime() {
     case "$DEPLOY_RUNTIME" in
-        docker|node) ;;
-        *) fail "DEPLOY_RUNTIME docker veya node olmali. Gelen: $DEPLOY_RUNTIME" ;;
+        docker|node|hostinger-passenger) ;;
+        *) fail "DEPLOY_RUNTIME docker, node veya hostinger-passenger olmali. Gelen: $DEPLOY_RUNTIME" ;;
     esac
 }
 
@@ -293,7 +297,12 @@ ensure_remote_inputs() {
     [ -n "$DEPLOY_REMOTE_HOST" ] || fail "DEPLOY_REMOTE_HOST gerekli."
     [ -n "$DEPLOY_REMOTE_PATH" ] || fail "DEPLOY_REMOTE_PATH gerekli."
     [ -n "$DEPLOY_REMOTE_REPO_URL" ] || fail "DEPLOY_REMOTE_REPO_URL gerekli."
+    [ -n "$DEPLOY_REMOTE_HEALTH_URL" ] || fail "Production deploy icin DEPLOY_REMOTE_HEALTH_URL gerekli."
     require_command ssh
+
+    if [ "$DEPLOY_RUNTIME" = "hostinger-passenger" ]; then
+        [ -n "$DEPLOY_REMOTE_PASSENGER_PATH" ] || fail "DEPLOY_RUNTIME=hostinger-passenger icin DEPLOY_REMOTE_PASSENGER_PATH gerekli."
+    fi
 
     if ! git diff --quiet || ! git diff --cached --quiet; then
         fail "Production deploy icin local working tree temiz olmali. --commit-all ve --push kullanin veya once manuel commit/push yapin."
@@ -332,6 +341,8 @@ deploy_remote() {
     local repo_url_q
     local compose_file_q
     local compose_service_q
+    local passenger_path_q
+    local data_path_q
     local remote_node_modules_bundle
     local remote_node_modules_bundle_q
     local node_modules_bundle
@@ -342,6 +353,8 @@ deploy_remote() {
     repo_url_q="$(shell_quote "$DEPLOY_REMOTE_REPO_URL")"
     compose_file_q="$(shell_quote "$COMPOSE_FILE")"
     compose_service_q="$(shell_quote "$COMPOSE_SERVICE")"
+    passenger_path_q="$(shell_quote "$DEPLOY_REMOTE_PASSENGER_PATH")"
+    data_path_q="$(shell_quote "$DEPLOY_REMOTE_DATA_PATH")"
     remote_node_modules_bundle="/tmp/whatsappc-node-modules-$commit.tar.gz"
     remote_node_modules_bundle_q="$(shell_quote "$remote_node_modules_bundle")"
     node_modules_bundle=""
@@ -350,7 +363,14 @@ deploy_remote() {
     local restart_cmd_q
     restart_cmd_q="$(shell_quote "$DEPLOY_REMOTE_RESTART_CMD")"
 
-    if [ "$DEPLOY_RUNTIME" = "node" ]; then
+    cleanup_bundle() {
+        if [ -n "$bundle_tmp" ] && [ -d "$bundle_tmp" ]; then
+            rm -rf "$bundle_tmp"
+        fi
+    }
+    trap cleanup_bundle RETURN
+
+    if [ "$DEPLOY_RUNTIME" = "node" ] || [ "$DEPLOY_RUNTIME" = "hostinger-passenger" ]; then
         require_command node
         require_command npm
         require_command tar
@@ -363,7 +383,7 @@ deploy_remote() {
         (cd "$bundle_tmp/whatsapp-engine" && npm ci --omit=dev --omit=optional --no-audit --no-fund --no-bin-links)
         node -e "const fs = require('fs'); const crypto = require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync('$bundle_tmp/whatsapp-engine/package-lock.json')).digest('hex'));" > "$bundle_tmp/whatsapp-engine/node_modules/.package-lock.sha256"
         node_modules_bundle="$bundle_tmp/node_modules.tar.gz"
-        tar -C "$bundle_tmp/whatsapp-engine" -czf "$node_modules_bundle" node_modules
+        COPYFILE_DISABLE=1 tar -C "$bundle_tmp/whatsapp-engine" -czf "$node_modules_bundle" node_modules
 
         info "Node dependencies bundle remote'a yukleniyor..."
         scp -P "$DEPLOY_REMOTE_SSH_PORT" "$node_modules_bundle" "$DEPLOY_REMOTE_HOST:$remote_node_modules_bundle"
@@ -373,6 +393,8 @@ deploy_remote() {
     ssh -p "$DEPLOY_REMOTE_SSH_PORT" "$DEPLOY_REMOTE_HOST" "set -euo pipefail
 remote_path=$remote_path_q
 remote_node_modules_bundle=$remote_node_modules_bundle_q
+passenger_path=$passenger_path_q
+data_path=$data_path_q
 if [ ! -d \"\$remote_path\" ]; then
     if ! command -v git >/dev/null 2>&1; then
         echo 'HATA: remote git bulunamadi.' >&2
@@ -409,6 +431,134 @@ if [ \"\$actual_commit\" != \"$commit\" ]; then
 fi
 node whatsapp-engine/scripts/release-manifest.js --environment production --commit \"$commit\"
 
+set_env_file() {
+    env_file=\"\$1\"
+    key=\"\$2\"
+    value=\"\$3\"
+    tmp_file=\"\$(mktemp)\"
+    if [ -f \"\$env_file\" ]; then
+        awk -v k=\"\$key\" -v v=\"\$value\" 'BEGIN{done=0} \$0 ~ \"^\" k \"=\" { print k \"=\" v; done=1; next } { print } END{ if (!done) print k \"=\" v }' \"\$env_file\" > \"\$tmp_file\"
+    else
+        printf '%s=%s\n' \"\$key\" \"\$value\" > \"\$tmp_file\"
+    fi
+    mv \"\$tmp_file\" \"\$env_file\"
+}
+
+env_value() {
+    env_file=\"\$1\"
+    key=\"\$2\"
+    grep -E \"^\${key}=\" \"\$env_file\" | tail -n 1 | cut -d= -f2- || true
+}
+
+validate_runtime_env() {
+    env_file=\"\$1\"
+    missing=''
+    for key in ADMIN_EMAIL ADMIN_PASS_HASH SESSION_SECRET; do
+        if [ -z \"\$(env_value \"\$env_file\" \"\$key\")\" ]; then
+            missing=\"\$missing \$key\"
+        fi
+    done
+    if [ -n \"\$missing\" ]; then
+        echo \"HATA: \$env_file icinde eksik zorunlu degiskenler:\$missing\" >&2
+        exit 1
+    fi
+    session_secret=\"\$(env_value \"\$env_file\" SESSION_SECRET)\"
+    pass_hash=\"\$(env_value \"\$env_file\" ADMIN_PASS_HASH)\"
+    if [ \"\$session_secret\" = 'change-me-to-a-long-random-secret' ] || [ \"\${#session_secret}\" -lt 32 ]; then
+        echo 'HATA: SESSION_SECRET production icin guvenli degil.' >&2
+        exit 1
+    fi
+    if [ \"\$pass_hash\" = 'replace-with-bcrypt-hash' ]; then
+        echo 'HATA: ADMIN_PASS_HASH placeholder degerinde.' >&2
+        exit 1
+    fi
+}
+
+install_node_bundle() {
+    app_dir=\"\$1\"
+    lock_hash=\$(node -e \"const fs = require('fs'); const crypto = require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync(process.argv[1])).digest('hex'));\" \"\$app_dir/package-lock.json\")
+    install_marker=\"\$app_dir/node_modules/.package-lock.sha256\"
+    deps_ready=0
+    if [ -d \"\$app_dir/node_modules\" ] && [ -s \"\$install_marker\" ] && [ \"\$(cat \"\$install_marker\" 2>/dev/null)\" = \"\$lock_hash\" ]; then
+        deps_ready=1
+    fi
+
+    if [ \"\$deps_ready\" -eq 0 ]; then
+        old_node_modules=''
+        if [ -d \"\$app_dir/node_modules\" ]; then
+            old_node_modules=\"\$app_dir/.node_modules-old-\$(date +%s)\"
+            mv \"\$app_dir/node_modules\" \"\$old_node_modules\"
+        fi
+        if [ ! -s \"\$remote_node_modules_bundle\" ]; then
+            echo 'HATA: node_modules bundle remote sunucuda bulunamadi.' >&2
+            if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
+                mv \"\$old_node_modules\" \"\$app_dir/node_modules\" || true
+            fi
+            exit 1
+        fi
+        if ! tar -xzf \"\$remote_node_modules_bundle\" -C \"\$app_dir\"; then
+            echo 'HATA: node_modules bundle acilamadi. Eski node_modules geri yuklenecek.' >&2
+            if [ -d \"\$app_dir/node_modules\" ]; then
+                mv \"\$app_dir/node_modules\" \"\$app_dir/.node_modules-failed-\$(date +%s)\" || true
+            fi
+            if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
+                mv \"\$old_node_modules\" \"\$app_dir/node_modules\" || true
+            fi
+            exit 1
+        fi
+        if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
+            rm -rf \"\$old_node_modules\" || true
+        fi
+    fi
+}
+
+if [ \"$DEPLOY_RUNTIME\" = 'hostinger-passenger' ]; then
+    if ! command -v node >/dev/null 2>&1; then
+        echo 'HATA: remote node bulunamadi.' >&2
+        exit 1
+    fi
+
+    node -e \"const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }\"
+    [ -n \"\$passenger_path\" ] || {
+        echo 'HATA: passenger path bos.' >&2
+        exit 1
+    }
+    if [ -z \"\$data_path\" ]; then
+        data_path=\"\$(dirname \"\$passenger_path\")/app-data\"
+    fi
+
+    mkdir -p \"\$passenger_path\" \"\$passenger_path/tmp\" \"\$data_path\" \"\$data_path/uploads\" \"\$data_path/auth\"
+    if [ ! -f \"\$passenger_path/.env\" ]; then
+        echo \"HATA: \$passenger_path/.env bulunamadi. Production secretlari deploy scripti uretmez.\" >&2
+        exit 1
+    fi
+
+    set_env_file \"\$passenger_path/.env\" NODE_ENV production
+    set_env_file \"\$passenger_path/.env\" TRUST_PROXY 1
+    set_env_file \"\$passenger_path/.env\" COOKIE_SECURE true
+    set_env_file \"\$passenger_path/.env\" WHASAPPC_DATA_DIR \"\$data_path\"
+    validate_runtime_env \"\$passenger_path/.env\"
+
+    if command -v pm2 >/dev/null 2>&1; then
+        pm2 delete whasappc >/dev/null 2>&1 || true
+        pm2 delete yardimet.site >/dev/null 2>&1 || true
+        pm2 save >/dev/null 2>&1 || true
+    fi
+
+    find \"\$passenger_path\" -mindepth 1 -maxdepth 1 \
+        ! -name .env \
+        ! -name node_modules \
+        ! -name tmp \
+        -exec rm -rf {} +
+    tar --exclude='./node_modules' --exclude='./.env' --exclude='./data' --exclude='./auth' --exclude='./uploads' -C whatsapp-engine -cf - . | tar -C \"\$passenger_path\" -xf -
+    install_node_bundle \"\$passenger_path\"
+    rm -f \"\$remote_node_modules_bundle\" || true
+    (cd \"\$passenger_path\" && node scripts/migrate.js apply)
+    touch \"\$passenger_path/tmp/restart.txt\"
+    echo 'Remote Passenger deploy staged. Public health check local tarafta calisacak.'
+    exit 0
+fi
+
 if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
     if ! command -v node >/dev/null 2>&1; then
         echo 'HATA: remote node bulunamadi.' >&2
@@ -440,41 +590,7 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
         pm2 stop whasappc >/dev/null 2>&1 || true
         pm2 stop yardimet.site >/dev/null 2>&1 || true
     fi
-    lock_hash=\$(node -e \"const fs = require('fs'); const crypto = require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync('whatsapp-engine/package-lock.json')).digest('hex'));\")
-    install_marker='whatsapp-engine/node_modules/.package-lock.sha256'
-    deps_ready=0
-    if [ -d whatsapp-engine/node_modules ] && [ -s \"\$install_marker\" ] && [ \"\$(cat \"\$install_marker\" 2>/dev/null)\" = \"\$lock_hash\" ]; then
-        deps_ready=1
-    fi
-
-    if [ \"\$deps_ready\" -eq 0 ]; then
-        old_node_modules=''
-        if [ -d whatsapp-engine/node_modules ]; then
-            old_node_modules=\"whatsapp-engine/.node_modules-old-\$(date +%s)\"
-            mv whatsapp-engine/node_modules \"\$old_node_modules\"
-        fi
-        if [ ! -s \"\$remote_node_modules_bundle\" ]; then
-            echo 'HATA: node_modules bundle remote sunucuda bulunamadi.' >&2
-            if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
-                mv \"\$old_node_modules\" whatsapp-engine/node_modules || true
-            fi
-            exit 1
-        fi
-        if ! tar -xzf \"\$remote_node_modules_bundle\" -C whatsapp-engine; then
-            echo 'HATA: node_modules bundle acilamadi. Eski node_modules geri yuklenecek.' >&2
-            if [ -d whatsapp-engine/node_modules ]; then
-                mv whatsapp-engine/node_modules \"whatsapp-engine/.node_modules-failed-\$(date +%s)\" || true
-            fi
-            if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
-                mv \"\$old_node_modules\" whatsapp-engine/node_modules || true
-            fi
-            exit 1
-        fi
-        rm -f \"\$remote_node_modules_bundle\" || true
-        if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
-            rm -rf \"\$old_node_modules\" || true
-        fi
-    fi
+    install_node_bundle \"\$PWD/whatsapp-engine\"
     rm -f \"\$remote_node_modules_bundle\" || true
     (cd whatsapp-engine && node scripts/migrate.js apply)
 
@@ -524,11 +640,7 @@ echo 'HATA: remote health check zaman asimi.' >&2
 exit 1
 "
 
-    if [ -n "$DEPLOY_REMOTE_HEALTH_URL" ]; then
-        wait_for_url "$DEPLOY_REMOTE_HEALTH_URL" "$DEPLOY_HEALTH_TIMEOUT_SECONDS"
-    else
-        warn "DEPLOY_REMOTE_HEALTH_URL verilmedi; public URL dogrulamasi atlandi."
-    fi
+    wait_for_url "$DEPLOY_REMOTE_HEALTH_URL" "$DEPLOY_HEALTH_TIMEOUT_SECONDS"
 }
 
 main() {

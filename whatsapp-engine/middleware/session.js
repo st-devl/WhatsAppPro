@@ -1,6 +1,26 @@
 const path = require('path');
 const session = require('express-session');
-const { createFileSessionStore } = require('../lib/session_store');
+const db = require('../lib/db');
+const { createDbSessionStore, createFileSessionStore } = require('../lib/session_store');
+
+function resolveSessionStore(baseDir, ttlMs) {
+    const storeType = String(process.env.SESSION_STORE || 'sqlite').trim().toLowerCase();
+    if (storeType === 'file') {
+        const dataDir = process.env.WHASAPPC_DATA_DIR
+            ? path.resolve(process.env.WHASAPPC_DATA_DIR)
+            : path.join(baseDir, 'data');
+        return createFileSessionStore({
+            filePath: path.join(dataDir, 'sessions/sessions.json'),
+            ttlMs
+        });
+    }
+
+    if (storeType !== 'sqlite') {
+        throw new Error(`SESSION_STORE sqlite veya file olmali. Gelen: ${storeType}`);
+    }
+
+    return createDbSessionStore({ db, ttlMs });
+}
 
 function createSessionMiddleware(baseDir) {
     const sessionName = 'whasappc.sid';
@@ -9,9 +29,6 @@ function createSessionMiddleware(baseDir) {
     if (process.env.NODE_ENV === 'production' && !sessionSecret) {
         throw new Error('SESSION_SECRET production ortaminda zorunludur');
     }
-    const dataDir = process.env.WHASAPPC_DATA_DIR
-        ? path.resolve(process.env.WHASAPPC_DATA_DIR)
-        : path.join(baseDir, 'data');
     const sessionCookieOptions = {
         secure: secureCookies,
         sameSite: secureCookies ? 'none' : 'lax',
@@ -19,10 +36,7 @@ function createSessionMiddleware(baseDir) {
         maxAge: 24 * 60 * 60 * 1000
     };
 
-    const sessionStore = createFileSessionStore({
-        filePath: path.join(dataDir, 'sessions/sessions.json'),
-        ttlMs: sessionCookieOptions.maxAge
-    });
+    const sessionStore = resolveSessionStore(baseDir, sessionCookieOptions.maxAge);
 
     const sessionMiddleware = session({
         name: sessionName,
