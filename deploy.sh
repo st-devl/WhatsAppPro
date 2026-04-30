@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
     cat <<'USAGE'
 Usage:
-  ./deploy.sh [--with-tests] [--skip-css-build]
+  ./deploy.sh [--with-tests] [--skip-css-build] [--setup-env]
   ./deploy.sh --local [release.sh local options]
   ./deploy.sh --legacy-release [release.sh production options]
 
@@ -16,6 +16,9 @@ remote .env plus runtime data.
 
 Daily production deploy:
   ./deploy.sh
+
+First production setup when remote .env is missing:
+  ./deploy.sh --setup-env
 
 Safer production deploy with tests:
   ./deploy.sh --with-tests

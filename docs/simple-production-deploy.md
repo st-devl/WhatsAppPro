@@ -12,6 +12,14 @@ Daha guvenli ama daha uzun calisan deploy:
 ./deploy.sh --with-tests
 ```
 
+Remote `.env` dosyasi eksikse ilk kurulum:
+
+```bash
+./deploy.sh --setup-env
+```
+
+Bu komut admin e-posta ve sifreyi terminalde sorar, sifreyi bcrypt hash'e cevirir, `SESSION_SECRET` uretir ve remote `.env` dosyasi yoksa olusturur. Mevcut remote `.env` dosyasinin uzerine yazmaz.
+
 ## Ne Yapar?
 
 - Tailwind CSS build alir.
@@ -31,7 +39,7 @@ Daha guvenli ama daha uzun calisan deploy:
 - GitHub'a push yapmaz.
 - Local working tree temiz olmak zorunda degildir.
 - `docs/project_keys.md` gibi lokal not dosyalari deploy'u engellemez.
-- Production secret uretmez. Remote `.env` yoksa veya zorunlu secret eksikse durur.
+- `--setup-env` verilmedikce production secret uretmez. Remote `.env` yoksa veya zorunlu secret eksikse durur.
 - Gercek WhatsApp smoke test yapmaz.
 
 ## Varsayilan Hedef
@@ -66,7 +74,8 @@ ADMIN_PASS_HASH=
 SESSION_SECRET=
 ```
 
-Deploy script'i secret olusturmaz; sadece varligini ve guvenli gorunen degerleri dogrular.
+Normal deploy secret olusturmaz; sadece varligini ve guvenli gorunen degerleri dogrular.
+Ilk kurulum icin `./deploy.sh --setup-env` kullanilabilir.
 
 ## Eski Release Akisi
 

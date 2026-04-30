@@ -12,11 +12,14 @@ HEALTH_URL="${DEPLOY_REMOTE_HEALTH_URL:-https://yardimet.site/readyz}"
 HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-90}"
 RUN_TESTS=0
 SKIP_CSS_BUILD=0
+SETUP_ENV=0
+SETUP_ADMIN_EMAIL=""
+SETUP_ADMIN_PASSWORD=""
 
 usage() {
     cat <<'USAGE'
 Usage:
-  ./deploy-production.sh [--with-tests] [--skip-css-build]
+  ./deploy-production.sh [--with-tests] [--skip-css-build] [--setup-env]
 
 This is the simple Hostinger Passenger production deploy path.
 
@@ -29,6 +32,9 @@ Defaults:
 
 The script does not require a clean git tree and does not push to GitHub.
 It preserves the remote .env and persistent runtime data.
+
+Options:
+  --setup-env       Create remote .env if it is missing. Prompts for admin email/password.
 USAGE
 }
 
@@ -55,6 +61,10 @@ while [ "$#" -gt 0 ]; do
             SKIP_CSS_BUILD=1
             shift
             ;;
+        --setup-env)
+            SETUP_ENV=1
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -74,6 +84,22 @@ require_command tar
 
 node -e "const major = Number(process.versions.node.split('.')[0]); if (major < 20 || major >= 26) { console.error('Node.js >=20 <26 required. Current: ' + process.version); process.exit(1); }"
 
+if [ "$SETUP_ENV" -eq 1 ]; then
+    printf "Admin e-posta: "
+    read -r SETUP_ADMIN_EMAIL
+    printf "Admin sifre: "
+    stty_state="$(stty -g)"
+    stty -echo
+    if ! read -r SETUP_ADMIN_PASSWORD; then
+        stty "$stty_state"
+        fail "Admin sifre okunamadi."
+    fi
+    stty "$stty_state"
+    printf "\n"
+    [ -n "$SETUP_ADMIN_EMAIL" ] || fail "Admin e-posta bos olamaz."
+    [ -n "$SETUP_ADMIN_PASSWORD" ] || fail "Admin sifre bos olamaz."
+fi
+
 commit="$(git rev-parse HEAD)"
 short_commit="$(git rev-parse --short=12 HEAD)"
 tmp_dir="$(mktemp -d)"
@@ -82,6 +108,8 @@ mkdir -p "$control_dir"
 control_path="$control_dir/ctl"
 artifact="$tmp_dir/whatsappc-production-$short_commit.tar.gz"
 remote_artifact="/tmp/whatsappc-production-$short_commit.tar.gz"
+env_artifact=""
+remote_env_artifact=""
 ssh_master_started=0
 
 cleanup() {
@@ -136,6 +164,42 @@ cp whatsapp-engine/package.json whatsapp-engine/package-lock.json "$deps_dir/"
 node -e "const fs = require('fs'); const crypto = require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync(process.argv[1])).digest('hex'));" \
     "$deps_dir/package-lock.json" > "$deps_dir/node_modules/.package-lock.sha256"
 
+if [ "$SETUP_ENV" -eq 1 ]; then
+    admin_pass_hash="$(NODE_PATH="$deps_dir/node_modules" ADMIN_PASSWORD="$SETUP_ADMIN_PASSWORD" node -e 'const bcrypt = require("bcryptjs"); process.stdout.write(bcrypt.hashSync(process.env.ADMIN_PASSWORD, 12));')"
+    session_secret="$(node -e 'process.stdout.write(require("crypto").randomBytes(48).toString("hex"));')"
+    env_artifact="$tmp_dir/production.env"
+    remote_env_artifact="/tmp/whatsappc-production-env-$short_commit-$$"
+    cat > "$env_artifact" <<ENV
+NODE_ENV=production
+PORT=3005
+HOST=0.0.0.0
+TRUST_PROXY=1
+COOKIE_SECURE=true
+SESSION_STORE=sqlite
+WHASAPPC_DATA_DIR=$DATA_PATH
+ADMIN_EMAIL=$SETUP_ADMIN_EMAIL
+ADMIN_PASS_HASH=$admin_pass_hash
+SESSION_SECRET=$session_secret
+DEFAULT_TENANT_ID=default
+WHATSAPP_MAX_AUTO_RETRIES=3
+KEEP_AWAKE_DURING_CAMPAIGN=true
+CAMPAIGN_BATCH_SIZE=50
+CAMPAIGN_BATCH_PAUSE_MINUTES=40
+LOGIN_RATE_LIMIT_WINDOW_MS=900000
+LOGIN_RATE_LIMIT_MAX=5
+UPLOAD_MAX_FILE_SIZE_BYTES=52428800
+MEDIA_TOTAL_QUOTA_BYTES=524288000
+MEDIA_RETENTION_MS=604800000
+EXCEL_IMPORT_TIMEOUT_MS=30000
+LOG_LEVEL=info
+BACKUP_RETENTION_COUNT=30
+PROCESS_LOCK_WAIT_MS=15000
+AUDIT_RETENTION_DAYS=
+ENV
+    chmod 600 "$env_artifact"
+    SETUP_ADMIN_PASSWORD=""
+fi
+
 tar_create_args=()
 if COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 tar --no-mac-metadata -cf /dev/null --files-from /dev/null >/dev/null 2>&1; then
     tar_create_args+=(--no-mac-metadata)
@@ -157,15 +221,20 @@ info "SSH baglantisi aciliyor. Parola gerekiyorsa bu adimda bir kez girilecek."
 ssh "${ssh_opts[@]}" -fN "$REMOTE_HOST"
 ssh_master_started=1
 scp "${scp_opts[@]}" "$artifact" "$REMOTE_HOST:$remote_artifact"
+if [ "$SETUP_ENV" -eq 1 ]; then
+    scp "${scp_opts[@]}" "$env_artifact" "$REMOTE_HOST:$remote_env_artifact"
+fi
 
 passenger_path_q="$(shell_quote "$PASSENGER_PATH")"
 data_path_q="$(shell_quote "$DATA_PATH")"
 remote_artifact_q="$(shell_quote "$remote_artifact")"
+remote_env_artifact_q="$(shell_quote "$remote_env_artifact")"
 
 ssh "${ssh_opts[@]}" "$REMOTE_HOST" "set -euo pipefail
 passenger_path=$passenger_path_q
 data_path=$data_path_q
 artifact=$remote_artifact_q
+env_artifact=$remote_env_artifact_q
 
 set_env_file() {
     env_file=\"\$1\"
@@ -218,8 +287,16 @@ node -e \"const major = Number(process.versions.node.split('.')[0]); if (major <
 
 mkdir -p \"\$passenger_path\" \"\$passenger_path/tmp\" \"\$data_path\" \"\$data_path/uploads\" \"\$data_path/auth\" \"\$data_path/backups\"
 if [ ! -f \"\$passenger_path/.env\" ]; then
-    echo \"HATA: \$passenger_path/.env bulunamadi. Once production secretlarini olusturun.\" >&2
-    exit 1
+    if [ -n \"\$env_artifact\" ] && [ -s \"\$env_artifact\" ]; then
+        mv \"\$env_artifact\" \"\$passenger_path/.env\"
+        chmod 600 \"\$passenger_path/.env\"
+        echo 'Remote .env olusturuldu.'
+    else
+        echo \"HATA: \$passenger_path/.env bulunamadi. Ilk kurulum icin ./deploy.sh --setup-env calistirin.\" >&2
+        exit 1
+    fi
+elif [ -n \"\$env_artifact\" ]; then
+    rm -f \"\$env_artifact\" || true
 fi
 
 set_env_file \"\$passenger_path/.env\" NODE_ENV production
