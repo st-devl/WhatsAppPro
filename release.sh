@@ -372,9 +372,8 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     git status --short >&2
     exit 1
 fi
-git fetch --prune origin
-git checkout $branch_q
-git pull --ff-only origin $branch_q
+git fetch --prune origin $branch_q
+git checkout -B $branch_q \"$commit\"
 actual_commit=\$(git rev-parse HEAD)
 if [ \"\$actual_commit\" != \"$commit\" ]; then
     echo \"HATA: remote commit beklenen commit degil. Beklenen $commit gelen \$actual_commit\" >&2
