@@ -413,6 +413,10 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
         echo 'HATA: whatsapp-engine/index.js bos veya okunamiyor.' >&2
         exit 1
     fi
+    if command -v pm2 >/dev/null 2>&1; then
+        pm2 stop whasappc >/dev/null 2>&1 || true
+        pm2 stop yardimet.site >/dev/null 2>&1 || true
+    fi
     lock_hash=\$(node -e \"const fs = require('fs'); const crypto = require('crypto'); process.stdout.write(crypto.createHash('sha256').update(fs.readFileSync('whatsapp-engine/package-lock.json')).digest('hex'));\")
     install_marker='whatsapp-engine/node_modules/.package-lock.sha256'
     deps_ready=0
@@ -430,9 +434,8 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
             old_node_modules=\"whatsapp-engine/.node_modules-old-\$(date +%s)\"
             mv whatsapp-engine/node_modules \"\$old_node_modules\"
         fi
-        rm -rf .npm-release-cache || true
-        npm_cache_dir=\"\$PWD/.npm-release-cache\"
-        if ! (cd whatsapp-engine && npm ci --omit=dev --cache \"\$npm_cache_dir\" --prefer-online --no-audit --no-fund); then
+        npm_cache_dir=\$(mktemp -d \"\${TMPDIR:-/tmp}/whatsappc-npm-cache.XXXXXX\")
+        if ! (cd whatsapp-engine && npm_config_maxsockets=1 npm ci --omit=dev --omit=optional --cache \"\$npm_cache_dir\" --prefer-online --no-audit --no-fund --no-bin-links); then
             echo 'HATA: npm ci basarisiz oldu. Eski node_modules geri yuklenecek.' >&2
             failed_node_modules=\"whatsapp-engine/.node_modules-failed-\$(date +%s)\"
             if [ -d whatsapp-engine/node_modules ]; then
@@ -441,8 +444,10 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
             if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
                 mv \"\$old_node_modules\" whatsapp-engine/node_modules || true
             fi
+            rm -rf \"\$npm_cache_dir\" || true
             exit 1
         fi
+        rm -rf \"\$npm_cache_dir\" || true
         printf '%s\n' \"\$lock_hash\" > \"\$install_marker\"
         if [ -n \"\$old_node_modules\" ] && [ -d \"\$old_node_modules\" ]; then
             rm -rf \"\$old_node_modules\" || true
