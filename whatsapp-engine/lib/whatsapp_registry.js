@@ -6,6 +6,7 @@ class WhatsAppRegistry {
         this.options = options;
         this.runtimes = new Map();
         this.logger = options.logger || componentLogger('whatsapp_registry');
+        this.httpStatus = 'starting';
     }
 
     getOrCreate(tenantId) {
@@ -55,10 +56,25 @@ class WhatsAppRegistry {
     }
 
     getStatus(tenantId) {
-        if (!tenantId) return { whatsapp: 'unconfigured' };
+        if (!tenantId) return { whatsapp: 'unconfigured', http: this.httpStatus };
         // QR ekranına vs girdiği an lazy-init tetiklenmesi için getOrCreate kullanıyoruz
         const r = this.getOrCreate(tenantId);
-        return r ? r.getStatus() : { whatsapp: 'unconfigured' };
+        const status = r ? r.getStatus() : { whatsapp: 'unconfigured' };
+        status.http = this.httpStatus;
+        return status;
+    }
+
+    setHttpStatus(status, error = null) {
+        this.httpStatus = status;
+        if (error) {
+            this.logger.error({ err: error }, 'http_server_error');
+        }
+    }
+
+    scheduleInit() {
+        // Multi-tenant mimaride tenant bazlı lazy-init olduğu için
+        // global scheduleInit no-op (boş) olarak bırakıldı veya 
+        // default tenant init'i tetiklenebilir.
     }
 
     getSocket(tenantId) {

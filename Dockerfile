@@ -14,7 +14,11 @@ FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3005 \
-    WHASAPPC_DATA_DIR=/data
+    COOKIE_SECURE=true \
+    SESSION_STORE=sqlite \
+    TRUST_PROXY=1 \
+    WHASAPPC_DATA_DIR=/data \
+    TZ=Europe/Istanbul
 
 WORKDIR /app/whatsapp-engine
 

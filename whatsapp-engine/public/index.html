@@ -21,6 +21,7 @@
                 <button id="tab-campaign" data-tab="campaign" class="text-secondary font-bold border-b-2 border-secondary py-1 text-sm font-headline tracking-wide">Kampanya Hazırla</button>
                 <button id="tab-contacts" data-tab="contacts" class="text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm">Rehberim &amp; Kişi Listesi</button>
                 <button id="tab-users" data-tab="users" class="hidden text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm">Kullanıcılar</button>
+                <button id="tab-reports" data-tab="reports" class="text-slate-500 font-medium hover:bg-slate-100 transition-colors px-3 py-1 rounded-lg text-sm">Raporlar</button>
             </nav>
         </div>
         <div class="flex items-center gap-2 lg:gap-4">
@@ -38,7 +39,7 @@
             </div>
             <div class="hidden xl:flex items-center gap-2 bg-primary px-4 py-2 rounded-xl text-white shadow-lg">
                 <span class="material-symbols-outlined text-sm">security</span>
-                <span class="text-xs font-semibold">Enterprise Integrity</span>
+                <span id="user-role-badge" class="text-xs font-semibold">Enterprise Integrity</span>
             </div>
         </div>
     </header>
@@ -455,6 +456,91 @@
                     </div>
                 </div>
             </div>
+            <div id="view-reports" class="hidden max-w-6xl mx-auto space-y-8 pb-24">
+                <header class="mb-2">
+                    <h2 class="text-3xl font-headline font-bold text-primary tracking-tight">Raporlar &amp; Sistem Olayları</h2>
+                    <p class="text-on-surface-variant text-sm mt-1">Kampanya özeti, hata günlükleri ve WhatsApp bağlantı olayları.</p>
+                </header>
+
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 shadow-sm">
+                        <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Toplam Kampanya</p>
+                        <p id="report-total-campaigns" class="text-3xl font-black text-primary mt-1">—</p>
+                    </div>
+                    <div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 shadow-sm">
+                        <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Toplam İletilen</p>
+                        <p id="report-total-sent" class="text-3xl font-black text-secondary mt-1">—</p>
+                    </div>
+                    <div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 shadow-sm">
+                        <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Toplam Hatalı</p>
+                        <p id="report-total-failed" class="text-3xl font-black text-error mt-1">—</p>
+                    </div>
+                    <div class="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/10 shadow-sm space-y-1">
+                        <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Durum Dağılımı</p>
+                        <p id="report-by-status" class="text-xs text-slate-500 mt-1 leading-relaxed">—</p>
+                    </div>
+                </div>
+
+                <!-- Recent Campaigns -->
+                <div class="bg-surface-container-lowest rounded-xl border border-outline-variant/10 shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b border-outline-variant/5 flex items-center justify-between">
+                        <h3 class="font-headline font-bold text-slate-900">Son Kampanyalar</h3>
+                        <button id="refresh-reports-btn" class="text-slate-500 hover:text-primary transition-colors p-1" title="Yenile">
+                            <span class="material-symbols-outlined text-sm">refresh</span>
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-slate-50/50">
+                                <tr>
+                                    <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Kampanya ID</th>
+                                    <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Durum</th>
+                                    <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">İletilen</th>
+                                    <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Hatalı</th>
+                                    <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Toplam</th>
+                                    <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Tarih</th>
+                                    <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase text-right">Detay</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reports-campaigns-tbody" class="divide-y divide-outline-variant/5">
+                                <tr><td colspan="7" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Yükleniyor...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- System Events -->
+                <div class="bg-surface-container-lowest rounded-xl border border-outline-variant/10 shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b border-outline-variant/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <h3 class="font-headline font-bold text-slate-900">Sistem Olayları</h3>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <select id="sysevt-severity-filter" class="bg-surface-container-low border-0 rounded-lg text-xs h-8 px-3 focus:ring-2 focus:ring-secondary/20">
+                                <option value="">Tüm Seviyeler</option>
+                                <option value="info">Info</option>
+                                <option value="warn">Uyarı</option>
+                                <option value="error">Hata</option>
+                            </select>
+                            <select id="sysevt-type-filter" class="bg-surface-container-low border-0 rounded-lg text-xs h-8 px-3 focus:ring-2 focus:ring-secondary/20">
+                                <option value="">Tüm Türler</option>
+                                <option value="whatsapp_connected">Bağlandı</option>
+                                <option value="whatsapp_disconnected">Bağlantı Koptu</option>
+                                <option value="qr_generated">QR Oluşturuldu</option>
+                                <option value="session_invalid_loop">Oturum Döngüsü</option>
+                                <option value="reconnect_paused">Yeniden Bağlanma Durdu</option>
+                                <option value="error_burst">Hata Patlaması</option>
+                                <option value="media_missing">Medya Eksik</option>
+                            </select>
+                            <button id="sysevt-refresh-btn" class="text-slate-500 hover:text-primary transition-colors p-1" title="Yenile">
+                                <span class="material-symbols-outlined text-sm">refresh</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="sysevt-list" class="divide-y divide-outline-variant/5 max-h-[400px] overflow-y-auto">
+                        <div class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Yükleniyor...</div>
+                    </div>
+                </div>
+            </div>
         </section>
     </main>
 
@@ -542,21 +628,83 @@
     </div>
 
     <div id="campaign-complete-modal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-primary/20 backdrop-blur-md p-6">
-        <div class="bg-white/95 w-full max-w-sm rounded-2xl p-10 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-white/20 relative flex flex-col items-center text-center space-y-6">
-            <div class="w-24 h-24 bg-secondary/5 rounded-full flex items-center justify-center relative">
-                <div class="absolute inset-0 bg-secondary/10 rounded-full animate-ping opacity-25"></div>
-                <div class="w-20 h-20 bg-secondary/10 rounded-full flex items-center justify-center">
-                    <span class="material-symbols-outlined text-secondary text-5xl" style="font-variation-settings: 'FILL' 1, 'wght' 700;">check_circle</span>
+        <div class="bg-white/95 w-full max-w-md rounded-2xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-white/20 relative flex flex-col items-center text-center">
+            <div class="flex flex-col items-center space-y-6 p-10 pb-6 w-full">
+                <div class="w-24 h-24 bg-secondary/5 rounded-full flex items-center justify-center relative">
+                    <div class="absolute inset-0 bg-secondary/10 rounded-full animate-ping opacity-25"></div>
+                    <div class="w-20 h-20 bg-secondary/10 rounded-full flex items-center justify-center">
+                        <span class="material-symbols-outlined text-secondary text-5xl" style="font-variation-settings: 'FILL' 1, 'wght' 700;">check_circle</span>
+                    </div>
+                </div>
+                <div class="space-y-3">
+                    <h3 class="text-2xl font-black font-headline text-primary tracking-tight leading-none">Gönderiler tamamlandı</h3>
+                    <p id="campaign-complete-summary" class="text-sm text-on-surface-variant/80 font-medium leading-relaxed px-4">Tüm hedefler işlendi. İlerleme %100 olarak tamamlandı.</p>
                 </div>
             </div>
-            <div class="space-y-3">
-                <h3 class="text-2xl font-black font-headline text-primary tracking-tight leading-none">Gönderiler tamamlandı</h3>
-                <p class="text-sm text-on-surface-variant/80 font-medium leading-relaxed px-4">Tüm hedefler işlendi. İlerleme %100 olarak tamamlandı.</p>
+            <div id="campaign-skipped-report" class="hidden w-full px-6 pb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-bold text-red-500 uppercase tracking-wider">Gönderilemeyenler</span>
+                    <button id="campaign-report-download-btn" class="flex items-center gap-1 text-xs font-bold text-primary hover:text-primary/70 transition-colors">
+                        <span class="material-symbols-outlined text-sm">download</span> CSV İndir
+                    </button>
+                </div>
+                <div class="rounded-xl border border-slate-200 overflow-hidden">
+                    <div class="max-h-48 overflow-y-auto">
+                        <table class="w-full text-xs text-left">
+                            <thead class="bg-slate-50 sticky top-0">
+                                <tr>
+                                    <th class="px-3 py-2 font-semibold text-slate-500">Ad Soyad</th>
+                                    <th class="px-3 py-2 font-semibold text-slate-500">Numara</th>
+                                    <th class="px-3 py-2 font-semibold text-slate-500">Sebep</th>
+                                </tr>
+                            </thead>
+                            <tbody id="campaign-skipped-tbody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
-            <div class="w-full pt-4">
-                <button id="campaign-complete-close-btn" class="w-full bg-primary hover:bg-primary/90 text-white py-4 rounded-xl font-bold text-xs font-headline tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-[0.98] uppercase">Tamam</button>
+            <div class="w-full px-6 pb-8 pt-2 flex gap-3">
+                <button id="campaign-complete-close-btn" class="flex-1 bg-primary hover:bg-primary/90 text-white py-4 rounded-xl font-bold text-xs font-headline tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-[0.98] uppercase">Tamam</button>
             </div>
             <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-secondary to-transparent opacity-30 rounded-t-2xl"></div>
+        </div>
+    </div>
+
+    <!-- Cooldown onay modalı -->
+    <div id="cooldown-confirm-modal" class="fixed inset-0 z-[130] hidden items-center justify-center bg-primary/20 backdrop-blur-md p-6">
+        <div class="bg-white/95 w-full max-w-md rounded-2xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-white/20 relative flex flex-col">
+            <div class="p-8 pb-4">
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="material-symbols-outlined text-amber-500 text-3xl" style="font-variation-settings:'FILL' 1">warning</span>
+                    <h3 class="text-lg font-black font-headline text-primary">Cooldown Uyarısı</h3>
+                </div>
+                <p class="text-sm text-slate-500 mb-5">Aşağıdaki numaralara son 24 saat içinde mesaj gönderilmiş. Devam etmek istediğiniz grupları seçin:</p>
+                <div id="cooldown-same-msg-section" class="hidden mb-4">
+                    <label class="flex items-start gap-3 cursor-pointer group">
+                        <input type="checkbox" id="cooldown-override-same" class="mt-0.5 w-4 h-4 accent-amber-500 cursor-pointer">
+                        <div>
+                            <p class="text-sm font-bold text-slate-700">Aynı mesaj — <span id="cooldown-same-count" class="text-amber-600"></span> kişi</p>
+                            <p class="text-xs text-slate-400 mt-0.5">Bu kişilere 24 saat içinde aynı içerik gönderildi.</p>
+                            <div id="cooldown-same-list" class="mt-2 max-h-24 overflow-y-auto text-xs text-slate-500 space-y-0.5"></div>
+                        </div>
+                    </label>
+                </div>
+                <div id="cooldown-diff-msg-section" class="hidden mb-2">
+                    <label class="flex items-start gap-3 cursor-pointer group">
+                        <input type="checkbox" id="cooldown-override-diff" class="mt-0.5 w-4 h-4 accent-blue-500 cursor-pointer">
+                        <div>
+                            <p class="text-sm font-bold text-slate-700">Farklı mesaj — <span id="cooldown-diff-count" class="text-blue-600"></span> kişi</p>
+                            <p class="text-xs text-slate-400 mt-0.5">Bu kişilere 24 saat içinde farklı bir mesaj gönderildi.</p>
+                            <div id="cooldown-diff-list" class="mt-2 max-h-24 overflow-y-auto text-xs text-slate-500 space-y-0.5"></div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            <div class="flex gap-3 px-8 pb-8 pt-2">
+                <button id="cooldown-confirm-cancel-btn" class="flex-1 border border-slate-200 text-slate-600 py-3 rounded-xl font-bold text-xs font-headline tracking-widest uppercase hover:bg-slate-50 transition-colors">İptal</button>
+                <button id="cooldown-confirm-send-btn" class="flex-1 bg-primary hover:bg-primary/90 text-white py-3 rounded-xl font-bold text-xs font-headline tracking-widest uppercase shadow-lg shadow-primary/20 transition-all active:scale-[0.98]">Gönder</button>
+            </div>
+            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-400 to-transparent opacity-40 rounded-t-2xl"></div>
         </div>
     </div>
 
@@ -573,7 +721,80 @@
             <span class="material-symbols-outlined">group</span>
             <span class="font-body text-[10px] uppercase tracking-widest font-bold">Contacts</span>
         </button>
+        <button id="mobile-tab-reports" data-tab="reports" class="flex flex-col items-center justify-center text-slate-400 p-2 opacity-60">
+            <span class="material-symbols-outlined">analytics</span>
+            <span class="font-body text-[10px] uppercase tracking-widest font-bold">Raporlar</span>
+        </button>
     </nav>
+
+    <!-- Kampanya Detay Modal -->
+    <div id="campaign-detail-modal" class="fixed inset-0 z-[110] hidden items-center justify-center bg-primary/30 backdrop-blur-md p-4">
+        <div class="bg-white w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/10">
+                <div>
+                    <h3 class="text-lg font-black font-headline text-primary">Kampanya Detayı</h3>
+                    <p id="campaign-detail-id" class="text-[10px] text-slate-400 font-mono mt-0.5"></p>
+                </div>
+                <button id="campaign-detail-close-btn" class="text-slate-400 hover:text-slate-700 transition-colors">
+                    <span class="material-symbols-outlined text-2xl">close</span>
+                </button>
+            </div>
+            <div class="overflow-y-auto flex-1 p-6 space-y-6">
+                <!-- Stats row -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="bg-slate-50 p-4 rounded-xl text-center">
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Durum</p>
+                        <p id="cdet-status" class="text-sm font-black text-primary mt-1">—</p>
+                    </div>
+                    <div class="bg-secondary/5 p-4 rounded-xl text-center">
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">İletilen</p>
+                        <p id="cdet-sent" class="text-2xl font-black text-secondary mt-1">—</p>
+                    </div>
+                    <div class="bg-error/5 p-4 rounded-xl text-center">
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Hatalı</p>
+                        <p id="cdet-failed" class="text-2xl font-black text-error mt-1">—</p>
+                    </div>
+                    <div class="bg-slate-50 p-4 rounded-xl text-center">
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Toplam</p>
+                        <p id="cdet-total" class="text-2xl font-black text-slate-700 mt-1">—</p>
+                    </div>
+                </div>
+
+                <!-- Recipient Stats -->
+                <div id="cdet-recipient-stats" class="hidden">
+                    <h4 class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">Alıcı Dağılımı</h4>
+                    <div id="cdet-recipient-stats-body" class="flex flex-wrap gap-2"></div>
+                </div>
+
+                <!-- Failed Recipients -->
+                <div id="cdet-failed-section" class="hidden">
+                    <h4 class="text-[10px] font-bold text-error uppercase tracking-widest mb-2">Başarısız Alıcılar</h4>
+                    <div class="rounded-xl border border-slate-200 overflow-hidden">
+                        <div class="max-h-48 overflow-y-auto">
+                            <table class="w-full text-xs text-left">
+                                <thead class="bg-slate-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Ad</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Telefon</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Hata</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cdet-failed-tbody" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Logs -->
+                <div>
+                    <h4 class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-2">İşlem Günlüğü</h4>
+                    <div id="cdet-logs" class="bg-slate-900 rounded-xl p-4 max-h-64 overflow-y-auto font-mono text-[10px] space-y-1">
+                        <span class="text-slate-400">Yükleniyor...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="/js/api_client.js"></script>
     <script src="/js/app_state.js"></script>

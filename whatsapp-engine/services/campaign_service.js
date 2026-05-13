@@ -113,13 +113,13 @@ class CampaignService {
         const contacts = Array.isArray(data.contacts) ? data.contacts : [];
         const message = String(data.message || '').trim();
         if (contacts.length === 0) throw badRequest('Gönderilecek kişi yok', 'CAMPAIGN_CONTACTS_REQUIRED');
-        if (!message) throw badRequest('Mesaj içeriği zorunlu', 'CAMPAIGN_MESSAGE_REQUIRED');
-        assertValidCampaignMessage(message, contacts[0]);
         this.assertNoInMemoryActive(ownerEmail, tenantId);
 
         const sock = this.assertConnected(tenantId);
 
         const mediaFiles = this.mediaStore.list(tenantId);
+        if (!message && mediaFiles.length === 0) throw badRequest('Mesaj içeriği veya en az bir görsel gereklidir', 'CAMPAIGN_CONTENT_REQUIRED');
+        if (message) assertValidCampaignMessage(message, contacts[0]);
         const campaignId = uuidv4();
         const { dailyLimit, delayRange } = normalizeCampaignLimits(data);
         const batchSettings = resolveBatchSettings(data);
@@ -154,6 +154,7 @@ class CampaignService {
             media_count: mediaFiles.length
         }, tenantId);
 
+        this.logger.info({ campaignId, tenantId, ownerEmail, contactCount: contacts.length, mediaCount: mediaFiles.length }, 'campaign_started');
         socket.emit('campaign-started', { campaignId, status: run });
         socket.emit('log', { type: 'info', message: '🚀 Gönderim kuyruğu başladı.' });
 
@@ -163,7 +164,8 @@ class CampaignService {
                 batchSize: batchSettings.batchSize,
                 batchPauseMinutes: batchSettings.batchPauseMinutes,
                 campaignStore: this,
-                tenantId
+                tenantId,
+                overrideCooldown: Array.isArray(data.overrideCooldown) ? data.overrideCooldown : []
             });
             this.mediaStore.clear(tenantId);
             this.activeRunIds.delete(activeKeyValue);
@@ -187,6 +189,7 @@ class CampaignService {
         if (stoppedRun) {
             this.activeRunIds.delete(key);
             this.keepAwake?.stop(key);
+            this.logger.info({ campaignId: stoppedRun?.id, tenantId, ownerEmail }, 'campaign_stopped_by_user');
             await this.audit('campaign_stopped', stoppedRun.id, {
                 status: stoppedRun.status,
                 processed: stoppedRun.processed,
@@ -212,6 +215,7 @@ class CampaignService {
         this.assertNoInMemoryActive(ownerEmail, tenantId, campaignId);
         const unsentContacts = await this.db.getCampaignRecipientsForRun(campaignId, ownerEmail, ['pending', 'failed'], tenantId);
         if (unsentContacts.length === 0) throw badRequest('Devam edilecek bekleyen kişi yok', 'CAMPAIGN_RESUME_EMPTY');
+        this.logger.info({ campaignId, tenantId, ownerEmail, unsentCount: unsentContacts.length }, 'campaign_resumed');
         const run = await this.db.prepareCampaignRunForRestart(campaignId, ownerEmail, 'resume', tenantId);
         const execution = this.runExistingCampaign(run, unsentContacts, ownerEmail, tenantId, socket, 'Kampanya kaldığı yerden devam ediyor.');
         if (options.detached) {
@@ -226,7 +230,12 @@ class CampaignService {
         this.assertConnected(tenantId);
         this.assertNoInMemoryActive(ownerEmail, tenantId, campaignId);
         const failedContacts = await this.db.getCampaignRecipientsForRun(campaignId, ownerEmail, ['failed'], tenantId);
-        if (failedContacts.length === 0) throw badRequest('Retry edilecek başarısız kişi yok', 'CAMPAIGN_RETRY_EMPTY');
+        if (failedContacts.length === 0) {
+            const pendingContacts = await this.db.getCampaignRecipientsForRun(campaignId, ownerEmail, ['pending'], tenantId);
+            if (pendingContacts.length > 0) throw badRequest('Başarısız kişi yok. Kampanya beklemede — "Devam Et" butonunu kullanın.', 'CAMPAIGN_RETRY_EMPTY');
+            throw badRequest('Retry edilecek başarısız kişi yok', 'CAMPAIGN_RETRY_EMPTY');
+        }
+        this.logger.info({ campaignId, tenantId, ownerEmail, failedCount: failedContacts.length }, 'campaign_retried');
         const run = await this.db.prepareCampaignRunForRestart(campaignId, ownerEmail, 'retry', tenantId);
         const execution = this.runExistingCampaign(run, failedContacts, ownerEmail, tenantId, socket, 'Başarısız kişiler yeniden kuyruğa alındı.');
         if (options.detached) {
@@ -239,8 +248,10 @@ class CampaignService {
     async runExistingCampaign(run, contacts, ownerEmail, tenantId, socket, message) {
         const sock = this.assertConnected(tenantId);
         if (!run?.id) throw badRequest('Kampanya bulunamadı', 'CAMPAIGN_NOT_FOUND');
-        if (!String(run.message || '').trim()) throw badRequest('Kampanya mesaj içeriği bulunamadı', 'CAMPAIGN_MESSAGE_REQUIRED');
-        assertValidCampaignMessage(run.message, contacts[0]);
+        const runMessage = String(run.message || '').trim();
+        const hasRunMedia = getMediaFilesFromRun(run).length > 0;
+        if (!runMessage && !hasRunMedia) throw badRequest('Kampanya mesaj içeriği bulunamadı', 'CAMPAIGN_CONTENT_REQUIRED');
+        if (runMessage) assertValidCampaignMessage(run.message, contacts[0]);
 
         const key = activeKey(ownerEmail, tenantId);
         const emitter = socket || {

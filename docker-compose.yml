@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   whasappc:
     build: .
@@ -9,6 +7,13 @@ services:
       - "3005:3005"
     env_file:
       - ./whatsapp-engine/.env
+    environment:
+      NODE_ENV: production
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+      SESSION_STORE: "${SESSION_STORE:-sqlite}"
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
+      WHASAPPC_DATA_DIR: /data
+      TZ: Europe/Istanbul
     volumes:
       - whasappc-data:/data
       - whasappc-uploads:/app/whatsapp-engine/uploads

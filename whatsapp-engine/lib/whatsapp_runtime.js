@@ -2,6 +2,16 @@ const path = require('path');
 const fs = require('fs-extra');
 const { getSocketConfig } = require('./connection');
 const { componentLogger } = require('./logger');
+const db = require('./db');
+
+const SESSION_INVALID_WINDOW_MS = 10 * 60 * 1000;
+const SESSION_INVALID_THRESHOLD = 2;
+
+const BAILEYS_STATUS_MAP = {
+    2: 'server_ack',
+    3: 'delivered',
+    4: 'read'
+};
 
 function safeTenantSegment(tenantId = 'default') {
     return String(tenantId || 'default').trim().replace(/[^a-zA-Z0-9_-]/g, '_') || 'default';
@@ -14,12 +24,14 @@ class WhatsAppRuntime {
         this.tenantId = options.tenantId || 'default';
         this.maxAutoRetries = Number.parseInt(options.maxAutoRetries || '3', 10);
         this.logger = options.logger || componentLogger('whatsapp_runtime');
+        this.onSessionInvalidLoop = options.onSessionInvalidLoop || null;
         this.sock = null;
         this.isConnected = false;
         this.lastQR = null;
         this.initLock = false;
         this.reconnectTimer = null;
         this.retryCount = 0;
+        this.sessionInvalidTimestamps = [];
         this.status = {
             startedAt: new Date().toISOString(),
             http: 'starting',
@@ -102,12 +114,32 @@ class WhatsAppRuntime {
             this.sock = config.sock;
             config.ev.on('creds.update', config.saveCreds);
             config.ev.on('connection.update', (update) => this.handleConnectionUpdate(update));
+            config.ev.on('messages.update', (updates) => this.handleMessagesUpdate(updates));
         } catch (err) {
             this.logger.error({ err, tenantId: this.tenantId }, 'whatsapp_runtime_start_failed');
             this.status.whatsapp = 'error';
             this.status.lastError = err.message;
             this.initLock = false;
             this.scheduleReconnect();
+        }
+    }
+
+    handleMessagesUpdate(updates) {
+        if (!Array.isArray(updates)) return;
+
+        for (const update of updates) {
+            const messageId = update?.key?.id;
+            const statusCode = update?.update?.status;
+            if (!messageId || statusCode === undefined) continue;
+
+            const deliveryStatus = BAILEYS_STATUS_MAP[statusCode];
+            if (!deliveryStatus) continue;
+
+            db.updateDeliveryStatus(messageId, deliveryStatus)
+                .catch(err => this.logger.warn(
+                    { err, messageId, deliveryStatus, tenantId: this.tenantId },
+                    'delivery_status_update_failed'
+                ));
         }
     }
 
@@ -118,6 +150,8 @@ class WhatsAppRuntime {
             this.status.whatsapp = 'qr';
             this.lastQR = qr;
             this.emitToTenant('qr', qr);
+            db.addSystemEvent(this.tenantId, 'qr_generated', 'info', 'QR kodu oluşturuldu, tarama bekleniyor.', {})
+                .catch(() => {});
         }
 
         if (connection === 'open') {
@@ -130,6 +164,8 @@ class WhatsAppRuntime {
                 this.lastQR = null;
                 this.emitToTenant('status', 'connected');
             }, initialWait);
+            db.addSystemEvent(this.tenantId, 'whatsapp_connected', 'info', 'WhatsApp bağlantısı kuruldu.', {})
+                .catch(() => {});
         }
 
         if (connection === 'close') {
@@ -140,9 +176,38 @@ class WhatsAppRuntime {
             this.status.lastError = reason ? `WhatsApp bağlantısı kapandı. Kod: ${reason}` : 'WhatsApp bağlantısı kapandı.';
             this.emitToTenant('status', 'disconnected');
             this.initLock = false;
+            db.addSystemEvent(this.tenantId, 'whatsapp_disconnected', 'warn',
+                reason ? `WhatsApp bağlantısı kapandı. Kod: ${reason}` : 'WhatsApp bağlantısı kapandı.',
+                { reason_code: reason || null })
+                .catch(() => {});
 
             if (reason === 401 || reason === 440) {
                 this.logger.warn({ tenantId: this.tenantId, reason }, 'whatsapp_session_invalid_resetting');
+
+                const now = Date.now();
+                this.sessionInvalidTimestamps.push(now);
+                this.sessionInvalidTimestamps = this.sessionInvalidTimestamps.filter(
+                    ts => now - ts < SESSION_INVALID_WINDOW_MS
+                );
+
+                if (this.sessionInvalidTimestamps.length >= SESSION_INVALID_THRESHOLD && this.onSessionInvalidLoop) {
+                    this.logger.error({
+                        tenantId: this.tenantId,
+                        reason,
+                        invalidCount: this.sessionInvalidTimestamps.length,
+                        windowMinutes: SESSION_INVALID_WINDOW_MS / 60000
+                    }, 'whatsapp_session_invalid_loop_detected');
+                    db.addSystemEvent(this.tenantId, 'session_invalid_loop', 'error',
+                        `Oturum geçersizlik döngüsü tespit edildi (${this.sessionInvalidTimestamps.length} kez ${SESSION_INVALID_WINDOW_MS / 60000} dk içinde). Kampanyalar durduruldu.`,
+                        { reason_code: reason, invalid_count: this.sessionInvalidTimestamps.length })
+                        .catch(() => {});
+                    try {
+                        this.onSessionInvalidLoop(this.tenantId);
+                    } catch (err) {
+                        this.logger.error({ err, tenantId: this.tenantId }, 'session_invalid_loop_callback_failed');
+                    }
+                }
+
                 const sessionPath = this.sessionPath();
                 if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath);
                 this.scheduleInit(5000);
@@ -169,6 +234,10 @@ class WhatsAppRuntime {
             this.status.whatsapp = 'paused';
             this.status.lastError = `WhatsApp bağlantısı kurulamadı. Otomatik deneme ${this.maxAutoRetries} denemeden sonra durduruldu.`;
             this.logger.error({ tenantId: this.tenantId, maxAutoRetries: this.maxAutoRetries }, 'whatsapp_reconnect_paused');
+            db.addSystemEvent(this.tenantId, 'reconnect_paused', 'warn',
+                `Otomatik yeniden bağlanma ${this.maxAutoRetries} denemeden sonra durduruldu. Manuel müdahale gerekli.`,
+                { max_auto_retries: this.maxAutoRetries })
+                .catch(() => {});
             return;
         }
 

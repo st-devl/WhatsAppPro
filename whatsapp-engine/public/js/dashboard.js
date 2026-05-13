@@ -1,4 +1,82 @@
-const socket = window.io ? io({ timeout: 10000, reconnectionDelayMax: 5000 }) : null;
+let _socket = null;
+
+function _initSocketListeners(sock) {
+    sock.on('connect_error', () => setPanelConnectionError('Sunucu bağlantısı kurulamadı'));
+    sock.on('qr', qr => {
+        const canvas = document.getElementById('qr-canvas');
+        canvas.classList.remove('hidden');
+        document.getElementById('qr-loading').classList.add('hidden');
+        document.getElementById('connected-check').classList.add('hidden');
+        setWhatsAppUiStatus('disconnected', 'QR BEKLENİYOR');
+        const renderQr = () => {
+            if (!window.QRCode) return setTimeout(renderQr, 250);
+            QRCode.toCanvas(canvas, qr, { width: 180, margin: 1 });
+        };
+        renderQr();
+    });
+    sock.on('status', status => setWhatsAppUiStatus(status));
+    sock.on('campaign-started', data => {
+        setActiveCampaignId(data?.campaignId || data?.status?.id || getActiveCampaignId());
+        setCampaignControls('running');
+        updateCampaignEstimate(data?.status?.estimate_remaining_minutes);
+        updateBatchPauseCountdown(null);
+        if (data?.status?.progress !== undefined) {
+            document.getElementById('prog-box').classList.remove('hidden');
+            document.getElementById('prog-bar').style.width = `${data.status.progress}%`;
+            document.getElementById('prog-text').innerText = `${Math.round(data.status.progress)}%`;
+        }
+    });
+    sock.on('log', data => {
+        const logs = document.getElementById('logs');
+        const div = document.createElement('div');
+        const colorClass = data.type === 'error' ? 'text-red-300' : (data.type === 'success' ? 'text-secondary-fixed-dim' : (data.type === 'wait' ? 'text-amber-300' : 'text-slate-300'));
+        div.className = colorClass;
+        div.innerText = `> ${data.message}`;
+        logs.prepend(div);
+        while (logs.children.length > 300) logs.removeChild(logs.lastChild);
+
+        if (data.progress !== undefined) {
+            document.getElementById('prog-box').classList.remove('hidden');
+            document.getElementById('prog-bar').style.width = `${data.progress}%`;
+            document.getElementById('prog-text').innerText = `${Math.round(data.progress)}%`;
+            document.getElementById('prog-count').innerText = data.message;
+        }
+        if (data.estimate_remaining_minutes !== undefined) updateCampaignEstimate(data.estimate_remaining_minutes);
+        if (data.batch_pause_until !== undefined) updateBatchPauseCountdown(data.batch_pause_until);
+
+        if (data.done) {
+            document.getElementById('prog-box').classList.remove('hidden');
+            document.getElementById('prog-bar').style.width = '100%';
+            document.getElementById('prog-text').innerText = '100%';
+            document.getElementById('prog-count').innerText = data.message;
+            updateCampaignEstimate(0);
+            updateBatchPauseCountdown(null);
+            setCampaignControls('completed');
+            if (data.sentCount === 0) {
+                showToast(data.message, 'error');
+                resetCampaignUI();
+            } else {
+                showCampaignCompleteModal(data.skippedReport || [], data.message);
+            }
+            return;
+        }
+
+        if (data.message.toLocaleLowerCase('tr-TR').includes('durduruldu')) {
+            setCampaignControls('stopped');
+        }
+    });
+}
+
+function getSocket() {
+    if (_socket) return _socket;
+    if (!window.io) {
+        setPanelConnectionError('Socket.IO yüklenemedi');
+        return null;
+    }
+    _socket = io({ timeout: 10000, reconnectionDelayMax: 5000 });
+    _initSocketListeners(_socket);
+    return _socket;
+}
 const unsavedContactsDraftKey = 'whatsappc.unsavedContacts.v1';
 const API_BASE = window.WhasAppCApi.API_BASE;
 const appState = window.WhasAppCState;
@@ -513,9 +591,11 @@ function switchTab(tab) {
     document.getElementById('view-campaign').classList.toggle('hidden', tab !== 'campaign');
     document.getElementById('view-contacts').classList.toggle('hidden', tab !== 'contacts');
     document.getElementById('view-users').classList.toggle('hidden', tab !== 'users');
+    document.getElementById('view-reports').classList.toggle('hidden', tab !== 'reports');
 
     document.getElementById('tab-campaign').className = tab === 'campaign' ? navActive : navInactive;
     document.getElementById('tab-contacts').className = tab === 'contacts' ? navActive : navInactive;
+    document.getElementById('tab-reports').className = tab === 'reports' ? navActive : navInactive;
 
     const tabUsers = document.getElementById('tab-users');
     if (tabUsers && !tabUsers.classList.contains('hidden')) {
@@ -524,89 +604,74 @@ function switchTab(tab) {
 
     document.getElementById('mobile-tab-campaign').className = tab === 'campaign' ? 'flex flex-col items-center justify-center text-secondary p-2' : 'flex flex-col items-center justify-center text-slate-400 p-2 opacity-60';
     document.getElementById('mobile-tab-contacts').className = tab === 'contacts' ? 'flex flex-col items-center justify-center text-secondary p-2' : 'flex flex-col items-center justify-center text-slate-400 p-2 opacity-60';
+    const mobileTabReports = document.getElementById('mobile-tab-reports');
+    if (mobileTabReports) mobileTabReports.className = tab === 'reports' ? 'flex flex-col items-center justify-center text-secondary p-2' : 'flex flex-col items-center justify-center text-slate-400 p-2 opacity-60';
 
     if (tab === 'contacts') updateContactsTable();
     if (tab === 'users') loadUsers();
+    if (tab === 'reports') loadReports();
 }
 
-if (!socket) {
-    setPanelConnectionError('Socket.IO yüklenemedi');
-}
 
-socket?.on('connect_error', () => {
-    setPanelConnectionError('Sunucu bağlantısı kurulamadı');
-});
+function showCampaignCompleteModal(skippedReport = [], summary = '') {
+    const summaryEl = document.getElementById('campaign-complete-summary');
+    if (summaryEl && summary) summaryEl.textContent = summary;
 
-socket?.on('qr', qr => {
-    const canvas = document.getElementById('qr-canvas');
-    canvas.classList.remove('hidden');
-    document.getElementById('qr-loading').classList.add('hidden');
-    document.getElementById('connected-check').classList.add('hidden');
-    setWhatsAppUiStatus('disconnected', 'QR BEKLENİYOR');
-    const renderQr = () => {
-        if (!window.QRCode) return setTimeout(renderQr, 250);
-        QRCode.toCanvas(canvas, qr, { width: 180, margin: 1 });
-    };
-    renderQr();
-});
+    const reportSection = document.getElementById('campaign-skipped-report');
+    const tbody = document.getElementById('campaign-skipped-tbody');
 
-socket?.on('status', status => setWhatsAppUiStatus(status));
-
-socket?.on('campaign-started', data => {
-    setActiveCampaignId(data?.campaignId || data?.status?.id || getActiveCampaignId());
-    setCampaignControls('running');
-    updateCampaignEstimate(data?.status?.estimate_remaining_minutes);
-    updateBatchPauseCountdown(null);
-    if (data?.status?.progress !== undefined) {
-        document.getElementById('prog-box').classList.remove('hidden');
-        document.getElementById('prog-bar').style.width = `${data.status.progress}%`;
-        document.getElementById('prog-text').innerText = `${Math.round(data.status.progress)}%`;
-    }
-});
-
-socket?.on('log', data => {
-    const logs = document.getElementById('logs');
-    const div = document.createElement('div');
-    const colorClass = data.type === 'error' ? 'text-red-300' : (data.type === 'success' ? 'text-secondary-fixed-dim' : (data.type === 'wait' ? 'text-amber-300' : 'text-slate-300'));
-    div.className = colorClass;
-    div.innerText = `> ${data.message}`;
-    logs.prepend(div);
-    while (logs.children.length > 300) logs.removeChild(logs.lastChild);
-
-    if (data.progress !== undefined) {
-        document.getElementById('prog-box').classList.remove('hidden');
-        document.getElementById('prog-bar').style.width = `${data.progress}%`;
-        document.getElementById('prog-text').innerText = `${Math.round(data.progress)}%`;
-        document.getElementById('prog-count').innerText = data.message;
-    }
-    if (data.estimate_remaining_minutes !== undefined) updateCampaignEstimate(data.estimate_remaining_minutes);
-    if (data.batch_pause_until !== undefined) updateBatchPauseCountdown(data.batch_pause_until);
-
-    if (data.done) {
-        document.getElementById('prog-box').classList.remove('hidden');
-        document.getElementById('prog-bar').style.width = '100%';
-        document.getElementById('prog-text').innerText = '100%';
-        document.getElementById('prog-count').innerText = data.message;
-        updateCampaignEstimate(0);
-        updateBatchPauseCountdown(null);
-        setCampaignControls('completed');
-        showCampaignCompleteModal();
-        return;
+    if (skippedReport && skippedReport.length > 0) {
+        tbody.innerHTML = skippedReport.map(r => `
+            <tr class="hover:bg-slate-50">
+                <td class="px-3 py-2 text-slate-700 max-w-[120px] truncate">${escapeHtml(r.name || '—')}</td>
+                <td class="px-3 py-2 text-slate-600 font-mono">${escapeHtml(String(r.phone || ''))}</td>
+                <td class="px-3 py-2 text-red-500">${escapeHtml(r.reason || '')}</td>
+            </tr>`).join('');
+        reportSection.classList.remove('hidden');
+        document.getElementById('campaign-report-download-btn').onclick = () => downloadSkippedReportCSV(skippedReport);
+    } else {
+        reportSection.classList.add('hidden');
+        tbody.innerHTML = '';
     }
 
-    if (data.message.toLocaleLowerCase('tr-TR').includes('durduruldu')) {
-        setCampaignControls('stopped');
-    }
-});
-
-function showCampaignCompleteModal() {
     document.getElementById('campaign-complete-modal').classList.remove('hidden');
     document.getElementById('campaign-complete-modal').classList.add('flex');
+}
+
+function downloadSkippedReportCSV(report) {
+    const header = 'Ad Soyad,Numara,Sebep';
+    const rows = report.map(r => [
+        `"${String(r.name || '').replace(/"/g, '""')}"`,
+        `"${String(r.phone || '').replace(/"/g, '""')}"`,
+        `"${String(r.reason || '').replace(/"/g, '""')}"`
+    ].join(','));
+    const csv = '﻿' + [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gonderilemeyenler_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function resetCampaignUI() {
+    document.getElementById('prog-box').classList.add('hidden');
+    document.getElementById('prog-bar').style.width = '0%';
+    document.getElementById('prog-text').innerText = '0%';
+    document.getElementById('prog-count').innerText = '';
+    updateCampaignEstimate(0);
+    updateBatchPauseCountdown(null);
+    setActiveCampaignId(null);
+    setCampaignControls('idle');
 }
 
 function closeCampaignCompleteModal() {
     document.getElementById('campaign-complete-modal').classList.add('hidden');
     document.getElementById('campaign-complete-modal').classList.remove('flex');
+    document.getElementById('campaign-skipped-report').classList.add('hidden');
+    document.getElementById('campaign-skipped-tbody').innerHTML = '';
+    resetCampaignUI();
 }
 
 function insertToken(token) {
@@ -1147,8 +1212,10 @@ async function saveTemplate() {
     showToast('Şablon kaydedildi', 'success');
 }
 
-async function startCampaign() {
-    if (!socket) return alert('Sunucu bağlantısı kurulamadı. Sayfayı yenileyin veya sunucu loglarını kontrol edin.');
+async function startCampaign(overrideCooldown = []) {
+    const sock = getSocket();
+    if (!sock) return alert('Sunucu bağlantısı kurulamadı. Sayfayı yenileyin veya sunucu loglarını kontrol edin.');
+    if (!Array.isArray(overrideCooldown)) overrideCooldown = [];
     const text = ui.getField('message');
     let targetContacts = [];
     try {
@@ -1158,8 +1225,30 @@ async function startCampaign() {
         return;
     }
 
-    if (!text || targetContacts.length === 0) return alert('Mesaj içeriği ve hedef numara/grup boş olamaz.');
-    if (!validateMessageTemplateOrShow(text, targetContacts[0] || previewContact())) return;
+    if (targetContacts.length === 0) return alert('Hedef numara/grup boş olamaz.');
+    if (!text && mediaFiles.length === 0) return alert('Mesaj içeriği veya en az bir görsel gereklidir.');
+    if (text && !validateMessageTemplateOrShow(text, targetContacts[0] || previewContact())) return;
+
+    if (overrideCooldown.length === 0) {
+        try {
+            const preflight = await fetchJson(`${API_BASE}/campaigns/preflight`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contacts: targetContacts, message: text })
+            });
+            const { sameMessage = [], differentMessage = [] } = preflight || {};
+            console.info('[startCampaign] preflight', { sameMessage: sameMessage.length, differentMessage: differentMessage.length });
+            if (sameMessage.length > 0 || differentMessage.length > 0) {
+                showCooldownConfirmModal(sameMessage, differentMessage, targetContacts, text);
+                return;
+            }
+        } catch (err) {
+            console.warn('Preflight kontrolü başarısız:', err);
+            showToast('Cooldown kontrolü başarısız: ' + (err?.message || err), 'error');
+            return;
+        }
+    }
+
     setActiveCampaignId(null);
     setCampaignControls('running');
     document.getElementById('prog-box').classList.remove('hidden');
@@ -1172,31 +1261,81 @@ async function startCampaign() {
     ];
     const dailyLimit = parseInt(document.getElementById('daily-limit').value);
 
-    socket.emit('start-bulk', {
+    sock.emit('start-bulk', {
         contacts: targetContacts,
         message: text,
         delayRange,
-        dailyLimit
+        dailyLimit,
+        overrideCooldown
     });
 }
 
+function showCooldownConfirmModal(sameMessage, differentMessage, targetContacts, text) {
+    const sameSection = document.getElementById('cooldown-same-msg-section');
+    const diffSection = document.getElementById('cooldown-diff-msg-section');
+
+    if (sameMessage.length > 0) {
+        document.getElementById('cooldown-same-count').textContent = sameMessage.length;
+        document.getElementById('cooldown-same-list').innerHTML = sameMessage
+            .map(r => `<div>${escapeHtml(r.name || r.phone)} <span class="text-slate-400">(${escapeHtml(r.phone)})</span> — <span class="text-amber-500">${escapeHtml(r.expiresAt)}'e kadar</span></div>`)
+            .join('');
+        sameSection.classList.remove('hidden');
+    } else {
+        sameSection.classList.add('hidden');
+    }
+
+    if (differentMessage.length > 0) {
+        document.getElementById('cooldown-diff-count').textContent = differentMessage.length;
+        document.getElementById('cooldown-diff-list').innerHTML = differentMessage
+            .map(r => `<div>${escapeHtml(r.name || r.phone)} <span class="text-slate-400">(${escapeHtml(r.phone)})</span> — <span class="text-blue-500">${escapeHtml(r.expiresAt)}'e kadar</span></div>`)
+            .join('');
+        diffSection.classList.remove('hidden');
+    } else {
+        diffSection.classList.add('hidden');
+    }
+
+    document.getElementById('cooldown-override-same').checked = false;
+    document.getElementById('cooldown-override-diff').checked = false;
+
+    const modal = document.getElementById('cooldown-confirm-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    document.getElementById('cooldown-confirm-cancel-btn').onclick = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    };
+
+    document.getElementById('cooldown-confirm-send-btn').onclick = () => {
+        const overrides = [];
+        if (document.getElementById('cooldown-override-same').checked) {
+            sameMessage.forEach(r => overrides.push(r.normalizedPhone));
+        }
+        if (document.getElementById('cooldown-override-diff').checked) {
+            differentMessage.forEach(r => overrides.push(r.normalizedPhone));
+        }
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        startCampaign(overrides);
+    };
+}
+
 function stopCampaign() {
-    if (!socket) return;
-    socket.emit('stop-bulk', { campaignId: getActiveCampaignId() });
+    getSocket()?.emit('stop-bulk', { campaignId: getActiveCampaignId() });
 }
 
 function resumeCampaign() {
     const campaignId = getActiveCampaignId();
-    if (!socket || !campaignId) return showToast('Devam ettirilecek kampanya bulunamadı', 'error');
+    if (!campaignId) return showToast('Devam ettirilecek kampanya bulunamadı', 'error');
     setCampaignControls('running');
-    socket.emit('resume-bulk', { campaignId });
+    getSocket()?.emit('resume-bulk', { campaignId });
 }
 
 function retryCampaign() {
     const campaignId = getActiveCampaignId();
-    if (!socket || !campaignId) return showToast('Retry edilecek kampanya bulunamadı', 'error');
+    if (!campaignId) return showToast('Retry edilecek kampanya bulunamadı', 'error');
     setCampaignControls('running');
-    socket.emit('retry-bulk', { campaignId });
+    getSocket()?.emit('retry-bulk', { campaignId });
 }
 
 function toggleLogs() {
@@ -1351,7 +1490,7 @@ async function saveCurrentContactsToBackend() {
 async function checkActiveCampaign() {
     try {
         const data = await fetchJson(`${API_BASE}/campaign-status`);
-        if (data.campaign) {
+        if (data.campaign && data.campaign.status !== 'completed') {
             setActiveCampaignId(data.campaign.id || getActiveCampaignId());
             setCampaignControls(data.campaign.status);
             document.getElementById('prog-box').classList.remove('hidden');
@@ -1482,7 +1621,7 @@ function initializeDashboard() {
     bindStaticControls();
     bindDynamicControls();
     document.getElementById('clear-list-btn').addEventListener('click', clearList);
-    document.getElementById('send-btn').addEventListener('click', startCampaign);
+    document.getElementById('send-btn').addEventListener('click', () => startCampaign());
     document.getElementById('stop-btn').addEventListener('click', stopCampaign);
     document.getElementById('resume-btn').addEventListener('click', resumeCampaign);
     document.getElementById('retry-btn').addEventListener('click', retryCampaign);
@@ -1501,15 +1640,32 @@ function initializeDashboard() {
     checkUserRole();
     setInterval(refreshRuntimeStatus, 15000);
     setTimeout(checkActiveCampaign, 1000);
+    setTimeout(getSocket, 3000);
 }
 
 // -- USER MANAGEMENT --
 async function checkUserRole() {
     try {
         const res = await fetchJson(`${API_BASE}/check-auth`);
-        if (res.authenticated && res.user && (res.user.role === 'super_admin' || res.user.role === 'owner')) {
-            const tabUsers = document.getElementById('tab-users');
-            if (tabUsers) tabUsers.classList.remove('hidden');
+        if (res.authenticated && res.user) {
+            const roleMap = {
+                'super_admin': 'Süper Admin',
+                'owner': 'Kurucu',
+                'admin': 'Yönetici',
+                'user': 'Üye'
+            };
+            const roleName = roleMap[res.user.role] || 'Üye';
+            const displayName = res.user.display_name || res.user.email.split('@')[0];
+            
+            const badge = document.getElementById('user-role-badge');
+            if (badge) {
+                badge.innerText = `${displayName} - ${roleName}`;
+            }
+
+            if (res.user.role === 'super_admin' || res.user.role === 'owner') {
+                const tabUsers = document.getElementById('tab-users');
+                if (tabUsers) tabUsers.classList.remove('hidden');
+            }
         }
     } catch (err) {
         console.error('Auth kontrolü hatası', err);
@@ -1592,6 +1748,172 @@ async function deleteUser(userId) {
 
 document.getElementById('create-user-form')?.addEventListener('submit', handleCreateUser);
 document.getElementById('refresh-users-btn')?.addEventListener('click', loadUsers);
+
+// ── Reports Tab ──────────────────────────────────────────────────────────────
+
+const STATUS_LABELS = {
+    completed: 'Tamamlandı', running: 'Devam Ediyor', paused: 'Duraklatıldı', stopped: 'Durduruldu',
+    queued: 'Kuyrukta'
+};
+const STATUS_COLORS = {
+    completed: 'text-secondary', running: 'text-blue-600', paused: 'text-amber-600',
+    stopped: 'text-error', queued: 'text-slate-500'
+};
+const SEV_COLORS = {
+    info: 'text-blue-600 bg-blue-50', warn: 'text-amber-700 bg-amber-50', error: 'text-error bg-error/5'
+};
+const EVENT_COLORS = {
+    whatsapp_connected: 'text-green-600', whatsapp_disconnected: 'text-red-600',
+    qr_generated: 'text-blue-600', session_invalid_loop: 'text-orange-600 font-bold',
+    reconnect_paused: 'text-red-600', error_burst: 'text-red-600', media_missing: 'text-amber-600'
+};
+
+function fmtDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadReports() {
+    await Promise.all([loadReportSummary(), loadSystemEvents()]);
+}
+
+async function loadReportSummary() {
+    try {
+        const data = await fetchJson(`${API_BASE}/reports/summary`);
+        const s = data.data;
+        document.getElementById('report-total-campaigns').textContent = s.total_campaigns ?? '—';
+        document.getElementById('report-total-sent').textContent = s.total_sent ?? '—';
+        document.getElementById('report-total-failed').textContent = s.total_failed ?? '—';
+        const byStatus = s.by_status || {};
+        document.getElementById('report-by-status').innerHTML = Object.entries(byStatus)
+            .map(([k, v]) => `<span class="font-bold">${STATUS_LABELS[k] || k}:</span> ${v}`)
+            .join('<br>');
+
+        const tbody = document.getElementById('reports-campaigns-tbody');
+        const campaigns = s.recent_campaigns || [];
+        if (!campaigns.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Kampanya bulunamadı</td></tr>';
+            return;
+        }
+        tbody.innerHTML = campaigns.map(c => `
+            <tr class="hover:bg-slate-50/50 transition-colors">
+                <td class="px-4 py-3 font-mono text-[10px] text-slate-400">${c.id.slice(0, 8)}…</td>
+                <td class="px-4 py-3"><span class="text-xs font-bold ${STATUS_COLORS[c.status] || 'text-slate-500'}">${STATUS_LABELS[c.status] || c.status}</span></td>
+                <td class="px-4 py-3 text-xs font-bold text-secondary">${c.sent_count}</td>
+                <td class="px-4 py-3 text-xs font-bold text-error">${c.failed_count}</td>
+                <td class="px-4 py-3 text-xs text-slate-500">${c.total_count}</td>
+                <td class="px-4 py-3 text-xs text-slate-400">${fmtDate(c.updated_at)}</td>
+                <td class="px-4 py-3 text-right">
+                    <button onclick="openCampaignDetail('${c.id}')" class="text-xs font-bold text-primary hover:text-primary/70 transition-colors px-3 py-1 rounded-lg bg-primary/5 hover:bg-primary/10">Detay</button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        document.getElementById('report-by-status').textContent = 'Yüklenemedi';
+    }
+}
+
+async function loadSystemEvents() {
+    const severity = document.getElementById('sysevt-severity-filter')?.value || '';
+    const eventType = document.getElementById('sysevt-type-filter')?.value || '';
+    const container = document.getElementById('sysevt-list');
+    try {
+        const params = new URLSearchParams({ limit: 100 });
+        if (severity) params.set('severity', severity);
+        if (eventType) params.set('event_type', eventType);
+        const data = await fetchJson(`${API_BASE}/system-events?${params}`);
+        const events = data.data?.events || [];
+        if (!events.length) {
+            container.innerHTML = '<div class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Kayıtlı olay yok</div>';
+            return;
+        }
+        container.innerHTML = events.map(ev => `
+            <div class="px-6 py-3 flex items-start gap-3 hover:bg-slate-50/50">
+                <span class="text-[9px] font-bold px-2 py-0.5 rounded-full mt-0.5 flex-shrink-0 ${SEV_COLORS[ev.severity] || 'text-slate-500 bg-slate-100'}">${(ev.severity || '').toUpperCase()}</span>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-bold text-slate-700 leading-tight">${escapeHtml(ev.message || '—')}</p>
+                    <p class="text-[9px] mt-0.5"><span class="font-bold ${EVENT_COLORS[ev.event_type] || 'text-slate-500'}">${ev.event_type || '—'}</span> · <span class="text-slate-400">${fmtDate(ev.created_at)}</span></p>
+                </div>
+            </div>
+        `).join('');
+    } catch (err) {
+        container.innerHTML = '<div class="p-8 text-center text-error font-bold uppercase text-xs">Yüklenemedi</div>';
+    }
+}
+
+function escapeHtml(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function openCampaignDetail(campaignId) {
+    const modal = document.getElementById('campaign-detail-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.getElementById('campaign-detail-id').textContent = campaignId;
+    document.getElementById('cdet-status').textContent = '—';
+    document.getElementById('cdet-sent').textContent = '—';
+    document.getElementById('cdet-failed').textContent = '—';
+    document.getElementById('cdet-total').textContent = '—';
+    document.getElementById('cdet-logs').innerHTML = '<span class="text-slate-400">Yükleniyor...</span>';
+    document.getElementById('cdet-failed-section').classList.add('hidden');
+    document.getElementById('cdet-recipient-stats').classList.add('hidden');
+
+    try {
+        const data = await fetchJson(`${API_BASE}/campaigns/${campaignId}/report`);
+        const r = data.data;
+        const run = r.run;
+        document.getElementById('cdet-status').textContent = STATUS_LABELS[run.status] || run.status;
+        document.getElementById('cdet-sent').textContent = run.sent_count ?? 0;
+        document.getElementById('cdet-failed').textContent = run.failed_count ?? 0;
+        document.getElementById('cdet-total').textContent = run.total_count ?? 0;
+
+        const statsSection = document.getElementById('cdet-recipient-stats');
+        const statsBody = document.getElementById('cdet-recipient-stats-body');
+        const stats = r.recipient_stats || {};
+        if (Object.keys(stats).length > 0) {
+            const STAT_COLORS = { sent: 'bg-secondary/10 text-secondary', failed: 'bg-error/10 text-error', skipped: 'bg-amber-50 text-amber-700', pending: 'bg-slate-100 text-slate-600' };
+            statsBody.innerHTML = Object.entries(stats).map(([k, v]) => `<span class="px-3 py-1 rounded-full text-xs font-bold ${STAT_COLORS[k] || 'bg-slate-100 text-slate-600'}">${k}: ${v}</span>`).join('');
+            statsSection.classList.remove('hidden');
+        }
+
+        const failedSection = document.getElementById('cdet-failed-section');
+        const failedTbody = document.getElementById('cdet-failed-tbody');
+        const failed = r.failed_recipients || [];
+        if (failed.length > 0) {
+            failedTbody.innerHTML = failed.map(f => `
+                <tr><td class="px-3 py-1.5">${escapeHtml(f.name || '—')}</td><td class="px-3 py-1.5 font-mono">${escapeHtml(f.phone || '')}</td><td class="px-3 py-1.5 text-error/80 max-w-[180px] truncate" title="${escapeHtml(f.last_error || '')}">${escapeHtml((f.last_error || '').split('\n')[0].slice(0, 80))}</td></tr>
+            `).join('');
+            failedSection.classList.remove('hidden');
+        }
+
+        const logsEl = document.getElementById('cdet-logs');
+        const logs = r.logs || [];
+        if (!logs.length) {
+            logsEl.innerHTML = '<span class="text-slate-400">Log yok</span>';
+        } else {
+            const LOG_COLORS = { error: 'text-red-400', success: 'text-green-400', wait: 'text-amber-300', process: 'text-blue-300', info: 'text-slate-300' };
+            logsEl.innerHTML = logs.map(l => `<div class="${LOG_COLORS[l.type] || 'text-slate-300'}">${escapeHtml(l.message)}</div>`).join('');
+        }
+    } catch (err) {
+        document.getElementById('cdet-logs').innerHTML = `<span class="text-error">${escapeHtml(err.message)}</span>`;
+    }
+}
+
+document.getElementById('campaign-detail-close-btn')?.addEventListener('click', () => {
+    const modal = document.getElementById('campaign-detail-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+});
+document.getElementById('campaign-detail-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+        e.currentTarget.classList.add('hidden');
+        e.currentTarget.classList.remove('flex');
+    }
+});
+document.getElementById('refresh-reports-btn')?.addEventListener('click', loadReports);
+document.getElementById('sysevt-refresh-btn')?.addEventListener('click', loadSystemEvents);
+document.getElementById('sysevt-severity-filter')?.addEventListener('change', loadSystemEvents);
+document.getElementById('sysevt-type-filter')?.addEventListener('change', loadSystemEvents);
 
 initializeDashboard();
 switchTab('campaign');

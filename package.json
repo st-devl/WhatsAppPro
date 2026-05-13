@@ -13,7 +13,7 @@
     "deploy": "./deploy.sh",
     "deploy:production": "./deploy-production.sh",
     "release": "./release.sh check",
-    "postinstall": "npm --prefix whatsapp-engine install --omit=dev",
+    "postinstall": "node scripts/install-engine.js",
     "start": "node index.js",
     "test": "npm --prefix whatsapp-engine test",
     "test:e2e": "npm --prefix whatsapp-engine run test:e2e"

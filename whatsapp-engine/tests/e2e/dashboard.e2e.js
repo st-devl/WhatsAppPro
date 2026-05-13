@@ -8,9 +8,15 @@ const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'whatsappc-e2e-'));
+const ADMIN_EMAIL = 'admin@example.com';
+const ADMIN_PASSWORD = 'correct-password';
+const ADMIN_HASH = bcrypt.hashSync(ADMIN_PASSWORD, 8);
+
 process.env.WHASAPPC_DATA_DIR = tempDir;
 process.env.SESSION_SECRET = 'e2e-session-secret';
 process.env.LOG_LEVEL = 'silent';
+process.env.ADMIN_EMAIL = ADMIN_EMAIL;
+process.env.ADMIN_PASS_HASH = ADMIN_HASH;
 
 const db = require('../../lib/db');
 const { LoginRateLimiter } = require('../../lib/login_rate_limiter');
@@ -33,9 +39,6 @@ const { MediaStore } = require('../../lib/media_store');
 const { createSampleWorkbookBuffer } = require('../../lib/excel_import');
 
 const engineRoot = path.join(__dirname, '../..');
-const ADMIN_EMAIL = 'admin@example.com';
-const ADMIN_PASSWORD = 'correct-password';
-const ADMIN_HASH = bcrypt.hashSync(ADMIN_PASSWORD, 8);
 
 const mockRuntime = {
     tenantRoom: tenantId => `tenant:${tenantId}`,
@@ -92,8 +95,6 @@ async function createHarness() {
     app.get('/login.html', (_req, res) => res.sendFile(path.join(engineRoot, 'public/login.html')));
     app.get('/app-version', (_req, res) => res.json({ data: { version: '0.0.23' }, error: null, code: 'VERSION' }));
     const authOptions = {
-        adminEmail: ADMIN_EMAIL,
-        adminPassHash: ADMIN_HASH,
         db,
         loginLimiter,
         sessionName,
@@ -137,6 +138,8 @@ test.afterAll(async () => {
     const database = await db.getDb();
     database.close();
     fs.rmSync(tempDir, { recursive: true, force: true });
+    delete process.env.ADMIN_EMAIL;
+    delete process.env.ADMIN_PASS_HASH;
 });
 
 test('login, group, contact edit/delete and Excel import work through the browser UI', async ({ page }) => {

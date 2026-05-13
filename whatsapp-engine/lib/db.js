@@ -29,6 +29,7 @@ class SqliteDatabaseAdapter {
         const data = fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
         this.raw = data ? new SQL.Database(data) : new SQL.Database();
         this.closed = false;
+        this.writeTimer = null;
         this.raw.run('PRAGMA foreign_keys = ON');
     }
 
@@ -56,8 +57,12 @@ class SqliteDatabaseAdapter {
         return result;
     }
 
-    checkpoint() {
+    checkpointSync() {
         if (this.closed) return;
+        if (this.writeTimer) {
+            clearTimeout(this.writeTimer);
+            this.writeTimer = null;
+        }
         fs.ensureDirSync(path.dirname(this.filePath));
         const tempFile = `${this.filePath}.tmp-${process.pid}`;
         fs.writeFileSync(tempFile, Buffer.from(this.raw.export()));
@@ -65,9 +70,31 @@ class SqliteDatabaseAdapter {
         this.raw.run('PRAGMA foreign_keys = ON');
     }
 
+    checkpoint() {
+        if (this.closed) return;
+        if (this.writeTimer) clearTimeout(this.writeTimer);
+        this.writeTimer = setTimeout(() => {
+            this.writeTimer = null;
+            if (this.closed) return;
+            try {
+                fs.ensureDirSync(path.dirname(this.filePath));
+                const tempFile = `${this.filePath}.tmp-${process.pid}-async`;
+                const dataBuffer = Buffer.from(this.raw.export());
+                fs.writeFile(tempFile, dataBuffer, (err) => {
+                    if (err) return console.error('DB write error:', err);
+                    fs.rename(tempFile, this.filePath, (err2) => {
+                        if (err2) console.error('DB rename error:', err2);
+                    });
+                });
+            } catch (e) {
+                console.error('DB export error:', e);
+            }
+        }, 150);
+    }
+
     close() {
         if (this.closed) return;
-        this.checkpoint();
+        this.checkpointSync();
         this.raw.close();
         this.closed = true;
     }
@@ -195,7 +222,7 @@ function cleanupBackups(keep = resolveBackupRetentionCount()) {
 function createBackup(reason = 'manual') {
     fs.ensureDirSync(backupDir);
     if (!fs.existsSync(dbFile)) return null;
-    if (db) db.checkpoint();
+    if (db) db.checkpointSync();
     const backupFile = path.join(backupDir, `database-${timestampForFile()}-${sanitizeBackupReason(reason)}.sqlite`);
     fs.copyFileSync(dbFile, backupFile);
     cleanupBackups();
@@ -709,6 +736,40 @@ function buildMigrations(d) {
                     adminEmail,
                     DEFAULT_TENANT_ID
                 ]);
+            }
+        },
+        {
+            id: '015_delivery_receipt_tracking',
+            description: 'Add message ID and delivery status tracking to campaign recipients',
+            run: () => {
+                ensureColumn(d, 'campaign_recipients', 'message_id', 'message_id TEXT');
+                ensureColumn(d, 'campaign_recipients', 'delivery_status', 'delivery_status TEXT');
+                ensureColumn(d, 'campaign_recipients', 'delivered_at', 'delivered_at TEXT');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_message_id ON campaign_recipients(message_id)');
+            }
+        },
+        {
+            id: '016_recipient_message_hash',
+            description: 'Track last sent message hash per recipient for smart cooldown confirmation',
+            run: () => {
+                ensureColumn(d, 'recipient_history', 'last_message_hash', 'last_message_hash TEXT');
+            }
+        },
+        {
+            id: '017_system_events',
+            description: 'System event log table for WhatsApp runtime and campaign error diagnostics',
+            run: () => {
+                d.run(`CREATE TABLE IF NOT EXISTS system_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id TEXT NOT NULL DEFAULT 'default',
+                    event_type TEXT NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'info',
+                    message TEXT NOT NULL,
+                    metadata TEXT,
+                    created_at TEXT NOT NULL
+                )`);
+                d.run('CREATE INDEX IF NOT EXISTS idx_system_events_tenant_created ON system_events(tenant_id, created_at)');
+                d.run('CREATE INDEX IF NOT EXISTS idx_system_events_type ON system_events(event_type)');
             }
         }
     ];
@@ -1503,7 +1564,7 @@ const updateCampaignRecipient = async (campaignId, contact, status, error = null
         SET status = ?, attempt_count = attempt_count + 1, last_error = ?, sent_at = COALESCE(?, sent_at), updated_at = ?
         WHERE campaign_run_id = ? AND normalized_phone = ?`, [
         status,
-        error ? String(error) : null,
+        error ? (error instanceof Error ? (error.stack || String(error)) : String(error)) : null,
         sentAt,
         current,
         campaignId,
@@ -1526,6 +1587,30 @@ const updateCampaignRecipient = async (campaignId, contact, status, error = null
     ]);
     return getCampaignRunStatusWithDb(d, campaignId);
 });
+
+const setRecipientMessageId = async (campaignId, normalizedPhone, messageId) => {
+    if (!messageId) return;
+    const d = await getDb();
+    d.run(
+        'UPDATE campaign_recipients SET message_id = ?, updated_at = ? WHERE campaign_run_id = ? AND normalized_phone = ?',
+        [String(messageId), now(), campaignId, normalizePhone(normalizedPhone)]
+    );
+    save();
+};
+
+const updateDeliveryStatus = async (messageId, deliveryStatus) => {
+    if (!messageId || !deliveryStatus) return null;
+    const d = await getDb();
+    const deliveredAt = (deliveryStatus === 'delivered' || deliveryStatus === 'read') ? now() : null;
+    d.run(
+        `UPDATE campaign_recipients
+         SET delivery_status = ?, delivered_at = COALESCE(?, delivered_at), updated_at = ?
+         WHERE message_id = ?`,
+        [deliveryStatus, deliveredAt, now(), String(messageId)]
+    );
+    save();
+    return queryOne(d, 'SELECT campaign_run_id, normalized_phone, delivery_status FROM campaign_recipients WHERE message_id = ?', [String(messageId)]);
+};
 
 function getCampaignRunStatusWithDb(d, campaignId, ownerEmail = null, tenantId = null) {
     if (ownerEmail) ensureCampaignOwner(d, campaignId, ownerEmail, tenantId);
@@ -1793,6 +1878,146 @@ const purgeExpiredAuditLogs = async (retentionDays, tenantId = null) => {
     });
 };
 
+const purgeCampaignLogs = async (retentionDays) => {
+    const days = Number.parseInt(retentionDays, 10);
+    if (!Number.isFinite(days) || days <= 0) return { deleted: 0, cutoff: null, enabled: false };
+    const cutoff = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+    return withWriteTransaction(null, (d) => {
+        const result = d.run(
+            `DELETE FROM campaign_logs WHERE created_at < ?
+             AND campaign_run_id IN (
+                 SELECT id FROM campaign_runs WHERE status IN ('completed','stopped','paused') AND updated_at < ?
+             )`,
+            [cutoff, cutoff]
+        );
+        return { deleted: Number(result?.changes || 0), cutoff, enabled: true };
+    });
+};
+
+const purgeCampaignRuns = async (retentionDays) => {
+    const days = Number.parseInt(retentionDays, 10);
+    if (!Number.isFinite(days) || days <= 0) return { deleted: 0, cutoff: null, enabled: false };
+    const cutoff = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+    return withWriteTransaction(null, (d) => {
+        // campaign_recipients ve campaign_logs CASCADE ile silinir
+        const result = d.run(
+            `DELETE FROM campaign_runs WHERE status IN ('completed','stopped','paused') AND updated_at < ?`,
+            [cutoff]
+        );
+        return { deleted: Number(result?.changes || 0), cutoff, enabled: true };
+    });
+};
+
+const purgeDailySendStats = async (retentionDays) => {
+    const days = Number.parseInt(retentionDays, 10);
+    if (!Number.isFinite(days) || days <= 0) return { deleted: 0, cutoff: null, enabled: false };
+    const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString().slice(0, 10);
+    return withWriteTransaction(null, (d) => {
+        const result = d.run(`DELETE FROM daily_send_stats WHERE send_date < ?`, [cutoffDate]);
+        return { deleted: Number(result?.changes || 0), cutoff: cutoffDate, enabled: true };
+    });
+};
+
+const addSystemEvent = async (tenantId, eventType, severity, message, metadata = {}) => withWriteTransaction(null, (d) => {
+    const tenant = resolveTenantId(tenantId);
+    d.run(
+        'INSERT INTO system_events (tenant_id, event_type, severity, message, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [tenant, String(eventType), String(severity || 'info'), String(message || ''), toSqlJson(metadata), now()]
+    );
+});
+
+const getSystemEvents = async (tenantId, { limit = 100, offset = 0, eventType = null, severity = null } = {}) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const params = [tenant];
+    let where = 'WHERE tenant_id = ?';
+    if (eventType) { where += ' AND event_type = ?'; params.push(eventType); }
+    if (severity) { where += ' AND severity = ?'; params.push(severity); }
+    params.push(Math.max(1, Number.parseInt(limit, 10) || 100));
+    params.push(Math.max(0, Number.parseInt(offset, 10) || 0));
+    const rows = queryAll(d, `SELECT id, tenant_id, event_type, severity, message, metadata, created_at FROM system_events ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`, params);
+    return rows.map(r => ({ ...r, metadata: r.metadata ? JSON.parse(r.metadata) : {} }));
+};
+
+const purgeSystemEvents = async (retentionDays) => {
+    const days = Number.parseInt(retentionDays, 10);
+    if (!Number.isFinite(days) || days <= 0) return { deleted: 0, cutoff: null, enabled: false };
+    const cutoff = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+    return withWriteTransaction(null, (d) => {
+        const result = d.run('DELETE FROM system_events WHERE created_at < ?', [cutoff]);
+        return { deleted: Number(result?.changes || 0), cutoff, enabled: true };
+    });
+};
+
+const getCampaignReport = async (campaignId, tenantId) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const run = mapCampaignRun(queryOne(d, 'SELECT * FROM campaign_runs WHERE id = ? AND tenant_id = ?', [campaignId, tenant]));
+    if (!run) return null;
+
+    const recipientStats = queryAll(d,
+        'SELECT status, COUNT(*) as count FROM campaign_recipients WHERE campaign_run_id = ? GROUP BY status',
+        [campaignId]
+    ).reduce((acc, row) => { acc[row.status] = Number(row.count); return acc; }, {});
+
+    const failedRecipients = queryAll(d,
+        "SELECT phone, name, last_error, updated_at FROM campaign_recipients WHERE campaign_run_id = ? AND status = 'failed' ORDER BY updated_at DESC LIMIT 50",
+        [campaignId]
+    );
+
+    const logs = queryAll(d,
+        'SELECT id, type, message, progress, metadata, created_at FROM campaign_logs WHERE campaign_run_id = ? ORDER BY id DESC LIMIT 500',
+        [campaignId]
+    ).reverse().map(mapCampaignLog);
+
+    return { run, recipient_stats: recipientStats, failed_recipients: failedRecipients, logs };
+};
+
+const getCampaignSummary = async (tenantId) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+
+    const totals = queryOne(d, `
+        SELECT
+            COUNT(*) as total_campaigns,
+            COALESCE(SUM(sent_count), 0) as total_sent,
+            COALESCE(SUM(failed_count), 0) as total_failed,
+            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+            SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+            SUM(CASE WHEN status = 'paused' THEN 1 ELSE 0 END) as paused,
+            SUM(CASE WHEN status = 'stopped' THEN 1 ELSE 0 END) as stopped
+        FROM campaign_runs WHERE tenant_id = ?
+    `, [tenant]);
+
+    const recent = queryAll(d, `
+        SELECT id, status, sent_count, failed_count, total_count, owner_email, created_at, updated_at
+        FROM campaign_runs WHERE tenant_id = ?
+        ORDER BY datetime(updated_at) DESC LIMIT 10
+    `, [tenant]).map(row => ({
+        id: row.id,
+        status: row.status,
+        sent_count: Number(row.sent_count || 0),
+        failed_count: Number(row.failed_count || 0),
+        total_count: Number(row.total_count || 0),
+        owner_email: row.owner_email,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+    }));
+
+    return {
+        total_campaigns: Number(totals?.total_campaigns || 0),
+        total_sent: Number(totals?.total_sent || 0),
+        total_failed: Number(totals?.total_failed || 0),
+        by_status: {
+            completed: Number(totals?.completed || 0),
+            running: Number(totals?.running || 0),
+            paused: Number(totals?.paused || 0),
+            stopped: Number(totals?.stopped || 0)
+        },
+        recent_campaigns: recent
+    };
+};
+
 const getDailySendCount = async (tenantId = DEFAULT_TENANT_ID, date = businessDate()) => {
     const d = await getDb();
     const tenant = resolveTenantId(tenantId);
@@ -1812,7 +2037,46 @@ const isRecipientInCooldown = async (phone, tenantId = DEFAULT_TENANT_ID, cooldo
     return Date.now() - lastSentAt < cooldownMs;
 };
 
-const recordRecipientSend = async (phone, tenantId = DEFAULT_TENANT_ID, sentAt = new Date()) => withWriteTransaction(null, (d) => {
+const getRecipientCooldownExpiresAt = async (phone, tenantId = DEFAULT_TENANT_ID, cooldownMs = 24 * 60 * 60 * 1000) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const normalizedPhone = normalizePhone(phone);
+    if (!isValidPhone(normalizedPhone)) return null;
+    const row = queryOne(d, 'SELECT last_sent_at FROM recipient_history WHERE tenant_id = ? AND normalized_phone = ?', [tenant, normalizedPhone]);
+    if (!row?.last_sent_at) return null;
+    const lastSentAt = new Date(row.last_sent_at).getTime();
+    if (!Number.isFinite(lastSentAt)) return null;
+    return new Date(lastSentAt + cooldownMs);
+};
+
+const checkCooldownWithMessage = async (contacts, messageHash, tenantId = DEFAULT_TENANT_ID, cooldownMs = 24 * 60 * 60 * 1000) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const now = Date.now();
+    const sameMessage = [];
+    const differentMessage = [];
+
+    for (const contact of contacts) {
+        const rawPhone = String(contact.phone || '').replace(/[^0-9]/g, '');
+        const normalizedPhone = normalizePhone(rawPhone);
+        if (!isValidPhone(normalizedPhone)) continue;
+        const row = queryOne(d, 'SELECT last_sent_at, last_message_hash FROM recipient_history WHERE tenant_id = ? AND normalized_phone = ?', [tenant, normalizedPhone]);
+        if (!row?.last_sent_at) continue;
+        const lastSentAt = new Date(row.last_sent_at).getTime();
+        if (!Number.isFinite(lastSentAt) || now - lastSentAt >= cooldownMs) continue;
+        const expiresAt = new Date(lastSentAt + cooldownMs);
+        const entry = { name: contact.name || '', phone: contact.phone, normalizedPhone, expiresAt };
+        if (row.last_message_hash && row.last_message_hash === messageHash) {
+            sameMessage.push(entry);
+        } else {
+            differentMessage.push(entry);
+        }
+    }
+
+    return { sameMessage, differentMessage };
+};
+
+const recordRecipientSend = async (phone, tenantId = DEFAULT_TENANT_ID, sentAt = new Date(), messageHash = null) => withWriteTransaction(null, (d) => {
     const tenant = resolveTenantId(tenantId);
     const normalizedPhone = normalizePhone(phone);
     if (!isValidPhone(normalizedPhone)) return { recorded: false };
@@ -1822,11 +2086,11 @@ const recordRecipientSend = async (phone, tenantId = DEFAULT_TENANT_ID, sentAt =
     const date = businessDate(current);
 
     d.run(`
-        INSERT INTO recipient_history (tenant_id, normalized_phone, last_sent_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO recipient_history (tenant_id, normalized_phone, last_sent_at, last_message_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(tenant_id, normalized_phone)
-        DO UPDATE SET last_sent_at = excluded.last_sent_at, updated_at = excluded.updated_at
-    `, [tenant, normalizedPhone, currentIso, currentIso, currentIso]);
+        DO UPDATE SET last_sent_at = excluded.last_sent_at, last_message_hash = excluded.last_message_hash, updated_at = excluded.updated_at
+    `, [tenant, normalizedPhone, currentIso, messageHash || null, currentIso, currentIso]);
 
     d.run(`
         INSERT INTO daily_send_stats (tenant_id, send_date, count, updated_at)
@@ -1986,6 +2250,8 @@ module.exports = {
     safeAuditMetadata,
     getDailySendCount,
     isRecipientInCooldown,
+    getRecipientCooldownExpiresAt,
+    checkCooldownWithMessage,
     recordRecipientSend,
     cleanupRecipientHistory,
     getSession,
@@ -1998,5 +2264,15 @@ module.exports = {
     updateUserLastLogin,
     getAllUsers,
     getUserCount,
-    deleteUser
+    deleteUser,
+    setRecipientMessageId,
+    updateDeliveryStatus,
+    purgeCampaignLogs,
+    purgeCampaignRuns,
+    purgeDailySendStats,
+    addSystemEvent,
+    getSystemEvents,
+    purgeSystemEvents,
+    getCampaignReport,
+    getCampaignSummary
 };

@@ -4,6 +4,12 @@ const { componentLogger } = require('./logger');
 const recipientLogger = componentLogger('recipient_manager');
 const DEFAULT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_HISTORY_RETENTION_MS = 48 * 60 * 60 * 1000;
+const VALIDATION_MAX_RETRIES = 2;
+const VALIDATION_BASE_DELAY_MS = 1000;
+
+function validationRetryDelay(attempt) {
+    return VALIDATION_BASE_DELAY_MS * Math.pow(2, attempt);
+}
 
 class RecipientManager {
     async getDailyCount(tenantId = db.DEFAULT_TENANT_ID) {
@@ -11,22 +17,43 @@ class RecipientManager {
     }
 
     async validateOnWhatsApp(sock, phone) {
-        try {
-            const [result] = await sock.onWhatsApp(phone);
-            if (!result || !result.exists) return false;
-            return true;
-        } catch (err) {
-            recipientLogger.warn({ err, phone }, 'whatsapp_recipient_validation_failed');
-            return true;
+        let lastError = null;
+
+        for (let attempt = 0; attempt <= VALIDATION_MAX_RETRIES; attempt++) {
+            try {
+                const [result] = await sock.onWhatsApp(phone);
+                return !!(result && result.exists);
+            } catch (err) {
+                lastError = err;
+                recipientLogger.warn(
+                    { err, phone, attempt: attempt + 1, maxAttempts: VALIDATION_MAX_RETRIES + 1 },
+                    'whatsapp_recipient_validation_failed'
+                );
+
+                if (attempt < VALIDATION_MAX_RETRIES) {
+                    const delayMs = validationRetryDelay(attempt);
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                }
+            }
         }
+
+        recipientLogger.error(
+            { err: lastError, phone, totalAttempts: VALIDATION_MAX_RETRIES + 1 },
+            'whatsapp_recipient_validation_exhausted'
+        );
+        return false;
     }
 
-    isInCooldown(phone, tenantId = db.DEFAULT_TENANT_ID, cooldownMs = DEFAULT_COOLDOWN_MS) {
+    async isInCooldown(phone, tenantId = db.DEFAULT_TENANT_ID, cooldownMs = DEFAULT_COOLDOWN_MS) {
         return db.isRecipientInCooldown(phone, tenantId, cooldownMs);
     }
 
-    logSend(phone, tenantId = db.DEFAULT_TENANT_ID) {
-        return db.recordRecipientSend(phone, tenantId);
+    async getCooldownExpiresAt(phone, tenantId = db.DEFAULT_TENANT_ID, cooldownMs = DEFAULT_COOLDOWN_MS) {
+        return db.getRecipientCooldownExpiresAt(phone, tenantId, cooldownMs);
+    }
+
+    logSend(phone, tenantId = db.DEFAULT_TENANT_ID, messageHash = null) {
+        return db.recordRecipientSend(phone, tenantId, new Date(), messageHash);
     }
 
     async cleanup(tenantId = db.DEFAULT_TENANT_ID, retentionMs = DEFAULT_HISTORY_RETENTION_MS) {

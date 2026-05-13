@@ -15,6 +15,7 @@
     "start": "node index.js",
     "verify:data": "node scripts/verify-data-layer.js",
     "verify:runtime-data": "node scripts/verify-runtime-data-policy.js",
+    "test:env": "node --test tests/env_validator.test.js",
     "test:db": "node --test tests/db_integrity.test.js",
     "test:message": "node --test tests/message_renderer.test.js",
     "test:integration": "node --test tests/http_integration.test.js",
@@ -22,7 +23,7 @@
     "test:security": "node --test tests/upload_security.test.js",
     "test:campaign": "node --test tests/campaign_safety.test.js",
     "test:e2e": "playwright test",
-    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:db && npm run test:message && npm run test:security && npm run test:campaign && npm run test:integration && npm run test:regression"
+    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:env && npm run test:db && npm run test:message && npm run test:security && npm run test:campaign && npm run test:integration && npm run test:regression"
   },
   "keywords": [
     "whatsapp",
@@ -47,6 +48,7 @@
     "uuid": "^14.0.0"
   },
   "overrides": {
+    "axios": "^1.16.0",
     "protobufjs": "^7.5.5",
     "uuid": "^14.0.0"
   },

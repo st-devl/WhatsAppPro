@@ -1,6 +1,8 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
+const { validateProductionEnv } = require('./lib/env_validator');
+validateProductionEnv();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -30,6 +32,7 @@ const { createContactRouter } = require('./routes/contacts');
 const { createUploadRouter } = require('./routes/uploads');
 const { createCampaignRouter } = require('./routes/campaigns');
 const { createAuditRouter } = require('./routes/audit');
+const { createReportsRouter } = require('./routes/reports');
 const { CampaignService } = require('./services/campaign_service');
 const { registerCampaignSocket } = require('./socket/campaign_socket');
 
@@ -53,15 +56,17 @@ const mediaStore = new MediaStore();
 const keepAwake = new KeepAwake();
 const upload = createUploadMiddleware(__dirname);
 const defaultTenantId = process.env.DEFAULT_TENANT_ID || 'default';
+const { stopAllCampaigns } = require('./lib/messenger');
 const runtime = new WhatsAppRegistry({
     io,
     baseDir: __dirname,
     maxAutoRetries: process.env.WHATSAPP_MAX_AUTO_RETRIES || '3',
-    logger: componentLogger('whatsapp_runtime')
+    logger: componentLogger('whatsapp_runtime'),
+    onSessionInvalidLoop: (tenantId) => {
+        serverLogger.error({ tenantId }, 'session_invalid_loop_stopping_campaigns');
+        stopAllCampaigns();
+    }
 });
-
-// Admin server başladıktan sonra auth check veya lazy-init
-runtime.getOrCreate(defaultTenantId);
 
 const campaignService = new CampaignService({ db, runtime, mediaStore, keepAwake, logger: componentLogger('campaign_service') });
 const authRouterOptions = {
@@ -87,6 +92,7 @@ function mountProtectedApi(prefix, options) {
     }));
     app.use(prefix, createCampaignRouter({ campaignService: options.campaignService }));
     app.use(prefix, createAuditRouter(options.db));
+    app.use(prefix, createReportsRouter(options.db));
 }
 
 function legacyApiDeprecationHeaders(req, res, next) {
@@ -193,15 +199,34 @@ process.on('uncaughtException', (err) => {
 const PORT = process.env.PORT || 3005;
 const HOST = process.env.HOST || '0.0.0.0';
 const AUDIT_RETENTION_DAYS = process.env.AUDIT_RETENTION_DAYS;
+const CAMPAIGN_LOG_RETENTION_DAYS = process.env.CAMPAIGN_LOG_RETENTION_DAYS || '30';
+const DAILY_STATS_RETENTION_DAYS = process.env.DAILY_STATS_RETENTION_DAYS || '90';
+const SYSTEM_EVENTS_RETENTION_DAYS = process.env.SYSTEM_EVENTS_RETENTION_DAYS || '30';
 
 function scheduleAuditRetention() {
-    if (!AUDIT_RETENTION_DAYS) return;
     const runRetention = () => {
-        db.purgeExpiredAuditLogs(AUDIT_RETENTION_DAYS)
-            .then(result => {
-                if (result.enabled) serverLogger.info(result, 'audit_retention_completed');
-            })
-            .catch(err => serverLogger.error({ err }, 'audit_retention_failed'));
+        const tasks = [
+            db.purgeExpiredAuditLogs(AUDIT_RETENTION_DAYS)
+                .then(r => { if (r.enabled) serverLogger.info({ ...r, table: 'audit_logs' }, 'retention_completed'); })
+                .catch(err => serverLogger.error({ err }, 'audit_retention_failed')),
+
+            db.purgeCampaignLogs(CAMPAIGN_LOG_RETENTION_DAYS)
+                .then(r => { if (r.enabled) serverLogger.info({ ...r, table: 'campaign_logs' }, 'retention_completed'); })
+                .catch(err => serverLogger.error({ err }, 'campaign_log_retention_failed')),
+
+            db.purgeCampaignRuns(CAMPAIGN_LOG_RETENTION_DAYS)
+                .then(r => { if (r.enabled) serverLogger.info({ ...r, table: 'campaign_runs' }, 'retention_completed'); })
+                .catch(err => serverLogger.error({ err }, 'campaign_run_retention_failed')),
+
+            db.purgeDailySendStats(DAILY_STATS_RETENTION_DAYS)
+                .then(r => { if (r.enabled) serverLogger.info({ ...r, table: 'daily_send_stats' }, 'retention_completed'); })
+                .catch(err => serverLogger.error({ err }, 'daily_stats_retention_failed')),
+
+            db.purgeSystemEvents(SYSTEM_EVENTS_RETENTION_DAYS)
+                .then(r => { if (r.enabled) serverLogger.info({ ...r, table: 'system_events' }, 'retention_completed'); })
+                .catch(err => serverLogger.error({ err }, 'system_events_retention_failed'))
+        ];
+        Promise.all(tasks).catch(() => {});
     };
     runRetention();
     const timer = setInterval(runRetention, 24 * 60 * 60 * 1000);
@@ -218,7 +243,7 @@ server.listen(PORT, HOST, () => {
     runtime.setHttpStatus('listening');
     serverLogger.info({ host: HOST, port: PORT, processLockPath: processLock?.lockPath || null }, 'http_server_listening');
     scheduleAuditRetention();
-    runtime.scheduleInit();
+    setImmediate(() => runtime.getOrCreate(defaultTenantId));
     recoverRunningCampaigns();
 });
 

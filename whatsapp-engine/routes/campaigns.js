@@ -1,5 +1,7 @@
 const express = require('express');
+const crypto = require('crypto');
 const { sendSuccess } = require('../lib/api_response');
+const db = require('../lib/db');
 
 function createCampaignRouter(options = {}) {
     const router = express.Router();
@@ -38,6 +40,22 @@ function createCampaignRouter(options = {}) {
         try {
             const status = await campaignService.retry(req.params.campaignId, ownerEmail(req), null, { detached: true, tenantId: tenantId(req) });
             sendSuccess(res, { campaign: status }, 'CAMPAIGN_RETRY_STARTED');
+        } catch (err) {
+            next(err);
+        }
+    });
+
+    router.post('/campaigns/preflight', async (req, res, next) => {
+        try {
+            const contacts = Array.isArray(req.body?.contacts) ? req.body.contacts : [];
+            const message = String(req.body?.message || '');
+            const msgHash = crypto.createHash('sha256').update(message).digest('hex').slice(0, 16);
+            const result = await db.checkCooldownWithMessage(contacts, msgHash, tenantId(req));
+            const fmt = (d) => d ? d.toLocaleString('tr-TR', { timeZone: process.env.TZ || 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' }) : '';
+            sendSuccess(res, {
+                sameMessage: result.sameMessage.map(r => ({ ...r, expiresAt: fmt(r.expiresAt) })),
+                differentMessage: result.differentMessage.map(r => ({ ...r, expiresAt: fmt(r.expiresAt) }))
+            }, 'CAMPAIGN_PREFLIGHT');
         } catch (err) {
             next(err);
         }

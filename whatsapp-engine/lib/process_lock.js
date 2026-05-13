@@ -45,7 +45,13 @@ function sleepSync(ms) {
 }
 
 function acquireProcessLock(baseDir, options = {}) {
-    if (String(process.env.DISABLE_PROCESS_LOCK || '').toLowerCase() === 'true') return null;
+    if (String(process.env.DISABLE_PROCESS_LOCK || '').toLowerCase() === 'true') {
+        if (process.env.NODE_ENV === 'production') {
+            lockLogger.warn('DISABLE_PROCESS_LOCK is ignored in production environment for safety reasons.');
+        } else {
+            return null;
+        }
+    }
     const lockPath = options.lockPath || path.join(storageBaseDir(baseDir), 'runtime/app.lock');
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
 

@@ -1,9 +1,13 @@
 ./deploy.sh
 
+./deploy-production.sh --skip-css-build
+
+./deploy-production.sh
+
 DEPLOY_REMOTE_PASSENGER_PATH=/home/u341720642/domains/yardimet.site/nodejs \
 DEPLOY_REMOTE_DATA_PATH=/home/u341720642/domains/yardimet.site/app-data \
-DEPLOY_REMOTE_HEALTH_URL="https://yardimet.site/api/healthz" \
-./deploy-production.sh --setup-env --skip-css-build
+DEPLOY_REMOTE_HEALTH_URL="https://yardimet.site/readyz" \
+./deploy-production.sh --skip-css-build
 
 ---
 
@@ -11,7 +15,7 @@ DEPLOY_REMOTE_HEALTH_URL="https://yardimet.site/api/healthz" \
 
 ## Canlı Ortam Bağlantısı
 - **Giriş URL**: [https://yardimet.site/](https://yardimet.site/)
-- **Health Check URL**: [https://yardimet.site/api/healthz](https://yardimet.site/api/healthz)
+- **Health Check URL**: [https://yardimet.site/readyz](https://yardimet.site/readyz)
 
 ## 👑 Super Admin (Yönetici) Girişi
 *(Tüm sistemi, tenantları ekleyip çıkartma yetkisine sahiptir)*
