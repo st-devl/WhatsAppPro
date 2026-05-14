@@ -104,6 +104,12 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
     await persist(campaignStore?.setRunStatus(campaignId, 'running'), { critical: true });
     await persist(recipientManager.cleanup(tenantId));
 
+    const emitProgress = (processed, total, sent, failed) => {
+        if (!socket) return;
+        const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+        socket.emit('campaign-progress', { processed, total, sent, failed, progress: pct });
+    };
+
     const addLog = async (type, message, progress, meta = {}) => {
         const campaign = activeCampaigns.get(campaignId);
         if(campaign) {
@@ -217,6 +223,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             messengerLogger.info({ phone: normalizedForOverride, campaignId, tenantId, expiresAt }, 'message_skipped_cooldown');
             await persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'Cooldown aktif'), { critical: true });
             skippedReport.push({ name: contact.name || '', phone: contact.phone || phone, reason: `Cooldown — ${expiresStr}'e kadar` });
+            emitProgress(i + 1, contacts.length, sentCount, failCount);
             continue;
         }
 
@@ -234,6 +241,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             messengerLogger.warn({ phone: normalizedForOverride, campaignId, tenantId }, 'message_skipped_not_on_whatsapp');
             await persist(campaignStore?.markRecipient(campaignId, contact, 'skipped', 'WhatsApp kullanıcısı değil'), { critical: true });
             skippedReport.push({ name: contact.name || '', phone: contact.phone || phone, reason: 'WhatsApp yok' });
+            emitProgress(i + 1, contacts.length, sentCount, failCount);
             continue;
         }
 
@@ -274,10 +282,11 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             await recipientManager.logSend(phone, tenantId, msgHash);
             await persist(campaignStore?.markRecipient(campaignId, contact, 'sent'), { critical: true });
             const dailyCount = await recipientManager.getDailyCount(tenantId);
-            await addLog('success', `✅ İletildi: ${nameLabel} (${dailyCount}/${dailyLimit})`, currentProgress, estimateFor(contacts.length - i - 1));
-            messengerLogger.info({ phone: normalizedForOverride, campaignId, tenantId, sentCount: sentCount + 1 }, 'message_sent');
             sentCount++;
             failCount = 0;
+            await addLog('success', `✅ İletildi: ${nameLabel} (${dailyCount}/${dailyLimit})`, currentProgress, estimateFor(contacts.length - i - 1));
+            messengerLogger.info({ phone: normalizedForOverride, campaignId, tenantId, sentCount }, 'message_sent');
+            emitProgress(i + 1, contacts.length, sentCount, failCount);
 
             const hasMoreContacts = i < contacts.length - 1;
             const reachedBatchPause = batchPauseMinutes > 0 && batchSize > 0 && dailyCount > 0 && dailyCount % batchSize === 0;
@@ -297,9 +306,10 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         } catch (err) {
             failCount++;
             await persist(campaignStore?.markRecipient(campaignId, contact, 'failed', err), { critical: true });
-            await addLog('error', `❌ Hata: ${err.message}`, undefined, { error_stack: err.stack || null });
+            await addLog('error', `❌ Hata: ${err.message}`, currentProgress, { error_stack: err.stack || null });
             messengerLogger.error({ err, phone: normalizedForOverride, campaignId, tenantId, attemptCount: contact.attempt_count }, 'message_failed');
             skippedReport.push({ name: contact.name || '', phone: contact.phone || phone, reason: `Hata: ${err.message}` });
+            emitProgress(i + 1, contacts.length, sentCount, failCount);
         }
 
         if (i < contacts.length - 1 && activeCampaigns.get(campaignId)?.status !== 'stopped') {

@@ -20,11 +20,23 @@ function _initSocketListeners(sock) {
         setCampaignControls('running');
         updateCampaignEstimate(data?.status?.estimate_remaining_minutes);
         updateBatchPauseCountdown(null);
+        document.getElementById('prog-sent').innerText = 'BAŞARILI: 0';
+        document.getElementById('prog-failed').innerText = 'HATALI: 0';
         if (data?.status?.progress !== undefined) {
             document.getElementById('prog-box').classList.remove('hidden');
             document.getElementById('prog-bar').style.width = `${data.status.progress}%`;
             document.getElementById('prog-text').innerText = `${Math.round(data.status.progress)}%`;
         }
+    });
+    sock.on('campaign-progress', data => {
+        const pct = data.progress ?? 0;
+        document.getElementById('prog-box').classList.remove('hidden');
+        document.getElementById('prog-bar').style.width = `${pct}%`;
+        document.getElementById('prog-text').innerText = `${pct}%`;
+        document.getElementById('prog-count').innerText = `${data.processed}/${data.total} kişi işlendi`;
+        document.getElementById('prog-total').innerText = `TOPLAM: ${data.total}`;
+        document.getElementById('prog-sent').innerText = `BAŞARILI: ${data.sent}`;
+        document.getElementById('prog-failed').innerText = `HATALI: ${data.failed}`;
     });
     sock.on('log', data => {
         const logs = document.getElementById('logs');
@@ -1498,9 +1510,14 @@ async function checkActiveCampaign() {
             document.getElementById('prog-text').innerText = `${Math.round(data.campaign.progress)}%`;
             updateCampaignEstimate(data.campaign.estimate_remaining_minutes);
             updateBatchPauseCountdown(null);
+            const processed = data.campaign.processed ?? 0;
+            const total = data.campaign.total ?? 0;
             document.getElementById('prog-count').innerText = data.campaign.status === 'running'
-                ? 'Kampanya devam ediyor...'
+                ? `${processed}/${total} kişi işlendi`
                 : `Son durum: ${data.campaign.status}`;
+            document.getElementById('prog-total').innerText = `TOPLAM: ${total}`;
+            document.getElementById('prog-sent').innerText = `BAŞARILI: ${data.campaign.sent_count ?? '--'}`;
+            document.getElementById('prog-failed').innerText = `HATALI: ${data.campaign.failed_count ?? '--'}`;
 
             const logContainer = document.getElementById('logs');
             logContainer.innerHTML = '';
