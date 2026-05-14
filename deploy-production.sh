@@ -332,6 +332,10 @@ set_env_file \"\$passenger_path/.env\" SESSION_STORE sqlite
 set_env_file \"\$passenger_path/.env\" WHASAPPC_DATA_DIR \"\$data_path\"
 set_env_file \"\$passenger_path/.env\" TZ Europe/Istanbul
 set_env_file \"\$passenger_path/.env\" PROCESS_LOCK_WAIT_MS 15000
+set_env_file \"\$passenger_path/.env\" AUDIT_RETENTION_DAYS 30
+set_env_file \"\$passenger_path/.env\" CAMPAIGN_LOG_RETENTION_DAYS 30
+set_env_file \"\$passenger_path/.env\" DAILY_STATS_RETENTION_DAYS 90
+set_env_file \"\$passenger_path/.env\" SYSTEM_EVENTS_RETENTION_DAYS 30
 validate_runtime_env \"\$passenger_path/.env\"
 
 if command -v pm2 >/dev/null 2>&1; then
