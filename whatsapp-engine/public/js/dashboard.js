@@ -941,6 +941,21 @@ async function saveCurrentListAsGroup() {
     }
 }
 
+function openManualContactModal() {
+    const target = document.getElementById('manual-target-group');
+    const activeGroup = groups.find(group => group.id === activeGroupId);
+    if (target) {
+        if (activeGroup) {
+            target.textContent = `Eklenecek grup: ${activeGroup.name}`;
+            target.className = 'rounded-xl bg-emerald-50 text-emerald-700 px-4 py-3 text-xs font-bold';
+        } else {
+            target.textContent = 'Grup seçili değil: kişi geçici listeye eklenecek';
+            target.className = 'rounded-xl bg-amber-50 text-amber-700 px-4 py-3 text-xs font-bold';
+        }
+    }
+    showModal('manual-modal');
+}
+
 async function saveManualContact() {
     const fields = ui.readFields({ name: 'manual-name', phone: 'manual-phone' });
     const name = fields.name;
@@ -1576,7 +1591,7 @@ function bindStaticControls() {
     bindClick('media-upload-btn', () => byId('media-input')?.click());
     bindClick('create-group-btn', createGroup);
     bindClick('excel-upload-card', () => byId('excel-input')?.click());
-    bindClick('manual-open-card', () => showModal('manual-modal'));
+    bindClick('manual-open-card', openManualContactModal);
     bindClick('download-sample-card', downloadSample);
     bindClick('save-inline-group-btn', saveInlineGroupName);
     bindClick('manual-cancel-btn', () => hideModal('manual-modal'));
@@ -1588,7 +1603,7 @@ function bindStaticControls() {
     bindClick('template-cancel-btn', () => hideModal('template-modal'));
     bindClick('template-save-btn', saveTemplate);
     bindClick('campaign-complete-close-btn', closeCampaignCompleteModal);
-    bindClick('mobile-manual-open-btn', () => showModal('manual-modal'));
+    bindClick('mobile-manual-open-btn', openManualContactModal);
     bindClick('release-refresh-btn', () => window.location.reload());
 
     byId('template-select')?.addEventListener('change', event => loadTemplate(event.target.value));
