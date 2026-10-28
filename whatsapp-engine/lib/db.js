@@ -2462,15 +2462,20 @@ const setRecipientMessageId = async (campaignId, normalizedPhone, messageId) => 
     });
 };
 
+// Bildirimler sırasız gelebilir; durum yalnızca ileri gider (read sonrası gelen delivered yok sayılır).
+const DELIVERY_STATUS_RANK = { server_ack: 1, delivered: 2, read: 3, played: 4 };
+const DELIVERY_STATUS_RANK_SQL = `CASE delivery_status ${Object.entries(DELIVERY_STATUS_RANK)
+    .map(([status, rank]) => `WHEN '${status}' THEN ${rank}`).join(' ')} ELSE 0 END`;
+
 const updateDeliveryStatus = async (messageId, deliveryStatus) => {
-    if (!messageId || !deliveryStatus) return null;
+    if (!messageId || !DELIVERY_STATUS_RANK[deliveryStatus]) return null;
     const d = await getDb();
-    const deliveredAt = (deliveryStatus === 'delivered' || deliveryStatus === 'read') ? now() : null;
+    const deliveredAt = deliveryStatus === 'server_ack' ? null : now();
     d.run(
         `UPDATE campaign_recipients
-         SET delivery_status = ?, delivered_at = COALESCE(?, delivered_at), updated_at = ?
-         WHERE message_id = ?`,
-        [deliveryStatus, deliveredAt, now(), String(messageId)]
+         SET delivery_status = ?, delivered_at = COALESCE(delivered_at, ?), updated_at = ?
+         WHERE message_id = ? AND ${DELIVERY_STATUS_RANK_SQL} < ?`,
+        [deliveryStatus, deliveredAt, now(), String(messageId), DELIVERY_STATUS_RANK[deliveryStatus]]
     );
     save();
     return queryOne(d, 'SELECT campaign_run_id, normalized_phone, delivery_status FROM campaign_recipients WHERE message_id = ?', [String(messageId)]);

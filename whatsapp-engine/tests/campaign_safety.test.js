@@ -1305,3 +1305,18 @@ test('resume keeps campaign media when the upload store was cleared', async () =
     assert.deepEqual(run.metadata.media_files, mediaFiles);
     await db.setCampaignRunStatus(campaignId, 'finished');
 });
+
+test('delivery status only moves forward and records video plays', async () => {
+    await createRun('delivery-status-run');
+    await db.setRecipientMessageId('delivery-status-run', '905320000000', 'MSG-DELIVERY');
+
+    await db.updateDeliveryStatus('MSG-DELIVERY', 'read');
+    let row = await db.updateDeliveryStatus('MSG-DELIVERY', 'delivered');
+    assert.equal(row.delivery_status, 'read');
+
+    row = await db.updateDeliveryStatus('MSG-DELIVERY', 'played');
+    assert.equal(row.delivery_status, 'played');
+
+    row = await db.updateDeliveryStatus('MSG-DELIVERY', 'server_ack');
+    assert.equal(row.delivery_status, 'played');
+});

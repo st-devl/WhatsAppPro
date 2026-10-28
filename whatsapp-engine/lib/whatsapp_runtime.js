@@ -10,7 +10,8 @@ const SESSION_INVALID_THRESHOLD = 2;
 const BAILEYS_STATUS_MAP = {
     2: 'server_ack',
     3: 'delivered',
-    4: 'read'
+    4: 'read',
+    5: 'played'
 };
 
 function safeTenantSegment(tenantId = 'default') {
