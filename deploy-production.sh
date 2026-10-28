@@ -9,6 +9,7 @@ REMOTE_SSH_PORT="${DEPLOY_REMOTE_SSH_PORT:-65002}"
 PASSENGER_PATH="${DEPLOY_REMOTE_PASSENGER_PATH:-/home/u341720642/domains/yardimet.site/nodejs}"
 DATA_PATH="${DEPLOY_REMOTE_DATA_PATH:-/home/u341720642/domains/yardimet.site/app-data}"
 HEALTH_URL="${DEPLOY_REMOTE_HEALTH_URL:-https://yardimet.site/readyz}"
+WATCHDOG_HEALTH_URL="${DEPLOY_REMOTE_WATCHDOG_HEALTH_URL:-https://yardimet.site/healthz}"
 HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-90}"
 CACHE_ROOT="${WHASAPPC_DEPLOY_CACHE:-$HOME/.cache/whasappc-deploy}"
 CACHE_KEEP="${WHASAPPC_DEPLOY_CACHE_KEEP:-3}"
@@ -32,6 +33,7 @@ Defaults:
   DEPLOY_REMOTE_PASSENGER_PATH=/home/u341720642/domains/yardimet.site/nodejs
   DEPLOY_REMOTE_DATA_PATH=/home/u341720642/domains/yardimet.site/app-data
   DEPLOY_REMOTE_HEALTH_URL=https://yardimet.site/readyz
+  DEPLOY_REMOTE_WATCHDOG_HEALTH_URL=https://yardimet.site/healthz
   WHASAPPC_DEPLOY_CACHE=~/.cache/whasappc-deploy
 
 Behavior:
@@ -207,16 +209,21 @@ DEFAULT_TENANT_ID=default
 WHATSAPP_MAX_AUTO_RETRIES=3
 KEEP_AWAKE_DURING_CAMPAIGN=true
 CAMPAIGN_BATCH_SIZE=50
-CAMPAIGN_BATCH_PAUSE_MINUTES=40
+CAMPAIGN_BATCH_PAUSE_MINUTES=15
+CAMPAIGN_LONG_PAUSE_SIZE=250
+CAMPAIGN_LONG_PAUSE_MINUTES=65
 LOGIN_RATE_LIMIT_WINDOW_MS=900000
 LOGIN_RATE_LIMIT_MAX=5
-UPLOAD_MAX_FILE_SIZE_BYTES=52428800
+UPLOAD_MAX_FILE_SIZE_BYTES=125829120
 MEDIA_TOTAL_QUOTA_BYTES=524288000
 MEDIA_RETENTION_MS=604800000
 EXCEL_IMPORT_TIMEOUT_MS=30000
 LOG_LEVEL=info
 BACKUP_RETENTION_COUNT=30
 PROCESS_LOCK_WAIT_MS=15000
+PROCESS_LOCK_HEARTBEAT_INTERVAL_MS=15000
+PROCESS_LOCK_HEARTBEAT_STALE_MS=120000
+PROCESS_LOCK_STALE_TERMINATE_WAIT_MS=10000
 AUDIT_RETENTION_DAYS=30
 CAMPAIGN_LOG_RETENTION_DAYS=30
 DAILY_STATS_RETENTION_DAYS=90
@@ -233,6 +240,8 @@ ssh_master_started=1
 
 passenger_path_q="$(shell_quote "$PASSENGER_PATH")"
 data_path_q="$(shell_quote "$DATA_PATH")"
+health_url_q="$(shell_quote "$HEALTH_URL")"
+watchdog_health_url_q="$(shell_quote "$WATCHDOG_HEALTH_URL")"
 remote_env_artifact_q="$(shell_quote "$remote_env_artifact")"
 
 ssh "${ssh_opts[@]}" "$REMOTE_HOST" "set -euo pipefail
@@ -250,7 +259,7 @@ if [ "$SETUP_ENV" -eq 1 ]; then
 fi
 
 info "[6/7] rsync (uygulama + node_modules)"
-# Uygulama dosyalari (node_modules ve persistent yollar haric).
+# Uygulama dosyalari (node_modules, persistent data/ ve SQLite WAL/SHM dosyalari haric).
 rsync "${rsync_opts[@]}" \
     --exclude='/node_modules/' \
     --exclude='/.env' \
@@ -267,6 +276,8 @@ rsync "${rsync_opts[@]}" \
 ssh "${ssh_opts[@]}" "$REMOTE_HOST" "set -euo pipefail
 passenger_path=$passenger_path_q
 data_path=$data_path_q
+health_url=$health_url_q
+watchdog_health_url=$watchdog_health_url_q
 env_artifact=$remote_env_artifact_q
 
 set_env_file() {
@@ -331,11 +342,19 @@ set_env_file \"\$passenger_path/.env\" COOKIE_SECURE true
 set_env_file \"\$passenger_path/.env\" SESSION_STORE sqlite
 set_env_file \"\$passenger_path/.env\" WHASAPPC_DATA_DIR \"\$data_path\"
 set_env_file \"\$passenger_path/.env\" TZ Europe/Istanbul
+set_env_file \"\$passenger_path/.env\" CAMPAIGN_BATCH_PAUSE_MINUTES 15
+set_env_file \"\$passenger_path/.env\" CAMPAIGN_LONG_PAUSE_SIZE 250
+set_env_file \"\$passenger_path/.env\" CAMPAIGN_LONG_PAUSE_MINUTES 65
 set_env_file \"\$passenger_path/.env\" PROCESS_LOCK_WAIT_MS 15000
+set_env_file \"\$passenger_path/.env\" PROCESS_LOCK_HEARTBEAT_INTERVAL_MS 15000
+set_env_file \"\$passenger_path/.env\" PROCESS_LOCK_HEARTBEAT_STALE_MS 120000
+set_env_file \"\$passenger_path/.env\" PROCESS_LOCK_STALE_TERMINATE_WAIT_MS 10000
 set_env_file \"\$passenger_path/.env\" AUDIT_RETENTION_DAYS 30
 set_env_file \"\$passenger_path/.env\" CAMPAIGN_LOG_RETENTION_DAYS 30
 set_env_file \"\$passenger_path/.env\" DAILY_STATS_RETENTION_DAYS 90
 set_env_file \"\$passenger_path/.env\" SYSTEM_EVENTS_RETENTION_DAYS 30
+set_env_file \"\$passenger_path/.env\" UPLOAD_MAX_FILE_SIZE_BYTES 125829120
+set_env_file \"\$passenger_path/.env\" MEDIA_TOTAL_QUOTA_BYTES 524288000
 validate_runtime_env \"\$passenger_path/.env\"
 
 if command -v pm2 >/dev/null 2>&1; then
@@ -344,19 +363,147 @@ if command -v pm2 >/dev/null 2>&1; then
     pm2 save >/dev/null 2>&1 || true
 fi
 
+stop_passenger_app() {
+    pattern=\"lsnode:\$passenger_path/\"
+    pids=\"\$(pgrep -f \"\$pattern\" || true)\"
+    if [ -z \"\$pids\" ]; then
+        stopped_pids=''
+        return 0
+    fi
+
+    stopped_pids=\"\$pids\"
+    echo \"Existing Passenger app process stopping: \$pids\"
+    kill \$pids >/dev/null 2>&1 || true
+
+    for _ in \$(seq 1 30); do
+        alive=''
+        for pid in \$pids; do
+            if kill -0 \"\$pid\" >/dev/null 2>&1; then
+                alive=\"\$alive \$pid\"
+            fi
+        done
+        if [ -z \"\$alive\" ]; then
+            echo 'Existing Passenger app process stopped.'
+            return 0
+        fi
+        sleep 0.5
+    done
+
+    echo \"Existing Passenger app process still alive, forcing stop:\$alive\"
+    kill -KILL \$alive >/dev/null 2>&1 || true
+}
+
+remove_stale_process_lock() {
+    lock_file=\"\$data_path/runtime/app.lock\"
+    [ -f \"\$lock_file\" ] || return 0
+    lock_pid=\"\$(node -e \"try { const fs = require('fs'); const lock = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (lock.pid) process.stdout.write(String(lock.pid)); } catch (_) {}\" \"\$lock_file\")\"
+    if [ -n \"\$lock_pid\" ] && printf ' %s ' \"\${stopped_pids:-}\" | grep -F \" \$lock_pid \" >/dev/null 2>&1; then
+        rm -f \"\$lock_file\"
+        echo \"Process lock owned by stopped Passenger pid removed: \$lock_file\"
+        return 0
+    fi
+    if [ -n \"\$lock_pid\" ] && kill -0 \"\$lock_pid\" >/dev/null 2>&1; then
+        return 0
+    fi
+    rm -f \"\$lock_file\"
+    echo \"Stale process lock removed: \$lock_file\"
+}
+
+lock_owner_pid() {
+    lock_file=\"\$data_path/runtime/app.lock\"
+    [ -f \"\$lock_file\" ] || return 0
+    node -e \"try { const fs = require('fs'); const lock = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (lock.pid) process.stdout.write(String(lock.pid)); } catch (_) {}\" \"\$lock_file\"
+}
+
+remove_duplicate_passenger_workers() {
+    pattern=\"lsnode:\$passenger_path/\"
+    pids=\"\$(pgrep -f \"\$pattern\" || true)\"
+    [ -n \"\$pids\" ] || return 0
+    lock_pid=\"\$(lock_owner_pid || true)\"
+    [ -n \"\$lock_pid\" ] || return 0
+
+    duplicates=''
+    for pid in \$pids; do
+        [ \"\$pid\" = \"\$lock_pid\" ] && continue
+        duplicates=\"\$duplicates \$pid\"
+    done
+    [ -n \"\$duplicates\" ] || return 0
+
+    echo \"Duplicate Passenger app process stopping:\$duplicates\"
+    kill \$duplicates >/dev/null 2>&1 || true
+    sleep 1
+    alive=''
+    for pid in \$duplicates; do
+        if kill -0 \"\$pid\" >/dev/null 2>&1; then
+            alive=\"\$alive \$pid\"
+        fi
+    done
+    if [ -n \"\$alive\" ]; then
+        echo \"Duplicate Passenger app process still alive, forcing stop:\$alive\"
+        kill -KILL \$alive >/dev/null 2>&1 || true
+    fi
+}
+
+install_watchdog_cron() {
+    watchdog_script=\"\$passenger_path/scripts/passenger-watchdog.sh\"
+    if [ ! -s \"\$watchdog_script\" ]; then
+        echo \"Watchdog script bulunamadi, cron kurulumu atlandi: \$watchdog_script\"
+        return 0
+    fi
+    chmod 755 \"\$watchdog_script\" || true
+    if ! command -v crontab >/dev/null 2>&1; then
+        echo \"crontab bulunamadi, watchdog cron kurulumu atlandi.\"
+        return 0
+    fi
+
+    marker_begin='# BEGIN WhasAppC Passenger watchdog'
+    marker_end='# END WhasAppC Passenger watchdog'
+    cron_line=\"* * * * * PASSENGER_PATH='\$passenger_path' DATA_PATH='\$data_path' HEALTH_URL='\$watchdog_health_url' '\$watchdog_script' >/dev/null 2>&1\"
+    tmp_cron=\"\$(mktemp)\"
+    {
+        crontab -l 2>/dev/null | sed \"/\$marker_begin/,/\$marker_end/d\" || true
+        echo \"\$marker_begin\"
+        echo \"\$cron_line\"
+        echo \"\$marker_end\"
+    } > \"\$tmp_cron\"
+    crontab \"\$tmp_cron\"
+    rm -f \"\$tmp_cron\"
+    echo 'Passenger watchdog cron installed.'
+}
+
 test -s \"\$passenger_path/index.js\"
 test -s \"\$passenger_path/package.json\"
 test -d \"\$passenger_path/node_modules\"
 
-(cd \"\$passenger_path\" && node scripts/migrate.js apply)
+# Invalidate the running generation before stopping it. Passenger may start a
+# replacement immediately after SIGTERM; writing this afterwards makes that
+# healthy replacement stale and traps future requests in process-lock errors.
 touch \"\$passenger_path/tmp/restart.txt\"
+stop_passenger_app
+remove_stale_process_lock
+(cd \"\$passenger_path\" && node scripts/migrate.js apply)
+install_watchdog_cron
 echo 'Remote Passenger deploy staged.'
 "
 
 info "[7/7] Public health check"
 deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
 while true; do
-    if node -e "fetch(process.argv[1]).then(res => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))" "$HEALTH_URL" >/dev/null 2>&1; then
+    if node -e "const c = new AbortController(); setTimeout(() => c.abort(), 5000).unref(); fetch(process.argv[1], { signal: c.signal }).then(res => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))" "$HEALTH_URL" >/dev/null 2>&1; then
+        ssh "${ssh_opts[@]}" "$REMOTE_HOST" "passenger_path=$passenger_path_q data_path=$data_path_q
+lock_file=\"\$data_path/runtime/app.lock\"
+lock_pid=\"\$(node -e \"try { const fs = require('fs'); const lock = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (lock.pid) process.stdout.write(String(lock.pid)); } catch (_) {}\" \"\$lock_file\" 2>/dev/null || true)\"
+pids=\"\$(pgrep -f \"lsnode:\$passenger_path/\" || true)\"
+duplicates=''
+if [ -n \"\$lock_pid\" ]; then
+    for pid in \$pids; do
+        [ \"\$pid\" = \"\$lock_pid\" ] && continue
+        duplicates=\"\$duplicates \$pid\"
+    done
+fi
+if [ -n \"\$duplicates\" ]; then
+    kill \$duplicates >/dev/null 2>&1 || true
+fi" >/dev/null 2>&1 || true
         success "Health check OK: $HEALTH_URL"
         success "Production deploy tamamlandi."
         exit 0

@@ -36,9 +36,3 @@ jobs:
       - run: npm run migrate
       - run: npm audit --omit=dev --audit-level=high
 
-  docker:
-    runs-on: ubuntu-latest
-    needs: app
-    steps:
-      - uses: actions/checkout@v5
-      - run: docker build -t whasappc:${{ github.sha }} .

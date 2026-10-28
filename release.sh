@@ -6,8 +6,6 @@ export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
-COMPOSE_SERVICE="${COMPOSE_SERVICE:-whasappc}"
 DEPLOY_REMOTE_HOST="${DEPLOY_REMOTE_HOST:-}"
 DEPLOY_REMOTE_SSH_PORT="${DEPLOY_REMOTE_SSH_PORT:-22}"
 DEPLOY_REMOTE_PATH="${DEPLOY_REMOTE_PATH:-}"
@@ -15,7 +13,7 @@ DEPLOY_REMOTE_BRANCH="${DEPLOY_REMOTE_BRANCH:-$(git rev-parse --abbrev-ref HEAD 
 DEPLOY_REMOTE_REPO_URL="${DEPLOY_REMOTE_REPO_URL:-$(git remote get-url origin 2>/dev/null || echo '')}"
 DEPLOY_REMOTE_HEALTH_URL="${DEPLOY_REMOTE_HEALTH_URL:-}"
 DEPLOY_HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-90}"
-DEPLOY_RUNTIME="${DEPLOY_RUNTIME:-docker}"
+DEPLOY_RUNTIME="${DEPLOY_RUNTIME:-hostinger-passenger}"
 DEPLOY_REMOTE_RESTART_CMD="${DEPLOY_REMOTE_RESTART_CMD:-}"
 DEPLOY_REMOTE_PASSENGER_PATH="${DEPLOY_REMOTE_PASSENGER_PATH:-}"
 DEPLOY_REMOTE_DATA_PATH="${DEPLOY_REMOTE_DATA_PATH:-}"
@@ -38,12 +36,10 @@ usage() {
     cat <<'USAGE'
 Usage:
   ./release.sh check
-  ./release.sh local --version patch
   ./release.sh production --version patch --commit-all "release: ..." --push
 
 Modes:
   check          Run release checks, generate manifest, do not deploy. Default.
-  local          Run checks and deploy locally with Docker Compose.
   production     Run checks, require pushed commit, deploy remote over SSH.
 
 Options:
@@ -62,13 +58,10 @@ Remote environment:
   DEPLOY_REMOTE_BRANCH               Default: current branch
   DEPLOY_REMOTE_REPO_URL             Default: local origin URL
   DEPLOY_REMOTE_HEALTH_URL           Public health URL. Required for production deploys.
-  DEPLOY_RUNTIME                     docker, node, or hostinger-passenger. Default: docker
+  DEPLOY_RUNTIME                     node or hostinger-passenger. Default: hostinger-passenger
   DEPLOY_REMOTE_RESTART_CMD          Required for node runtime unless PM2 can be auto-detected
   DEPLOY_REMOTE_PASSENGER_PATH       Required for hostinger-passenger runtime. Example: /home/user/domains/site/nodejs
   DEPLOY_REMOTE_DATA_PATH            Optional persistent data dir for hostinger-passenger. Default: sibling app-data dir
-  COMPOSE_FILE                       Default: docker-compose.yml
-  COMPOSE_SERVICE                    Default: whasappc
-
 Notes:
   production mode never overwrites dirty files on the server. It stops if the
   remote working tree has uncommitted changes. Use DEPLOY_RUNTIME=hostinger-passenger
@@ -93,7 +86,7 @@ step() {
 parse_args() {
     if [ "$#" -gt 0 ]; then
         case "$1" in
-            check|local|production|remote)
+            check|production|remote)
                 MODE="$1"
                 [ "$MODE" = "remote" ] && MODE="production"
                 shift
@@ -144,8 +137,8 @@ parse_args() {
     done
 
     case "$MODE" in
-        check|local|production) ;;
-        *) fail "Mode check, local veya production olmali. Gelen: $MODE" ;;
+        check|production) ;;
+        *) fail "Mode check veya production olmali. Gelen: $MODE" ;;
     esac
 
     case "$VERSION_BUMP" in
@@ -186,22 +179,10 @@ validate_env_file() {
     [ "$pass_hash" != "replace-with-bcrypt-hash" ] || fail "ADMIN_PASS_HASH placeholder degerinde."
 }
 
-detect_compose() {
-    if docker compose version >/dev/null 2>&1; then
-        COMPOSE_CMD=(docker compose)
-        return
-    fi
-    if command -v docker-compose >/dev/null 2>&1; then
-        COMPOSE_CMD=(docker-compose)
-        return
-    fi
-    fail "Docker Compose bulunamadi."
-}
-
 validate_runtime() {
     case "$DEPLOY_RUNTIME" in
-        docker|node|hostinger-passenger) ;;
-        *) fail "DEPLOY_RUNTIME docker, node veya hostinger-passenger olmali. Gelen: $DEPLOY_RUNTIME" ;;
+        node|hostinger-passenger) ;;
+        *) fail "DEPLOY_RUNTIME node veya hostinger-passenger olmali. Gelen: $DEPLOY_RUNTIME" ;;
     esac
 }
 
@@ -319,19 +300,6 @@ shell_quote() {
     printf "%q" "$1"
 }
 
-deploy_local() {
-    require_command docker
-    detect_compose
-
-    info "Local Docker image build ediliyor..."
-    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" build "$COMPOSE_SERVICE"
-    info "Local migration apply calisiyor..."
-    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" run --rm --no-deps "$COMPOSE_SERVICE" npm run migrate:apply
-    info "Local servis baslatiliyor..."
-    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" up -d --remove-orphans "$COMPOSE_SERVICE"
-    wait_for_url "http://127.0.0.1:3005/readyz" "$DEPLOY_HEALTH_TIMEOUT_SECONDS"
-}
-
 deploy_remote() {
     ensure_remote_inputs
 
@@ -339,8 +307,6 @@ deploy_remote() {
     local remote_path_q
     local branch_q
     local repo_url_q
-    local compose_file_q
-    local compose_service_q
     local passenger_path_q
     local data_path_q
     local remote_node_modules_bundle
@@ -351,8 +317,6 @@ deploy_remote() {
     remote_path_q="$(shell_quote "$DEPLOY_REMOTE_PATH")"
     branch_q="$(shell_quote "$DEPLOY_REMOTE_BRANCH")"
     repo_url_q="$(shell_quote "$DEPLOY_REMOTE_REPO_URL")"
-    compose_file_q="$(shell_quote "$COMPOSE_FILE")"
-    compose_service_q="$(shell_quote "$COMPOSE_SERVICE")"
     passenger_path_q="$(shell_quote "$DEPLOY_REMOTE_PASSENGER_PATH")"
     data_path_q="$(shell_quote "$DEPLOY_REMOTE_DATA_PATH")"
     remote_node_modules_bundle="/tmp/whatsappc-node-modules-$commit.tar.gz"
@@ -542,7 +506,10 @@ if [ \"$DEPLOY_RUNTIME\" = 'hostinger-passenger' ]; then
     set_env_file \"\$passenger_path/.env\" TRUST_PROXY 1
     set_env_file \"\$passenger_path/.env\" COOKIE_SECURE true
     set_env_file \"\$passenger_path/.env\" WHASAPPC_DATA_DIR \"\$data_path\"
-    set_env_file \"\$passenger_path/.env\" PROCESS_LOCK_WAIT_MS 15000
+    set_env_file \"\$passenger_path/.env\" CAMPAIGN_BATCH_PAUSE_MINUTES 15
+    set_env_file \"\$passenger_path/.env\" CAMPAIGN_LONG_PAUSE_SIZE 250
+    set_env_file \"\$passenger_path/.env\" CAMPAIGN_LONG_PAUSE_MINUTES 65
+    set_env_file \"\$passenger_path/.env\" PROCESS_LOCK_WAIT_MS 0
     validate_runtime_env \"\$passenger_path/.env\"
 
     if command -v pm2 >/dev/null 2>&1; then
@@ -555,12 +522,44 @@ if [ \"$DEPLOY_RUNTIME\" = 'hostinger-passenger' ]; then
         ! -name .env \
         ! -name node_modules \
         ! -name tmp \
+        ! -name data \
+        ! -name auth \
+        ! -name uploads \
         -exec rm -rf {} +
     tar --exclude='./node_modules' --exclude='./.env' --exclude='./data' --exclude='./auth' --exclude='./uploads' -C whatsapp-engine -cf - . | tar -C \"\$passenger_path\" -xf -
     install_node_bundle \"\$passenger_path\"
     rm -f \"\$remote_node_modules_bundle\" || true
-    (cd \"\$passenger_path\" && node scripts/migrate.js apply)
+
+    # Write the restart marker before stopping workers. LSNode may create a
+    # replacement immediately; marking afterwards invalidates that replacement.
     touch \"\$passenger_path/tmp/restart.txt\"
+    passenger_pids=\"\$(pgrep -f \"lsnode:\$passenger_path/\" || true)\"
+    if [ -n \"\$passenger_pids\" ]; then
+        kill \$passenger_pids >/dev/null 2>&1 || true
+        for _ in \$(seq 1 30); do
+            alive=''
+            for pid in \$passenger_pids; do
+                if kill -0 \"\$pid\" >/dev/null 2>&1; then
+                    alive=\"\$alive \$pid\"
+                fi
+            done
+            [ -z \"\$alive\" ] && break
+            sleep 0.5
+        done
+        if [ -n \"\${alive:-}\" ]; then
+            kill -KILL \$alive >/dev/null 2>&1 || true
+        fi
+    fi
+    lock_file=\"\$data_path/runtime/app.lock\"
+    if [ -f \"\$lock_file\" ]; then
+        lock_pid=\"\$(node -e \"try { const fs = require('fs'); const lock = JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); if (lock.pid) process.stdout.write(String(lock.pid)); } catch (_) {}\" \"\$lock_file\")\"
+        if [ -n \"\$lock_pid\" ] && kill -0 \"\$lock_pid\" >/dev/null 2>&1; then
+            echo \"HATA: Passenger worker deploy sirasinda halen aktif. pid=\$lock_pid\" >&2
+            exit 1
+        fi
+        rm -f \"\$lock_file\"
+    fi
+    (cd \"\$passenger_path\" && node scripts/migrate.js apply)
     echo 'Remote Passenger deploy staged. Public health check local tarafta calisacak.'
     exit 0
 fi
@@ -613,30 +612,12 @@ if [ \"$DEPLOY_RUNTIME\" = 'node' ]; then
         echo 'DEPLOY_REMOTE_RESTART_CMD ayarlayin veya sunucuda PM2 kullanin.' >&2
         exit 1
     fi
-else
-    if docker compose version >/dev/null 2>&1; then
-        COMPOSE='docker compose'
-    elif command -v docker-compose >/dev/null 2>&1; then
-        COMPOSE='docker-compose'
-    else
-        echo 'HATA: remote Docker Compose bulunamadi. Bu sunucu icin DEPLOY_RUNTIME=node kullanin.' >&2
-        exit 1
-    fi
-
-    \$COMPOSE -f $compose_file_q build $compose_service_q
-    \$COMPOSE -f $compose_file_q run --rm --no-deps $compose_service_q npm run migrate:apply
-    \$COMPOSE -f $compose_file_q up -d --remove-orphans $compose_service_q
 fi
 
 deadline=\$((SECONDS + $DEPLOY_HEALTH_TIMEOUT_SECONDS))
 while [ \"\$SECONDS\" -lt \"\$deadline\" ]; do
-    if [ \"$DEPLOY_RUNTIME\" = 'docker' ]; then
-        \$COMPOSE -f $compose_file_q exec -T $compose_service_q node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 3005) + '/readyz').then(res => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\" >/dev/null 2>&1 && {
-            echo 'Remote container health check OK.'
-            exit 0
-        }
-    elif node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 3005) + '/readyz').then(res => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\" >/dev/null 2>&1; then
-        echo 'Remote container health check OK.'
+    if node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 3005) + '/readyz').then(res => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\" >/dev/null 2>&1; then
+        echo 'Remote health check OK.'
         exit 0
     fi
     sleep 2
@@ -659,10 +640,6 @@ main() {
     case "$MODE" in
         check)
             success "Release check tamamlandi. Deploy yapilmadi."
-            ;;
-        local)
-            deploy_local
-            success "Local deploy tamamlandi."
             ;;
         production)
             deploy_remote
