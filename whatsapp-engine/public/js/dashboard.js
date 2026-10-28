@@ -109,6 +109,9 @@ let suppressedRecipients = [];
 let suppressedPhoneSet = new Set();
 let suppressedRecipientsLoaded = false;
 let lastCampaignDetailedReport = null;
+let previewContacts = [];
+let previewContactIndex = 0;
+let previewContactsRequest = 0;
 appState.expose([
     'currentContacts',
     'visibleContacts',
@@ -855,6 +858,7 @@ function updateCampaignTargetSummary() {
     const totalEl = document.getElementById('prog-total');
     if (totalEl) totalEl.innerText = `TOPLAM: ${total}`;
     updateCampaignEstimate(estimateMinutesForContacts(total));
+    refreshPreviewContacts();
 }
 
 function toggleCampaignGroup(groupId, checked) {
@@ -1207,8 +1211,45 @@ function setTemplateValidation(issues = []) {
     element.innerText = hasIssues ? issues[0].message : '';
 }
 
+const SAMPLE_PREVIEW_CONTACT = { name: 'Ahmet', surname: 'Yılmaz' };
+
 function previewContact() {
-    return { name: 'Sayın Ahmet', surname: 'Yılmaz' };
+    return previewContacts[previewContactIndex] || SAMPLE_PREVIEW_CONTACT;
+}
+
+// Önizleme, kampanyada seçili kişilerin telefonunda görünecek metni gösterir.
+async function refreshPreviewContacts() {
+    const request = ++previewContactsRequest;
+    let contacts = [];
+    try {
+        contacts = await getSelectedCampaignContacts();
+    } catch (err) {
+        console.warn('Önizleme kişileri yüklenemedi:', err);
+    }
+    if (request !== previewContactsRequest) return;
+    previewContacts = contacts;
+    previewContactIndex = Math.min(previewContactIndex, Math.max(0, contacts.length - 1));
+    updatePreview();
+}
+
+function stepPreviewContact(step) {
+    if (previewContacts.length === 0) return;
+    previewContactIndex = (previewContactIndex + step + previewContacts.length) % previewContacts.length;
+    updatePreview();
+}
+
+function renderPreviewContactHeader() {
+    const contact = previewContact();
+    const isSample = previewContacts.length === 0;
+    const fullName = `${contact.name || ''} ${contact.surname || ''}`.trim();
+    const title = fullName || contact.phone || '';
+    const initials = fullName.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0].toLocaleUpperCase('tr-TR')).join('');
+
+    document.getElementById('preview-chat-name').innerText = isSample ? `${title} (örnek)` : title;
+    document.getElementById('preview-chat-avatar').innerText = initials || '#';
+    document.getElementById('preview-contact-position').innerText = isSample ? 'Örnek' : `${previewContactIndex + 1}/${previewContacts.length}`;
+    document.getElementById('preview-prev-btn').disabled = previewContacts.length < 2;
+    document.getElementById('preview-next-btn').disabled = previewContacts.length < 2;
 }
 
 function validateMessageTemplateOrShow(text, sampleContact = previewContact()) {
@@ -1225,6 +1266,7 @@ function validateMessageTemplateOrShow(text, sampleContact = previewContact()) {
 }
 
 function updatePreview() {
+    renderPreviewContactHeader();
     const text = ui.getField('message') || 'Mesajınız...';
     try {
         const rendered = messageRenderer.renderTemplate(text, previewContact(), { choiceMode: 'first' });
@@ -2171,6 +2213,8 @@ function bindStaticControls() {
         button.addEventListener('click', toggleLogs);
     });
 
+    bindClick('preview-prev-btn', () => stepPreviewContact(-1));
+    bindClick('preview-next-btn', () => stepPreviewContact(1));
     bindClick('logout-btn', logout);
     bindClick('reset-connection-btn', resetConnection);
     bindClick('open-template-modal-btn', () => showModal('template-modal'));

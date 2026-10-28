@@ -315,6 +315,37 @@ test('media payloads always include a caption key', async () => {
     assert.equal(sent[1].payload.caption, undefined);
 });
 
+test('message text uses first name for {{ad}} and surname only once', async () => {
+    const sent = [];
+    const sock = {
+        onWhatsApp: async () => [{ exists: true }],
+        sendPresenceUpdate: async () => {},
+        sendMessage: async (phone, payload) => {
+            sent.push(payload.text);
+        }
+    };
+
+    await sendBulkWithProgress(
+        sock,
+        [{ phone: '905320000098', name: 'Ahmet', surname: 'Yılmaz' }],
+        'Sayın {{ad}} {{soyad}}',
+        null,
+        [5, 5],
+        [],
+        'placeholder-full-name',
+        {
+            tenantId,
+            typingDelayMs: 0,
+            stopPollMs: 10,
+            delayScale: 0,
+            disableNightMode: true,
+            sleep: async () => {}
+        }
+    );
+
+    assert.deepEqual(sent, ['Sayın Ahmet Yılmaz']);
+});
+
 test('finish locks campaign against every restart path', async () => {
     const campaignId = 'finished-restart-lock';
     await createRun(campaignId, [

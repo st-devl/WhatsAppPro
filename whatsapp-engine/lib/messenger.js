@@ -170,7 +170,7 @@ function recipientDisplayName(contact = {}) {
     const fullName = `${contact.name || ''} ${contact.surname || ''}`.trim();
     if (fullName && fullName !== 'Bilinmeyen') return fullName;
     if (contact.name && contact.name !== 'Bilinmeyen') return contact.name;
-    return 'Müşterimiz';
+    return contact.phone || '';
 }
 
 function buildMediaPayload(media, caption, options = {}) {
@@ -690,7 +690,7 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         }
         consecutiveValidationUnknownCount = 0;
 
-        const finalMsg = message ? renderTemplate(message, { ...contact, name: nameLabel }, { choiceMode: 'random' }).text : '';
+        const finalMsg = message ? renderTemplate(message, contact, { choiceMode: 'random' }).text : '';
 
         try {
             await sock.sendPresenceUpdate('composing', phone);

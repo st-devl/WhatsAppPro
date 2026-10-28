@@ -6,9 +6,15 @@
     }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function createMessageRenderer() {
     const PLACEHOLDERS = {
-        ad: contact => contact.name || 'Musterimiz',
-        soyadi: contact => contact.surname || ''
+        ad: contact => contact.name,
+        soyad: contact => contact.surname,
+        soyadi: contact => contact.surname
     };
+
+    // {{Ad}}, {{SOYADI}} ve {{soyadı}} da aynı değişkene çıkar.
+    function placeholderKey(token) {
+        return String(token || '').trim().replace(/ı/g, 'i').replace(/I/g, 'i').toLowerCase();
+    }
 
     class TemplateRenderError extends Error {
         constructor(message, details = []) {
@@ -21,8 +27,9 @@
     }
 
     function cleanContact(contact = {}) {
+        const name = String(contact.name || '').trim();
         return {
-            name: String(contact.name || '').trim(),
+            name: name === 'Bilinmeyen' ? '' : name,
             surname: String(contact.surname || '').trim()
         };
     }
@@ -43,7 +50,7 @@
         const placeholderMatches = source.matchAll(/{{\s*([^{}]+?)\s*}}/g);
         for (const match of placeholderMatches) {
             const token = String(match[1] || '').trim();
-            if (!Object.prototype.hasOwnProperty.call(PLACEHOLDERS, token)) {
+            if (!Object.prototype.hasOwnProperty.call(PLACEHOLDERS, placeholderKey(token))) {
                 issues.push(createIssue('UNKNOWN_PLACEHOLDER', `Bilinmeyen placeholder: {{${token}}}`, token));
             }
             scrubbed = scrubbed.replace(match[0], '');
@@ -88,9 +95,12 @@
         const randomFn = typeof options.randomFn === 'function' ? options.randomFn : Math.random;
 
         let output = String(template || '');
-        output = output.replace(/{{\s*([^{}]+?)\s*}}/g, (match, token) => {
-            const renderer = PLACEHOLDERS[String(token || '').trim()];
-            return renderer ? renderer(normalizedContact) : match;
+        // Boş soyad "Sayın Ayşe , ..." gibi çift boşluk bırakmasın diye önündeki boşluğu da alır.
+        output = output.replace(/( ?){{\s*([^{}]+?)\s*}}/g, (match, space, token) => {
+            const renderer = PLACEHOLDERS[placeholderKey(token)];
+            if (!renderer) return match;
+            const value = renderer(normalizedContact);
+            return value ? space + value : '';
         });
         output = output.replace(/\{([^{}|]*(?:\|[^{}|]*)+)\}/g, (match, body) => {
             const choices = body.split('|').map(item => item.trim());

@@ -41,3 +41,21 @@ test('rejects malformed choice syntax', () => {
     assert.equal(validation.valid, false);
     assert.equal(validation.issues[0].code, 'EMPTY_CHOICE_OPTION');
 });
+
+test('accepts {{soyad}} and placeholder names regardless of case', () => {
+    const contact = { name: 'Ahmet', surname: 'Yılmaz' };
+    for (const template of ['Sayın {{ad}} {{soyad}}', 'Sayın {{Ad}} {{SOYADI}}', 'Sayın {{ ad }} {{soyadı}}']) {
+        assert.equal(validateTemplate(template).valid, true, template);
+        assert.equal(renderTemplate(template, contact).text, 'Sayın Ahmet Yılmaz', template);
+    }
+});
+
+test('drops the space before an empty surname', () => {
+    const result = renderTemplate('Sayın {{ad}} {{soyad}}, {Merhaba|Selam}!', { name: 'Ayşe', surname: '' }, { choiceMode: 'first' });
+    assert.equal(result.text, 'Sayın Ayşe, Merhaba!');
+});
+
+test('renders nothing for a missing or unknown name', () => {
+    assert.equal(renderTemplate('Sayın {{ad}} {{soyad}}, Merhaba!', {}).text, 'Sayın, Merhaba!');
+    assert.equal(renderTemplate('Sayın {{ad}}', { name: 'Bilinmeyen' }).text, 'Sayın');
+});
