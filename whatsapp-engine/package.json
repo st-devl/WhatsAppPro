@@ -30,8 +30,9 @@
     "test:campaign": "node --test tests/campaign_safety.test.js",
     "test:media-cache": "node --test tests/media_upload_cache.test.js",
     "test:media-thumbnail": "node --test tests/media_thumbnail.test.js",
+    "test:sent-messages": "node --test tests/sent_message_store.test.js",
     "test:e2e": "playwright test",
-    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:env && npm run test:process-lock && npm run test:health && npm run test:db-checkpoint && npm run test:db-driver && npm run test:db && npm run test:db-backup && npm run test:message && npm run test:security && npm run test:campaign && npm run test:media-cache && npm run test:media-thumbnail && npm run test:integration && npm run test:regression && npm run test:sqljs"
+    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:env && npm run test:process-lock && npm run test:health && npm run test:db-checkpoint && npm run test:db-driver && npm run test:db && npm run test:db-backup && npm run test:message && npm run test:security && npm run test:campaign && npm run test:media-cache && npm run test:media-thumbnail && npm run test:sent-messages && npm run test:integration && npm run test:regression && npm run test:sqljs"
   },
   "keywords": [
     "whatsapp",
