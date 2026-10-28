@@ -42,6 +42,13 @@ function jpegBytes(size = 32) {
     return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(Math.max(0, size - 4))]);
 }
 
+function mp4Bytes(size = 32) {
+    return Buffer.concat([
+        Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]),
+        Buffer.alloc(Math.max(0, size - 12))
+    ]);
+}
+
 function fileObject(filePath, overrides = {}) {
     return {
         path: filePath,
@@ -86,7 +93,7 @@ test('invalid media magic number is rejected and removed', async () => {
 
         const service = createService(baseDir);
         await assert.rejects(
-            () => service.replaceMedia([fileObject(uploadPath, { size: 12 })]),
+            () => service.addMedia([fileObject(uploadPath, { size: 12 })]),
             err => err.code === 'INVALID_MEDIA_FILE'
         );
         await assert.rejects(() => fs.stat(uploadPath), { code: 'ENOENT' });
@@ -104,7 +111,7 @@ test('media total quota rejects new upload and removes it', async () => {
 
         const service = createService(baseDir, { totalQuotaBytes: 16 });
         await assert.rejects(
-            () => service.replaceMedia([fileObject(uploadPath, { size: content.length })]),
+            () => service.addMedia([fileObject(uploadPath, { size: content.length })]),
             err => err.code === 'MEDIA_QUOTA_EXCEEDED'
         );
         await assert.rejects(() => fs.stat(uploadPath), { code: 'ENOENT' });
@@ -121,15 +128,48 @@ test('media retention removes expired upload files before accepting new media', 
         await fs.writeFile(oldPath, jpegBytes(32));
         await fs.writeFile(newPath, jpegBytes(32));
         const oldDate = new Date(Date.now() - 10_000);
+        const service = createService(baseDir, { totalQuotaBytes: 1024, retentionMs: 1000 });
+        await service.addMedia([fileObject(oldPath, { size: 32 })]);
         await fs.utimes(oldPath, oldDate, oldDate);
-
-        const service = createService(baseDir, { totalQuotaBytes: 1024, retentionMs: 1 });
-        const files = await service.replaceMedia([fileObject(newPath, { size: 32 })]);
+        const files = await service.addMedia([fileObject(newPath, { size: 32 })]);
 
         assert.equal(files.length, 1);
         assert.equal(files[0].path, 'uploads/default/new.jpg');
         await assert.rejects(() => fs.stat(oldPath), { code: 'ENOENT' });
         await fs.stat(newPath);
+    } finally {
+        await cleanup(baseDir);
+    }
+});
+
+test('sequential media uploads retain mixed video and image selections', async () => {
+    const baseDir = await createTempBaseDir();
+    try {
+        const videoPath = path.join(baseDir, 'uploads', 'default', 'clip.mp4');
+        const firstImagePath = path.join(baseDir, 'uploads', 'default', 'first.jpg');
+        const secondImagePath = path.join(baseDir, 'uploads', 'default', 'second.jpg');
+        await fs.writeFile(videoPath, mp4Bytes());
+        await fs.writeFile(firstImagePath, jpegBytes());
+        await fs.writeFile(secondImagePath, jpegBytes());
+
+        const service = createService(baseDir);
+        await service.addMedia([
+            fileObject(videoPath, { originalname: 'clip.mp4', mimetype: 'video/mp4', size: 32 })
+        ]);
+        const files = await service.addMedia([
+            fileObject(firstImagePath, { originalname: 'first.jpg', size: 32 }),
+            fileObject(secondImagePath, { originalname: 'second.jpg', size: 32 })
+        ]);
+
+        assert.deepEqual(files.map(file => file.path), [
+            'uploads/default/clip.mp4',
+            'uploads/default/first.jpg',
+            'uploads/default/second.jpg'
+        ]);
+        assert.deepEqual(files.map(file => file.mimetype), ['video/mp4', 'image/jpeg', 'image/jpeg']);
+
+        const reloadedStore = new MediaStore({ filePath: path.join(baseDir, 'media-store.json') });
+        assert.equal(reloadedStore.list('default').length, 3);
     } finally {
         await cleanup(baseDir);
     }

@@ -90,10 +90,27 @@ async function createSampleWorkbookBuffer() {
     return Buffer.from(buf);
 }
 
+async function createContactsWorkbookBuffer(contacts = []) {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Rehber');
+    worksheet.addRow(['Numara', 'İsim', 'Soyisim']);
+    contacts.forEach(contact => {
+        worksheet.addRow([
+            contact.phone || contact.normalized_phone || '',
+            contact.name || '',
+            contact.surname || ''
+        ]);
+    });
+    worksheet.columns.forEach(column => { column.width = 18; });
+    const buf = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buf);
+}
+
 module.exports = {
     excelCellToString,
     worksheetToObjects,
     readWorkbookObjects,
     readWorkbookObjectsInWorker,
-    createSampleWorkbookBuffer
+    createSampleWorkbookBuffer,
+    createContactsWorkbookBuffer
 };

@@ -28,6 +28,16 @@ function registerCampaignSocket(io, options = {}) {
             }
         });
 
+        socket.on('finish-bulk', async (data = {}) => {
+            try {
+                const status = await campaignService.finish(data?.campaignId, ownerEmail, tenantId);
+                socket.emit('campaign-progress', { ...(status || {}), status: 'finished', phase: 'finished' });
+                socket.emit('log', { type: 'error', message: '🛑 Kampanya bitirildi. Bu kampanyadan tekrar mesaj gönderilmeyecek.' });
+            } catch (err) {
+                socket.emit('log', { type: 'error', message: `Kampanya bitirme hatası: ${err.message}` });
+            }
+        });
+
         socket.on('start-bulk', async (data) => {
             try {
                 await campaignService.start(data, socket);
@@ -48,7 +58,15 @@ function registerCampaignSocket(io, options = {}) {
             try {
                 await campaignService.retry(data?.campaignId, ownerEmail, socket, { tenantId });
             } catch (err) {
-                socket.emit('log', { type: 'error', message: `Retry hatası: ${err.message}` });
+                socket.emit('log', { type: 'error', message: `Gönderilmeyenleri tekrar gönderme hatası: ${err.message}` });
+            }
+        });
+
+        socket.on('retry-skipped-bulk', async (data = {}) => {
+            try {
+                await campaignService.retrySkipped(data?.campaignId, ownerEmail, socket, { tenantId });
+            } catch (err) {
+                socket.emit('log', { type: 'error', message: `Atlananları tekrar deneme hatası: ${err.message}` });
             }
         });
     });

@@ -27,6 +27,15 @@ function createCampaignRouter(options = {}) {
         }
     });
 
+    router.post('/campaigns/:campaignId/finish', async (req, res, next) => {
+        try {
+            const status = await campaignService.finish(req.params.campaignId, ownerEmail(req), tenantId(req));
+            sendSuccess(res, { campaign: status }, 'CAMPAIGN_FINISHED');
+        } catch (err) {
+            next(err);
+        }
+    });
+
     router.post('/campaigns/:campaignId/resume', async (req, res, next) => {
         try {
             const status = await campaignService.resume(req.params.campaignId, ownerEmail(req), null, { detached: true, tenantId: tenantId(req) });
@@ -40,6 +49,15 @@ function createCampaignRouter(options = {}) {
         try {
             const status = await campaignService.retry(req.params.campaignId, ownerEmail(req), null, { detached: true, tenantId: tenantId(req) });
             sendSuccess(res, { campaign: status }, 'CAMPAIGN_RETRY_STARTED');
+        } catch (err) {
+            next(err);
+        }
+    });
+
+    router.post('/campaigns/:campaignId/retry-skipped', async (req, res, next) => {
+        try {
+            const status = await campaignService.retrySkipped(req.params.campaignId, ownerEmail(req), null, { detached: true, tenantId: tenantId(req) });
+            sendSuccess(res, { campaign: status }, 'CAMPAIGN_RETRY_SKIPPED_STARTED');
         } catch (err) {
             next(err);
         }

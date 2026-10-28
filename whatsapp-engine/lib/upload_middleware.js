@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 
 function uploadFileSizeLimit() {
     const parsed = Number.parseInt(process.env.UPLOAD_MAX_FILE_SIZE_BYTES || process.env.MEDIA_MAX_FILE_SIZE_BYTES || '', 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 50 * 1024 * 1024;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 120 * 1024 * 1024;
 }
 
 function safeTenantSegment(tenantId = 'default') {

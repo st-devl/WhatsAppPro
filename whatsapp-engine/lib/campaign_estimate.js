@@ -1,5 +1,7 @@
 const DEFAULT_BATCH_SIZE = 50;
-const DEFAULT_BATCH_PAUSE_MINUTES = 40;
+const DEFAULT_BATCH_PAUSE_MINUTES = 15;
+const DEFAULT_LONG_PAUSE_SIZE = 250;
+const DEFAULT_LONG_PAUSE_MINUTES = 65;
 
 function averageDelaySeconds(runOrInput = {}) {
     const minMs = Number(runOrInput.delay_min_ms || 0);
@@ -20,12 +22,25 @@ function estimateRemainingSeconds(input = {}) {
     const remaining = Math.max(0, Number.parseInt(input.remaining, 10) || 0);
     if (remaining === 0) return 0;
 
+    const sentCount = Math.max(0, Number.parseInt(input.sentCount ?? input.sent_count ?? 0, 10) || 0);
+    const countPauses = (size) => {
+        const parsed = Number.parseInt(size, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0 || remaining <= 0) return 0;
+        return Math.floor((sentCount + remaining - 1) / parsed) - Math.floor(sentCount / parsed);
+    };
     const batchSize = Number.parseInt(input.batchSize ?? input.batch_size ?? DEFAULT_BATCH_SIZE, 10);
     const batchPauseMinutes = Number.parseInt(input.batchPauseMinutes ?? input.batch_pause_minutes ?? DEFAULT_BATCH_PAUSE_MINUTES, 10);
-    const pauseCount = batchSize > 0 && batchPauseMinutes > 0 ? Math.floor((remaining - 1) / batchSize) : 0;
+    const longPauseSize = Number.parseInt(input.longPauseSize ?? input.long_pause_size ?? DEFAULT_LONG_PAUSE_SIZE, 10);
+    const longPauseMinutes = Number.parseInt(input.longPauseMinutes ?? input.long_pause_minutes ?? DEFAULT_LONG_PAUSE_MINUTES, 10);
+    const batchPauseCount = batchSize > 0 && batchPauseMinutes > 0 ? countPauses(batchSize) : 0;
+    const longPauseCount = longPauseSize > 0 && longPauseMinutes > 0 ? countPauses(longPauseSize) : 0;
+    const overlappingPauseCount = batchSize > 0 && longPauseSize > 0 && longPauseSize % batchSize === 0
+        ? longPauseCount
+        : 0;
     const perRecipientSeconds = averageDelaySeconds(input) + 3;
-    const batchPauseSeconds = pauseCount * batchPauseMinutes * 60;
-    return Math.max(60, Math.round((remaining * perRecipientSeconds) + batchPauseSeconds));
+    const batchPauseSeconds = Math.max(0, batchPauseCount - overlappingPauseCount) * batchPauseMinutes * 60;
+    const longPauseSeconds = longPauseCount * longPauseMinutes * 60;
+    return Math.max(60, Math.round((remaining * perRecipientSeconds) + batchPauseSeconds + longPauseSeconds));
 }
 
 function estimateRemainingMinutes(input = {}) {
@@ -36,6 +51,8 @@ function estimateRemainingMinutes(input = {}) {
 module.exports = {
     DEFAULT_BATCH_SIZE,
     DEFAULT_BATCH_PAUSE_MINUTES,
+    DEFAULT_LONG_PAUSE_SIZE,
+    DEFAULT_LONG_PAUSE_MINUTES,
     averageDelaySeconds,
     estimateRemainingSeconds,
     estimateRemainingMinutes

@@ -15,15 +15,18 @@ const { createUploadMiddleware, uploadStorageBaseDir } = require('./lib/upload_m
 const { createTenantUploadMiddleware } = require('./lib/tenant_uploads');
 const { WhatsAppRegistry } = require('./lib/whatsapp_registry');
 const { KeepAwake } = require('./lib/keep_awake');
-const { createErrorMiddleware, createNotFoundMiddleware } = require('./lib/api_errors');
+const { createApiVersionRemovedMiddleware, createErrorMiddleware, createNotFoundMiddleware } = require('./lib/api_errors');
 const { componentLogger, createRequestLoggerMiddleware, logger } = require('./lib/logger');
 const { acquireProcessLock } = require('./lib/process_lock');
 const { parseTrustProxy } = require('./lib/proxy_config');
 const { readReleaseManifest } = require('./lib/release_manifest');
+const { buildLivenessPayload, buildReadinessPayload, parseDurationMs } = require('./lib/health_checks');
 const { requireAuth } = require('./middleware/auth');
 const { createSecurityHeaders, requireSameOriginForStateChanges } = require('./middleware/security');
 const { createSessionMiddleware } = require('./middleware/session');
 const { createAuthRouter } = require('./routes/auth');
+const { createFaviconRouter } = require('./routes/favicon');
+const { createVendorAssetsRouter } = require('./routes/vendor_assets');
 const { createSystemRouter } = require('./routes/system');
 const { createUsersRouter } = require('./routes/users');
 const { createTemplateRouter } = require('./routes/templates');
@@ -69,6 +72,7 @@ const runtime = new WhatsAppRegistry({
 });
 
 const campaignService = new CampaignService({ db, runtime, mediaStore, keepAwake, logger: componentLogger('campaign_service') });
+const readinessTimeoutMs = parseDurationMs(process.env.READINESS_CHECK_TIMEOUT_MS, 2000);
 const authRouterOptions = {
     db,
     loginLimiter,
@@ -95,21 +99,15 @@ function mountProtectedApi(prefix, options) {
     app.use(prefix, createReportsRouter(options.db));
 }
 
-function legacyApiDeprecationHeaders(req, res, next) {
-    res.setHeader('Deprecation', 'true');
-    res.setHeader('Link', '</api/v1>; rel="successor-version"');
-    res.setHeader('Sunset', 'Wed, 30 Sep 2026 00:00:00 GMT');
-    next();
-}
-
-app.use(sessionMiddleware);
-io.engine.use(sessionMiddleware);
 app.use(createRequestLoggerMiddleware());
 app.use(createSecurityHeaders({ secureCookies: sessionCookieOptions.secure }));
+app.use(createFaviconRouter(__dirname));
+app.use(sessionMiddleware);
+io.engine.use(sessionMiddleware);
+app.use(createVendorAssetsRouter({ requireAuth }));
 app.use(express.json({ limit: '10mb' }));
 app.use(requireSameOriginForStateChanges);
 
-app.use('/api', createAuthRouter(authRouterOptions));
 app.use('/api/v1', createAuthRouter(authRouterOptions));
 
 app.get('/app-version', async (req, res) => {
@@ -118,39 +116,27 @@ app.get('/app-version', async (req, res) => {
 });
 
 app.get('/healthz', (req, res) => {
-    res.json({
-        ok: true,
-        status: {
-            http: runtime.getStatus(defaultTenantId).http,
-            uptime_seconds: Math.round(process.uptime())
-        }
-    });
+    res.json(buildLivenessPayload({ runtime, tenantId: defaultTenantId }));
 });
 
 app.get('/readyz', async (req, res) => {
-    try {
-        const d = await db.getDb();
-        const journalMode = d.pragma('journal_mode', { simple: true });
-        const status = runtime.getStatus(defaultTenantId);
-        const ready = status.http === 'listening';
-        res.status(ready ? 200 : 503).json({
-            ok: ready,
-            checks: {
-                http: status.http,
-                database: 'ok',
-                journal_mode: journalMode,
-                whatsapp: status.whatsapp
-            }
-        });
-    } catch (err) {
-        serverLogger.error({ err }, 'readiness_check_failed');
-        res.status(503).json({
-            ok: false,
-            checks: {
-                database: 'error'
-            }
-        });
+    const readiness = await buildReadinessPayload({
+        db,
+        runtime,
+        tenantId: defaultTenantId,
+        timeoutMs: readinessTimeoutMs
+    });
+    const { failures = [], ...body } = readiness;
+    if (!body.ok) {
+        if (failures.length === 0) {
+            serverLogger.warn({ checks: body.checks }, 'readiness_check_failed');
+        } else {
+            failures.forEach(failure => {
+                serverLogger.warn({ err: failure.err, check: failure.check, checks: body.checks }, 'readiness_check_failed');
+            });
+        }
     }
+    res.status(body.ok ? 200 : 503).json(body);
 });
 
 app.get('/healthz/details', requireAuth, (req, res) => {
@@ -177,12 +163,10 @@ app.use('/shared', requireAuth, express.static(path.join(__dirname, 'shared'), {
     setHeaders: res => res.setHeader('Cache-Control', 'no-cache')
 }));
 app.get('/uploads/:tenantId/*', requireAuth, createTenantUploadMiddleware(__dirname));
-app.use('/api', requireAuth);
+app.use('/api/v1', requireAuth);
 mountProtectedApi('/api/v1', protectedApiOptions);
-app.use('/api', legacyApiDeprecationHeaders);
-mountProtectedApi('/api', protectedApiOptions);
 app.use('/api/v1', createNotFoundMiddleware());
-app.use('/api', createNotFoundMiddleware());
+app.use('/api', createApiVersionRemovedMiddleware());
 app.use(createErrorMiddleware());
 
 registerCampaignSocket(io, { runtime, campaignService });
@@ -242,19 +226,52 @@ server.on('error', (err) => {
 server.listen(PORT, HOST, () => {
     runtime.setHttpStatus('listening');
     serverLogger.info({ host: HOST, port: PORT, processLockPath: processLock?.lockPath || null }, 'http_server_listening');
-    scheduleAuditRetention();
-    setImmediate(() => runtime.getOrCreate(defaultTenantId));
-    recoverRunningCampaigns();
+    runStartupTasks().catch(err => serverLogger.error({ err }, 'startup_tasks_failed'));
 });
+
+async function runStartupTasks() {
+    scheduleAuditRetention();
+    await recoverRunningCampaigns();
+    try {
+        await db.addSystemEvent(defaultTenantId, 'server_started', 'info', 'Uygulama başlatıldı.', {
+            pid: process.pid,
+            host: HOST,
+            port: PORT
+        });
+    } catch (err) {
+        serverLogger.error({ err }, 'server_started_event_failed');
+    }
+    setImmediate(() => runtime.getOrCreate(defaultTenantId));
+    campaignService.startBatchPauseRecovery({
+        intervalMs: process.env.CAMPAIGN_PAUSE_RECOVERY_INTERVAL_MS || 15000
+    });
+}
 
 async function recoverRunningCampaigns() {
     try {
         const d = await db.getDb();
-        const result = d.exec("SELECT id FROM campaign_runs WHERE status = 'running'");
+        const result = d.exec(`
+            SELECT id FROM campaign_runs
+            WHERE status = 'running'
+              AND (pause_reason IS NULL OR pause_reason NOT IN ('batch_pause', 'long_pause', 'night_pause') OR pause_until IS NULL OR pause_until = '')
+        `);
         if (!result || !result[0] || result[0].values.length === 0) return;
         const ids = result[0].values.map(row => row[0]);
-        d.run("UPDATE campaign_runs SET status = 'paused' WHERE status = 'running'");
+        d.run(`
+            UPDATE campaign_runs
+            SET status = 'paused',
+                wait_until = NULL,
+                current_recipient_name = NULL,
+                current_recipient_phone = NULL
+            WHERE status = 'running'
+              AND (pause_reason IS NULL OR pause_reason NOT IN ('batch_pause', 'long_pause', 'night_pause') OR pause_until IS NULL OR pause_until = '')
+        `);
+        db.save();
         serverLogger.warn({ count: ids.length, ids }, 'recovered_running_campaigns_paused');
+        await db.addSystemEvent(defaultTenantId, 'campaign_paused', 'warn', 'Sunucu yeniden başlatılırken çalışan kampanyalar duraklatıldı.', {
+            count: ids.length,
+            campaign_ids: ids.slice(0, 20)
+        });
     } catch (err) {
         serverLogger.error({ err }, 'campaign_recovery_failed');
     }

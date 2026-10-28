@@ -26,6 +26,15 @@ function assertNotTracked(paths) {
     assert.equal(tracked, '', `Runtime data must not be tracked by Git: ${tracked}`);
 }
 
+function assertDeployPreservesSqliteSidecars() {
+    const deployScript = fs.readFileSync(path.join(repoRoot, 'deploy-production.sh'), 'utf8');
+    const releaseScript = fs.readFileSync(path.join(repoRoot, 'release.sh'), 'utf8');
+
+    assert.match(deployScript, /--exclude='\/data\/'/, 'deploy-production.sh must exclude persistent data, including WAL/SHM files');
+    assert.match(releaseScript, /! -name data/, 'release.sh must preserve a colocated persistent data directory');
+    assert.match(releaseScript, /--exclude='\.\/data'/, 'release.sh must not ship a colocated persistent data directory');
+}
+
 function assertPersistentDataDirSurvivesRestart() {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'whatsappc-runtime-data-'));
     const dbFile = path.join(tempDir, 'database.sqlite');
@@ -64,15 +73,19 @@ function assertPersistentDataDirSurvivesRestart() {
 assertNotTracked([
     'whatsapp-engine/.env',
     'whatsapp-engine/data/database.sqlite',
+    'whatsapp-engine/data/database.sqlite-wal',
+    'whatsapp-engine/data/database.sqlite-shm',
     'whatsapp-engine/data/contacts.json',
     'whatsapp-engine/data/templates.json.migrated',
     'whatsapp-engine/data/daily_stats.json',
     'whatsapp-engine/data/recipient_history.json'
 ]);
+assertDeployPreservesSqliteSidecars();
 assertPersistentDataDirSurvivesRestart();
 
 console.log(JSON.stringify({
     ok: true,
     runtimeDataTracked: false,
-    persistentDataDirRespected: true
+    persistentDataDirRespected: true,
+    deployPreservesSqliteSidecars: true
 }, null, 2));

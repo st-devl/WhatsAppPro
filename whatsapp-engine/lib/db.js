@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const initSqlJs = require('sql.js');
 const { estimateRemainingSeconds, estimateRemainingMinutes } = require('./campaign_estimate');
+const { componentLogger } = require('./logger');
 
 const dataDir = process.env.WHASAPPC_DATA_DIR
     ? path.resolve(process.env.WHASAPPC_DATA_DIR)
@@ -15,8 +16,72 @@ const dbFile = process.env.WHASAPPC_DB_FILE
     : path.join(dataDir, 'database.sqlite');
 const DEFAULT_TENANT_ID = 'default';
 const ACTIVE_CAMPAIGN_STATUSES = ['queued', 'running', 'paused'];
+const DEFAULT_RECIPIENT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const STATUS_NOT_ON_WHATSAPP = 'not_on_whatsapp';
+const STATUS_SUPPRESSED = 'suppressed';
+const STATUS_CAMPAIGN_FINISHED = 'finished';
+const SKIPPED_RETRY_STATUSES = ['skipped', 'skipped_cooldown'];
+const TEMPORARY_RETRY_STATUSES = ['failed', 'validation_unknown'];
+const DEFAULT_BACKUP_MIN_INTERVAL_MS = 10 * 60 * 1000;
+const dbLogger = componentLogger('database');
 let db = null;
 let sqlModulePromise = null;
+let lastSuccessfulBackupAtMs = null;
+let backupTimeInitialized = false;
+let writeTransactionCountForTests = 0;
+let selectedDriverLogged = false;
+
+function resolveDriverRequest() {
+    const requested = String(process.env.DB_DRIVER || 'auto').trim().toLowerCase();
+    if (['auto', 'node', 'sqljs'].includes(requested)) return requested;
+    throw new Error(`Gecersiz DB_DRIVER degeri: ${requested}. Gecerli degerler: auto, node, sqljs.`);
+}
+
+function loadNodeSqlite() {
+    try {
+        const sqlite = require('node:sqlite');
+        if (typeof sqlite.DatabaseSync !== 'function') throw new Error('DatabaseSync kullanilamiyor');
+        return sqlite;
+    } catch (err) {
+        return { error: err };
+    }
+}
+
+function selectDatabaseDriver() {
+    const requested = resolveDriverRequest();
+    const nodeSqlite = requested === 'sqljs' ? null : loadNodeSqlite();
+
+    if (requested === 'node') {
+        if (nodeSqlite?.DatabaseSync) return { driver: 'node', nodeSqlite };
+        throw new Error(`DB_DRIVER=node istendi ancak node:sqlite kullanilamiyor. Node.js'i node:sqlite destegiyle calistirin veya DB_DRIVER=sqljs ayarlayin. Sebep: ${nodeSqlite?.error?.message || 'bilinmiyor'}`);
+    }
+    if (requested === 'auto' && nodeSqlite?.DatabaseSync) return { driver: 'node', nodeSqlite };
+    return { driver: 'sqljs', nodeSqlite: requested === 'auto' ? nodeSqlite : loadNodeSqlite() };
+}
+
+function logSelectedDriver(driver) {
+    if (selectedDriverLogged) return;
+    selectedDriverLogged = true;
+    dbLogger.info({ driver }, 'database_driver_selected');
+}
+
+function normalizeSqlParameters(params = []) {
+    const normalize = value => {
+        if (value === undefined) return null;
+        if (typeof value === 'boolean') return value ? 1 : 0;
+        return value;
+    };
+    if (Array.isArray(params)) return params.map(normalize);
+    if (params && typeof params === 'object') {
+        return Object.fromEntries(Object.entries(params).map(([key, value]) => [key, normalize(value)]));
+    }
+    return [normalize(params)];
+}
+
+function statementArguments(params) {
+    const normalized = normalizeSqlParameters(params);
+    return Array.isArray(normalized) ? normalized : [normalized];
+}
 
 function getSqlModule() {
     if (!sqlModulePromise) sqlModulePromise = initSqlJs();
@@ -30,6 +95,10 @@ class SqliteDatabaseAdapter {
         this.raw = data ? new SQL.Database(data) : new SQL.Database();
         this.closed = false;
         this.writeTimer = null;
+        this.writeInFlight = false;
+        this.writePending = false;
+        this.writeSeq = 0;
+        this.writeGeneration = 0;
         this.raw.run('PRAGMA foreign_keys = ON');
     }
 
@@ -41,6 +110,22 @@ class SqliteDatabaseAdapter {
     run(sql, params = []) {
         this.raw.run(sql, params);
         return { changes: this.raw.getRowsModified() };
+    }
+
+    all(sql, params = []) {
+        const stmt = this.raw.prepare(sql);
+        try {
+            stmt.bind(params);
+            const rows = [];
+            while (stmt.step()) rows.push(stmt.getAsObject());
+            return rows;
+        } finally {
+            stmt.free();
+        }
+    }
+
+    get(sql, params = []) {
+        return this.all(sql, params)[0] || null;
     }
 
     prepare(sql) {
@@ -63,6 +148,8 @@ class SqliteDatabaseAdapter {
             clearTimeout(this.writeTimer);
             this.writeTimer = null;
         }
+        this.writePending = false;
+        this.writeGeneration++;
         fs.ensureDirSync(path.dirname(this.filePath));
         const tempFile = `${this.filePath}.tmp-${process.pid}`;
         fs.writeFileSync(tempFile, Buffer.from(this.raw.export()));
@@ -72,24 +159,54 @@ class SqliteDatabaseAdapter {
 
     checkpoint() {
         if (this.closed) return;
+        this.writePending = true;
         if (this.writeTimer) clearTimeout(this.writeTimer);
         this.writeTimer = setTimeout(() => {
             this.writeTimer = null;
-            if (this.closed) return;
-            try {
-                fs.ensureDirSync(path.dirname(this.filePath));
-                const tempFile = `${this.filePath}.tmp-${process.pid}-async`;
-                const dataBuffer = Buffer.from(this.raw.export());
-                fs.writeFile(tempFile, dataBuffer, (err) => {
-                    if (err) return console.error('DB write error:', err);
-                    fs.rename(tempFile, this.filePath, (err2) => {
-                        if (err2) console.error('DB rename error:', err2);
-                    });
-                });
-            } catch (e) {
-                console.error('DB export error:', e);
-            }
+            this.flushCheckpoint();
         }, 150);
+    }
+
+    flushCheckpoint() {
+        if (this.closed) return;
+        if (this.writeInFlight) return;
+        if (!this.writePending) return;
+
+        this.writePending = false;
+        this.writeInFlight = true;
+        const generation = ++this.writeGeneration;
+
+        let tempFile = null;
+        const finish = () => {
+            this.writeInFlight = false;
+            if (this.writePending && !this.closed) this.checkpoint();
+        };
+
+        try {
+            fs.ensureDirSync(path.dirname(this.filePath));
+            this.writeSeq += 1;
+            tempFile = `${this.filePath}.tmp-${process.pid}-${Date.now()}-${this.writeSeq}`;
+            const dataBuffer = Buffer.from(this.raw.export());
+            fs.writeFile(tempFile, dataBuffer, (err) => {
+                if (err) {
+                    console.error('DB write error:', err);
+                    finish();
+                    return;
+                }
+                if (generation !== this.writeGeneration || this.closed) {
+                    fs.rm(tempFile, { force: true }, () => finish());
+                    return;
+                }
+                fs.rename(tempFile, this.filePath, (err2) => {
+                    if (err2) console.error('DB rename error:', err2);
+                    finish();
+                });
+            });
+        } catch (e) {
+            console.error('DB export error:', e);
+            if (tempFile) fs.rm(tempFile, { force: true }, () => {});
+            finish();
+        }
     }
 
     close() {
@@ -98,6 +215,142 @@ class SqliteDatabaseAdapter {
         this.raw.close();
         this.closed = true;
     }
+}
+
+class NodeSqliteStatementAdapter {
+    constructor(adapter, sql) {
+        this.adapter = adapter;
+        this.sql = sql;
+        this.rows = [];
+        this.index = -1;
+    }
+
+    bind(params = []) {
+        this.rows = this.adapter.all(this.sql, params);
+        this.index = -1;
+    }
+
+    step() {
+        this.index += 1;
+        return this.index < this.rows.length;
+    }
+
+    getAsObject() {
+        return this.rows[this.index] || {};
+    }
+
+    free() {}
+}
+
+class NodeSqliteDatabaseAdapter {
+    constructor(DatabaseSync, filePath) {
+        this.filePath = filePath;
+        this.driver = 'node';
+        fs.ensureDirSync(path.dirname(filePath));
+        this.raw = new DatabaseSync(filePath);
+        this.closed = false;
+        this.raw.exec('PRAGMA journal_mode = WAL');
+        this.raw.exec('PRAGMA synchronous = NORMAL');
+        this.raw.exec('PRAGMA foreign_keys = ON');
+        this.raw.exec('PRAGMA busy_timeout = 5000');
+    }
+
+    static open(filePath, nodeSqlite) {
+        return new NodeSqliteDatabaseAdapter(nodeSqlite.DatabaseSync, filePath);
+    }
+
+    run(sql, params = []) {
+        const result = this.raw.prepare(sql).run(...statementArguments(params));
+        return { changes: Number(result.changes || 0) };
+    }
+
+    all(sql, params = []) {
+        return this.raw.prepare(sql).all(...statementArguments(params)).map(row => ({ ...row }));
+    }
+
+    get(sql, params = []) {
+        const row = this.raw.prepare(sql).get(...statementArguments(params));
+        return row ? { ...row } : null;
+    }
+
+    prepare(sql) {
+        return new NodeSqliteStatementAdapter(this, sql);
+    }
+
+    exec(sql) {
+        if (!/^\s*(?:SELECT|WITH|PRAGMA|EXPLAIN)\b/i.test(sql)) {
+            this.raw.exec(sql);
+            return [];
+        }
+        const statement = this.raw.prepare(sql);
+        const rows = statement.all();
+        const values = rows.map(row => Object.values(row));
+        const columns = typeof statement.columns === 'function'
+            ? statement.columns().map(column => column.name || column.column)
+            : rows[0] ? Object.keys(rows[0]) : [];
+        return [{ columns, values }];
+    }
+
+    pragma(sql, options = undefined) {
+        const result = this.exec(`PRAGMA ${sql}`);
+        if (options?.simple) return result[0]?.values?.[0]?.[0];
+        return result;
+    }
+
+    checkpoint() {}
+
+    checkpointSync() {
+        if (!this.closed) this.raw.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    }
+
+    vacuumInto(backupFile) {
+        this.raw.exec(`VACUUM INTO '${String(backupFile).replace(/'/g, "''")}'`);
+    }
+
+    close() {
+        if (this.closed) return;
+        this.checkpointSync();
+        this.raw.close();
+        this.closed = true;
+    }
+}
+
+function hasNonEmptyWal(filePath) {
+    const walFile = `${filePath}-wal`;
+    try {
+        return fs.statSync(walFile).size > 0;
+    } catch {
+        return false;
+    }
+}
+
+function checkpointWalForSqlJs(filePath, nodeSqlite) {
+    if (!nodeSqlite?.DatabaseSync) return false;
+    const walDb = NodeSqliteDatabaseAdapter.open(filePath, nodeSqlite);
+    try {
+        walDb.checkpointSync();
+    } finally {
+        walDb.close();
+    }
+    return true;
+}
+
+async function openDatabaseAdapter(filePath) {
+    const selection = selectDatabaseDriver();
+    let adapter;
+
+    if (selection.driver === 'node') {
+        adapter = NodeSqliteDatabaseAdapter.open(filePath, selection.nodeSqlite);
+    } else {
+        if (hasNonEmptyWal(filePath) && !checkpointWalForSqlJs(filePath, selection.nodeSqlite)) {
+            throw new Error(`SQL.js veritabani ${filePath} icin checkpoint edilmemis WAL dosyasini okuyamaz; veri kaybi riski nedeniyle baslatma durduruldu. sql.js cannot safely open a database with a non-empty WAL file because uncheckpointed data would be lost.`);
+        }
+        adapter = await SqliteDatabaseAdapter.open(filePath);
+        adapter.driver = 'sqljs';
+    }
+
+    logSelectedDriver(adapter.driver);
+    return adapter;
 }
 
 class DbError extends Error {
@@ -110,6 +363,45 @@ class DbError extends Error {
 }
 
 const now = () => new Date().toISOString();
+
+function isFutureTimestamp(value, asOf = now()) {
+    const timestamp = Date.parse(value || '');
+    const reference = Date.parse(asOf || '');
+    return Number.isFinite(timestamp) && Number.isFinite(reference) && timestamp > reference;
+}
+
+function shouldPreserveTimedPause(row, asOf = now()) {
+    return ['batch_pause', 'long_pause', 'night_pause'].includes(row?.pause_reason) && isFutureTimestamp(row.pause_until, asOf);
+}
+
+function resolveAsOfIso(options = {}) {
+    if (options.asOf instanceof Date) return options.asOf.toISOString();
+    const parsedMs = Number.parseInt(options.asOfMs, 10);
+    if (Number.isFinite(parsedMs)) return new Date(parsedMs).toISOString();
+    if (options.asOf) {
+        const parsed = Date.parse(options.asOf);
+        if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+    }
+    return now();
+}
+
+function isRetryDue(row, asOfMs) {
+    const nextRetryAt = Date.parse(row?.next_retry_at || '');
+    return !Number.isFinite(nextRetryAt) || nextRetryAt <= asOfMs;
+}
+
+function hasUnattemptedPendingRecipientsWithDb(d, campaignId, tenantId = DEFAULT_TENANT_ID) {
+    const row = queryOne(d, `
+        SELECT id
+        FROM campaign_recipients
+        WHERE campaign_run_id = ?
+          AND tenant_id = ?
+          AND status = 'pending'
+          AND attempt_count = 0
+        LIMIT 1
+    `, [campaignId, resolveTenantId(tenantId)]);
+    return !!row;
+}
 
 function normalizeGroupName(value) {
     return cleanText(value)
@@ -128,7 +420,11 @@ function resolveTenantId(tenantId = DEFAULT_TENANT_ID) {
 }
 
 function normalizePhone(value) {
-    let digits = String(value || '').replace(/[^\d]/g, '');
+    let raw = String(value || '').trim();
+    if (/[eE][+-]?\d+/.test(raw)) return '';
+    raw = raw.replace(/\.0+$/, '');
+    let digits = raw.replace(/[^\d]/g, '');
+    if (digits.startsWith('0090')) digits = digits.slice(2);
     if (digits.length === 10 && digits.startsWith('5')) digits = `90${digits}`;
     if (digits.length === 11 && digits.startsWith('05')) digits = `90${digits.slice(1)}`;
     return digits;
@@ -188,10 +484,6 @@ function normalizeContactsDetailed(list) {
     };
 }
 
-function normalizeContacts(list) {
-    return normalizeContactsDetailed(list).contacts;
-}
-
 function toSqlJson(value) {
     return JSON.stringify(value || {});
 }
@@ -210,6 +502,30 @@ function resolveBackupRetentionCount(value = process.env.BACKUP_RETENTION_COUNT)
     return Math.min(parsed, 1000);
 }
 
+function resolveBackupMinIntervalMs(value = process.env.BACKUP_MIN_INTERVAL_MS) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_BACKUP_MIN_INTERVAL_MS;
+    return parsed;
+}
+
+function getLastSuccessfulBackupAtMs() {
+    if (backupTimeInitialized) return lastSuccessfulBackupAtMs;
+
+    backupTimeInitialized = true;
+    if (!fs.existsSync(backupDir)) return lastSuccessfulBackupAtMs;
+
+    fs.readdirSync(backupDir)
+        .filter(file => file.endsWith('.sqlite'))
+        .forEach(file => {
+            const mtimeMs = fs.statSync(path.join(backupDir, file)).mtimeMs;
+            if (lastSuccessfulBackupAtMs === null || mtimeMs > lastSuccessfulBackupAtMs) {
+                lastSuccessfulBackupAtMs = mtimeMs;
+            }
+        });
+
+    return lastSuccessfulBackupAtMs;
+}
+
 function cleanupBackups(keep = resolveBackupRetentionCount()) {
     const backups = fs.readdirSync(backupDir)
         .filter(file => file.endsWith('.sqlite'))
@@ -217,25 +533,48 @@ function cleanupBackups(keep = resolveBackupRetentionCount()) {
         .sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
 
     backups.slice(keep).forEach(item => fs.removeSync(item.fullPath));
+
+    fs.readdirSync(backupDir)
+        .filter(file => file.endsWith('.sqlite-shm') || file.endsWith('.sqlite-wal'))
+        .forEach(file => {
+            const baseFile = file.replace(/-(?:shm|wal)$/, '');
+            if (!fs.existsSync(path.join(backupDir, baseFile))) {
+                fs.removeSync(path.join(backupDir, file));
+            }
+        });
 }
 
 function createBackup(reason = 'manual') {
     fs.ensureDirSync(backupDir);
-    if (!fs.existsSync(dbFile)) return null;
     if (db) db.checkpointSync();
+    if (!fs.existsSync(dbFile)) return null;
     const backupFile = path.join(backupDir, `database-${timestampForFile()}-${sanitizeBackupReason(reason)}.sqlite`);
-    fs.copyFileSync(dbFile, backupFile);
+    if (db?.driver === 'node') db.vacuumInto(backupFile);
+    else fs.copyFileSync(dbFile, backupFile);
+    lastSuccessfulBackupAtMs = fs.statSync(backupFile).mtimeMs;
+    backupTimeInitialized = true;
     cleanupBackups();
     return backupFile;
 }
 
 function requireSuccessfulBackup(reason) {
-    if (!fs.existsSync(dbFile)) return null;
     const backupFile = createBackup(reason);
-    if (!backupFile) {
+    if (!backupFile && fs.existsSync(dbFile)) {
         throw new DbError('Yazma işleminden önce veritabanı yedeği alınamadı', 500, 'DB_BACKUP_REQUIRED');
     }
     return backupFile;
+}
+
+function requireTransactionBackup(reason) {
+    const isMigrationBackup = String(reason || '').startsWith('before-');
+    const minIntervalMs = resolveBackupMinIntervalMs();
+    const lastBackupAtMs = getLastSuccessfulBackupAtMs();
+
+    if (!isMigrationBackup && minIntervalMs > 0 && lastBackupAtMs !== null && Date.now() - lastBackupAtMs < minIntervalMs) {
+        return null;
+    }
+
+    return requireSuccessfulBackup(reason);
 }
 
 function save() {
@@ -243,19 +582,11 @@ function save() {
 }
 
 function queryAll(d, sql, params = []) {
-    const stmt = d.prepare(sql);
-    try {
-        stmt.bind(params);
-        const rows = [];
-        while (stmt.step()) rows.push(stmt.getAsObject());
-        return rows;
-    } finally {
-        stmt.free();
-    }
+    return d.all(sql, params);
 }
 
 function queryOne(d, sql, params = []) {
-    return queryAll(d, sql, params)[0] || null;
+    return d.get(sql, params);
 }
 
 function tableColumns(d, table) {
@@ -771,6 +1102,89 @@ function buildMigrations(d) {
                 d.run('CREATE INDEX IF NOT EXISTS idx_system_events_tenant_created ON system_events(tenant_id, created_at)');
                 d.run('CREATE INDEX IF NOT EXISTS idx_system_events_type ON system_events(event_type)');
             }
+        },
+        {
+            id: '018_campaign_runtime_state',
+            description: 'Track durable campaign timers and recipient display state',
+            run: () => {
+                ensureColumn(d, 'campaign_runs', 'pause_until', 'pause_until TEXT');
+                ensureColumn(d, 'campaign_runs', 'pause_reason', 'pause_reason TEXT');
+                ensureColumn(d, 'campaign_runs', 'wait_until', 'wait_until TEXT');
+                ensureColumn(d, 'campaign_runs', 'current_recipient_name', 'current_recipient_name TEXT');
+                ensureColumn(d, 'campaign_runs', 'current_recipient_phone', 'current_recipient_phone TEXT');
+                ensureColumn(d, 'campaign_runs', 'last_recipient_name', 'last_recipient_name TEXT');
+                ensureColumn(d, 'campaign_runs', 'last_recipient_phone', 'last_recipient_phone TEXT');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_runs_pause_due ON campaign_runs(status, pause_until)');
+            }
+        },
+        {
+            id: '019_unavailable_whatsapp_recipients',
+            description: 'Keep confirmed non-WhatsApp recipients out of future campaign queues',
+            run: () => {
+                d.run(`CREATE TABLE IF NOT EXISTS unavailable_whatsapp_recipients (
+                    tenant_id TEXT NOT NULL,
+                    normalized_phone TEXT NOT NULL,
+                    display_phone TEXT,
+                    name TEXT,
+                    surname TEXT,
+                    reason TEXT,
+                    source_campaign_id TEXT,
+                    first_detected_at TEXT NOT NULL,
+                    last_detected_at TEXT NOT NULL,
+                    detection_count INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, normalized_phone),
+                    FOREIGN KEY(tenant_id) REFERENCES tenants(id)
+                )`);
+                d.run('CREATE INDEX IF NOT EXISTS idx_unavailable_whatsapp_tenant_detected ON unavailable_whatsapp_recipients(tenant_id, last_detected_at)');
+            }
+        },
+        {
+            id: '020_campaign_recipient_retry_window',
+            description: 'Track recipient retry windows so resumes continue past recently attempted recipients',
+            run: () => {
+                ensureColumn(d, 'campaign_recipients', 'last_attempted_at', 'last_attempted_at TEXT');
+                ensureColumn(d, 'campaign_recipients', 'next_retry_at', 'next_retry_at TEXT');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_retry_due ON campaign_recipients(tenant_id, campaign_run_id, status, next_retry_at, id)');
+            }
+        },
+        {
+            id: '021_suppressed_recipients',
+            description: 'Keep manually suppressed recipients out of campaign queues',
+            run: () => {
+                d.run(`CREATE TABLE IF NOT EXISTS suppressed_recipients (
+                    tenant_id TEXT NOT NULL,
+                    normalized_phone TEXT NOT NULL,
+                    display_phone TEXT,
+                    name TEXT,
+                    surname TEXT,
+                    reason TEXT,
+                    source TEXT NOT NULL DEFAULT 'manual',
+                    active INTEGER NOT NULL DEFAULT 1,
+                    suppressed_at TEXT NOT NULL,
+                    unsuppressed_at TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, normalized_phone),
+                    FOREIGN KEY(tenant_id) REFERENCES tenants(id)
+                )`);
+                d.run('CREATE INDEX IF NOT EXISTS idx_suppressed_recipients_active ON suppressed_recipients(tenant_id, active, updated_at)');
+            }
+        },
+        {
+            id: '022_campaign_recipient_report_indexes',
+            description: 'Add report indexes for failed recipient and recent status lists',
+            run: () => {
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_tenant_status_updated ON campaign_recipients(tenant_id, status, updated_at)');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_recipients_tenant_phone_status ON campaign_recipients(tenant_id, normalized_phone, status)');
+            }
+        },
+        {
+            id: '023_campaign_finished_state',
+            description: 'Track campaigns explicitly finished by the user',
+            run: () => {
+                ensureColumn(d, 'campaign_runs', 'finished_at', 'finished_at TEXT');
+                d.run('CREATE INDEX IF NOT EXISTS idx_campaign_runs_tenant_owner_status_updated ON campaign_runs(tenant_id, owner_email, status, updated_at)');
+            }
         }
     ];
 }
@@ -820,7 +1234,7 @@ async function getMigrationStatus(filePath = dbFile) {
         return buildMigrationStatus([], resolvedFile, false);
     }
 
-    const statusDb = await SqliteDatabaseAdapter.open(resolvedFile);
+    const statusDb = await openDatabaseAdapter(resolvedFile);
     try {
         return buildMigrationStatus(readAppliedMigrations(statusDb), resolvedFile, true);
     } finally {
@@ -1058,15 +1472,10 @@ function migrateRecipientRuntimeJsonsWithDb(d) {
     return changed;
 }
 
-async function migrateJSONs() {
-    const d = await getDb();
-    return migrateJSONsWithDb(d);
-}
-
 async function getDb() {
     if (db) return db;
 
-    db = await SqliteDatabaseAdapter.open(dbFile);
+    db = await openDatabaseAdapter(dbFile);
 
     enableForeignKeys(db);
     const changed = runMigrations(db);
@@ -1080,7 +1489,8 @@ async function getDb() {
 
 async function withWriteTransaction(reason, fn) {
     const d = await getDb();
-    if (reason) requireSuccessfulBackup(reason);
+    if (reason) requireTransactionBackup(reason);
+    writeTransactionCountForTests++;
     const result = runInSqlTransaction(d, () => fn(d));
     save();
     return result;
@@ -1088,12 +1498,7 @@ async function withWriteTransaction(reason, fn) {
 
 // --- PUBLIC API ---
 
-const getTenants = async () => {
-    const d = await getDb();
-    return queryAll(d, 'SELECT id, name, status, created_at, updated_at FROM tenants ORDER BY datetime(created_at) ASC, id ASC');
-};
-
-const createTenant = async (id, name) => withWriteTransaction('create-tenant', (d) => {
+const createTenant = async (id, name) => withWriteTransaction(null, (d) => {
     const tenantId = resolveTenantId(id);
     const tenantName = cleanText(name);
     if (!tenantName) throw new DbError('Tenant adı zorunlu', 400, 'TENANT_NAME_REQUIRED');
@@ -1119,15 +1524,31 @@ const getGroups = async (tenantId = DEFAULT_TENANT_ID) => {
             g.name,
             g.created_at,
             g.updated_at,
-            COUNT(c.id) AS contact_count
+            COUNT(c.id) AS contact_count,
+            COALESCE(SUM(CASE
+                WHEN c.id IS NOT NULL
+                 AND sr.normalized_phone IS NULL
+                 AND uw.normalized_phone IS NULL
+                THEN 1 ELSE 0 END), 0) AS sendable_count
         FROM groups g
-        LEFT JOIN contacts c ON c.group_id = g.id AND c.deleted_at IS NULL
+        LEFT JOIN contacts c
+          ON c.group_id = g.id
+         AND c.tenant_id = g.tenant_id
+         AND c.deleted_at IS NULL
+        LEFT JOIN suppressed_recipients sr
+          ON sr.tenant_id = g.tenant_id
+         AND sr.normalized_phone = c.normalized_phone
+         AND sr.active = 1
+        LEFT JOIN unavailable_whatsapp_recipients uw
+          ON uw.tenant_id = g.tenant_id
+         AND uw.normalized_phone = c.normalized_phone
         WHERE g.tenant_id = ? AND g.deleted_at IS NULL
         GROUP BY g.id, g.tenant_id, g.name, g.created_at, g.updated_at
         ORDER BY datetime(g.created_at) DESC, g.name ASC
     `, [tenant]).map(group => ({
         ...group,
         contact_count: Number(group.contact_count || 0),
+        sendable_count: Number(group.sendable_count || 0),
         contacts: []
     }));
 };
@@ -1210,7 +1631,49 @@ const getGroupContactsPage = async (groupId, options = {}, tenantId = DEFAULT_TE
     };
 };
 
-const createGroup = async (id, name, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction('create-group', (d) => {
+const getExportableContacts = async (tenantId = DEFAULT_TENANT_ID) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const rows = queryAll(d, `
+        SELECT
+            c.id,
+            c.tenant_id,
+            c.group_id,
+            c.name,
+            c.surname,
+            c.phone,
+            c.normalized_phone,
+            c.created_at,
+            c.updated_at
+        FROM contacts c
+        INNER JOIN groups g
+          ON g.id = c.group_id
+         AND g.tenant_id = c.tenant_id
+         AND g.deleted_at IS NULL
+        LEFT JOIN suppressed_recipients sr
+          ON sr.tenant_id = c.tenant_id
+         AND sr.normalized_phone = c.normalized_phone
+         AND sr.active = 1
+        LEFT JOIN unavailable_whatsapp_recipients uw
+          ON uw.tenant_id = c.tenant_id
+         AND uw.normalized_phone = c.normalized_phone
+        WHERE c.tenant_id = ?
+          AND c.deleted_at IS NULL
+          AND sr.normalized_phone IS NULL
+          AND uw.normalized_phone IS NULL
+        ORDER BY datetime(g.created_at) DESC, g.name ASC, c.id ASC
+    `, [tenant]).map(mapContact);
+
+    const seen = new Set();
+    return rows.filter(contact => {
+        const normalizedPhone = normalizePhone(contact.normalized_phone || contact.phone);
+        if (!normalizedPhone || seen.has(normalizedPhone)) return false;
+        seen.add(normalizedPhone);
+        return true;
+    });
+};
+
+const createGroup = async (id, name, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction(null, (d) => {
     const tenant = resolveTenantId(tenantId);
     ensureTenant(d, tenant);
     const groupName = cleanText(name);
@@ -1220,7 +1683,7 @@ const createGroup = async (id, name, tenantId = DEFAULT_TENANT_ID) => withWriteT
 
     d.run('INSERT INTO groups (id, tenant_id, name, name_normalized, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)', [id, tenant, groupName, normalized, current, current]);
     audit(d, 'group_created', 'group', id, { group_name: groupName }, tenant);
-    return { id, tenant_id: tenant, name: groupName, created_at: current, updated_at: current, contact_count: 0, contacts: [] };
+    return { id, tenant_id: tenant, name: groupName, created_at: current, updated_at: current, contact_count: 0, sendable_count: 0, contacts: [] };
 });
 
 const updateGroupContacts = async (groupId, contactsList, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction('replace-group-contacts', (d) => {
@@ -1257,7 +1720,7 @@ const deleteGroup = async (id, tenantId = DEFAULT_TENANT_ID) => withWriteTransac
     return { success: true };
 });
 
-const createContact = async (groupId, input, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction('create-contact', (d) => {
+const createContact = async (groupId, input, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction(null, (d) => {
     const tenant = resolveTenantId(tenantId);
     ensureActiveGroup(d, groupId, tenant);
     const contact = normalizeContact(input);
@@ -1280,7 +1743,7 @@ const createContact = async (groupId, input, tenantId = DEFAULT_TENANT_ID) => wi
     return mapContact({ ...contact, id: row.id, tenant_id: tenant, group_id: groupId, created_at: current, updated_at: current });
 });
 
-const updateContact = async (groupId, contactId, input, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction('update-contact', (d) => {
+const updateContact = async (groupId, contactId, input, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction(null, (d) => {
     const tenant = resolveTenantId(tenantId);
     ensureActiveGroup(d, groupId, tenant);
     const existing = getContactById(d, groupId, contactId, tenant);
@@ -1361,9 +1824,17 @@ function mapCampaignRun(row) {
         daily_limit: row.daily_limit,
         delay_min_ms: row.delay_min_ms,
         delay_max_ms: row.delay_max_ms,
+        pause_until: row.pause_until || null,
+        pause_reason: row.pause_reason || null,
+        wait_until: row.wait_until || null,
+        current_recipient_name: row.current_recipient_name || null,
+        current_recipient_phone: row.current_recipient_phone || null,
+        last_recipient_name: row.last_recipient_name || null,
+        last_recipient_phone: row.last_recipient_phone || null,
         started_at: row.started_at,
         stopped_at: row.stopped_at,
         completed_at: row.completed_at,
+        finished_at: row.finished_at || null,
         error: row.error || null,
         metadata: row.metadata ? JSON.parse(row.metadata) : {},
         estimate_remaining_seconds: 0,
@@ -1380,36 +1851,56 @@ function applyCampaignRecipientSummary(d, run) {
             SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
             SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent_count,
             SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-            SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped_count
+            SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS legacy_skipped_count,
+            SUM(CASE WHEN status = 'skipped_cooldown' THEN 1 ELSE 0 END) AS cooldown_skipped_count,
+            SUM(CASE WHEN status = 'not_on_whatsapp' THEN 1 ELSE 0 END) AS not_on_whatsapp_count,
+            SUM(CASE WHEN status = 'suppressed' THEN 1 ELSE 0 END) AS suppressed_count,
+            SUM(CASE WHEN status = 'validation_unknown' THEN 1 ELSE 0 END) AS validation_unknown_count
         FROM campaign_recipients
         WHERE campaign_run_id = ?
     `, [run.id]) || {};
     const pending = Number(row.pending_count || 0);
     const failed = Number(row.failed_count || 0);
-    const skipped = Number(row.skipped_count || 0);
+    const legacySkipped = Number(row.legacy_skipped_count || 0);
+    const cooldownSkipped = Number(row.cooldown_skipped_count || 0);
+    const notOnWhatsApp = Number(row.not_on_whatsapp_count || 0);
+    const suppressed = Number(row.suppressed_count || 0);
+    const validationUnknown = Number(row.validation_unknown_count || 0);
+    const skipped = legacySkipped + cooldownSkipped + notOnWhatsApp + suppressed;
     const sent = Number(row.sent_count || run.sent_count || 0);
-    const remaining = pending + failed;
+    const remaining = pending + failed + validationUnknown;
 
     run.pending_count = pending;
     run.sent_count = sent;
     run.failed_count = failed;
     run.skipped_count = skipped;
+    run.legacy_skipped_count = legacySkipped;
+    run.cooldown_skipped_count = cooldownSkipped;
+    run.not_on_whatsapp_count = notOnWhatsApp;
+    run.suppressed_count = suppressed;
+    run.validation_unknown_count = validationUnknown;
     run.remaining_count = remaining;
-    run.processed = sent + failed + skipped;
+    run.processed = sent + failed + skipped + validationUnknown;
     run.progress = run.total > 0 ? Math.min(100, (run.processed / run.total) * 100) : 0;
     run.estimate_remaining_seconds = estimateRemainingSeconds({
         remaining,
         delay_min_ms: run.delay_min_ms,
         delay_max_ms: run.delay_max_ms,
+        sentCount: sent,
         batchSize: run.metadata?.batch_size,
-        batchPauseMinutes: run.metadata?.batch_pause_minutes
+        batchPauseMinutes: process.env.CAMPAIGN_BATCH_PAUSE_MINUTES ?? run.metadata?.batch_pause_minutes,
+        longPauseSize: process.env.CAMPAIGN_LONG_PAUSE_SIZE ?? run.metadata?.long_pause_size,
+        longPauseMinutes: process.env.CAMPAIGN_LONG_PAUSE_MINUTES ?? run.metadata?.long_pause_minutes
     });
     run.estimate_remaining_minutes = estimateRemainingMinutes({
         remaining,
         delay_min_ms: run.delay_min_ms,
         delay_max_ms: run.delay_max_ms,
+        sentCount: sent,
         batchSize: run.metadata?.batch_size,
-        batchPauseMinutes: run.metadata?.batch_pause_minutes
+        batchPauseMinutes: process.env.CAMPAIGN_BATCH_PAUSE_MINUTES ?? run.metadata?.batch_pause_minutes,
+        longPauseSize: process.env.CAMPAIGN_LONG_PAUSE_SIZE ?? run.metadata?.long_pause_size,
+        longPauseMinutes: process.env.CAMPAIGN_LONG_PAUSE_MINUTES ?? run.metadata?.long_pause_minutes
     });
     return run;
 }
@@ -1425,6 +1916,227 @@ function mapCampaignLog(row) {
     };
 }
 
+function mapCampaignRecipient(row) {
+    return {
+        id: row.contact_id || undefined,
+        phone: row.phone,
+        normalized_phone: row.normalized_phone,
+        name: row.name,
+        surname: row.surname,
+        status: row.status,
+        attempt_count: row.attempt_count,
+        last_error: row.last_error || null,
+        last_attempted_at: row.last_attempted_at || null,
+        next_retry_at: row.next_retry_at || null
+    };
+}
+
+function mapUnavailableWhatsAppRecipient(row) {
+    if (!row) return null;
+    return {
+        tenant_id: row.tenant_id || DEFAULT_TENANT_ID,
+        phone: row.display_phone || row.normalized_phone,
+        normalized_phone: row.normalized_phone,
+        name: row.name || '',
+        surname: row.surname || '',
+        reason: row.reason || 'WhatsApp kullanıcısı değil',
+        source_campaign_id: row.source_campaign_id || null,
+        first_detected_at: row.first_detected_at,
+        last_detected_at: row.last_detected_at,
+        detection_count: Number(row.detection_count || 1),
+        updated_at: row.updated_at
+    };
+}
+
+function mapSuppressedRecipient(row) {
+    if (!row) return null;
+    return {
+        tenant_id: row.tenant_id || DEFAULT_TENANT_ID,
+        phone: row.display_phone || row.normalized_phone,
+        normalized_phone: row.normalized_phone,
+        name: row.name || '',
+        surname: row.surname || '',
+        reason: row.reason || 'Manuel olarak gönderim dışı bırakıldı',
+        source: row.source || 'manual',
+        active: Number(row.active || 0) === 1,
+        suppressed_at: row.suppressed_at,
+        unsuppressed_at: row.unsuppressed_at || null,
+        updated_at: row.updated_at
+    };
+}
+
+function unavailableReason(value) {
+    const text = value instanceof Error ? (value.message || String(value)) : String(value || '');
+    return cleanText(text) || 'WhatsApp kullanıcısı değil';
+}
+
+function suppressedReason(value) {
+    return cleanText(value) || 'Manuel olarak gönderim dışı bırakıldı';
+}
+
+function upsertUnavailableWhatsAppRecipientWithDb(d, {
+    tenantId = DEFAULT_TENANT_ID,
+    normalizedPhone,
+    contact = {},
+    reason = 'WhatsApp kullanıcısı değil',
+    campaignId = null,
+    detectedAt = now()
+} = {}) {
+    const tenant = resolveTenantId(tenantId);
+    const phone = normalizePhone(normalizedPhone || contact.normalized_phone || contact.phone);
+    if (!isValidPhone(phone)) return null;
+
+    const displayPhone = cleanText(contact.phone || phone);
+    const name = cleanText(contact.name);
+    const surname = cleanText(contact.surname);
+    const detected = String(detectedAt || now());
+    const resolvedReason = unavailableReason(reason);
+
+    d.run(`
+        INSERT INTO unavailable_whatsapp_recipients (
+            tenant_id, normalized_phone, display_phone, name, surname, reason, source_campaign_id,
+            first_detected_at, last_detected_at, detection_count, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+        ON CONFLICT(tenant_id, normalized_phone)
+        DO UPDATE SET
+            display_phone = COALESCE(NULLIF(excluded.display_phone, ''), unavailable_whatsapp_recipients.display_phone),
+            name = COALESCE(NULLIF(excluded.name, ''), unavailable_whatsapp_recipients.name),
+            surname = COALESCE(NULLIF(excluded.surname, ''), unavailable_whatsapp_recipients.surname),
+            reason = excluded.reason,
+            source_campaign_id = COALESCE(excluded.source_campaign_id, unavailable_whatsapp_recipients.source_campaign_id),
+            last_detected_at = excluded.last_detected_at,
+            detection_count = unavailable_whatsapp_recipients.detection_count + 1,
+            updated_at = excluded.updated_at
+    `, [
+        tenant,
+        phone,
+        displayPhone,
+        name,
+        surname,
+        resolvedReason,
+        campaignId ? String(campaignId) : null,
+        detected,
+        detected,
+        detected
+    ]);
+
+    return mapUnavailableWhatsAppRecipient(queryOne(d, `
+        SELECT *
+        FROM unavailable_whatsapp_recipients
+        WHERE tenant_id = ? AND normalized_phone = ?
+    `, [tenant, phone]));
+}
+
+function getUnavailableWhatsAppRecipientsByPhonesWithDb(d, tenantId, phones = []) {
+    const tenant = resolveTenantId(tenantId);
+    const uniquePhones = Array.from(new Set(
+        (Array.isArray(phones) ? phones : [])
+            .map(normalizePhone)
+            .filter(isValidPhone)
+    ));
+    const unavailable = new Map();
+
+    for (let i = 0; i < uniquePhones.length; i += 500) {
+        const chunk = uniquePhones.slice(i, i + 500);
+        if (chunk.length === 0) continue;
+        queryAll(d, `
+            SELECT *
+            FROM unavailable_whatsapp_recipients
+            WHERE tenant_id = ?
+              AND normalized_phone IN (${chunk.map(() => '?').join(', ')})
+        `, [tenant, ...chunk]).forEach(row => {
+            unavailable.set(row.normalized_phone, mapUnavailableWhatsAppRecipient(row));
+        });
+    }
+
+    return unavailable;
+}
+
+function upsertSuppressedRecipientWithDb(d, {
+    tenantId = DEFAULT_TENANT_ID,
+    normalizedPhone,
+    contact = {},
+    reason = 'Manuel olarak gönderim dışı bırakıldı',
+    source = 'manual',
+    suppressedAt = now()
+} = {}) {
+    const tenant = resolveTenantId(tenantId);
+    const phone = normalizePhone(normalizedPhone || contact.normalized_phone || contact.phone);
+    if (!isValidPhone(phone)) return null;
+
+    const displayPhone = cleanText(contact.phone || phone);
+    const name = cleanText(contact.name);
+    const surname = cleanText(contact.surname);
+    const current = String(suppressedAt || now());
+    const resolvedReason = suppressedReason(reason);
+    const resolvedSource = cleanText(source) || 'manual';
+
+    d.run(`
+        INSERT INTO suppressed_recipients (
+            tenant_id, normalized_phone, display_phone, name, surname, reason, source,
+            active, suppressed_at, unsuppressed_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, NULL, ?)
+        ON CONFLICT(tenant_id, normalized_phone)
+        DO UPDATE SET
+            display_phone = COALESCE(NULLIF(excluded.display_phone, ''), suppressed_recipients.display_phone),
+            name = COALESCE(NULLIF(excluded.name, ''), suppressed_recipients.name),
+            surname = COALESCE(NULLIF(excluded.surname, ''), suppressed_recipients.surname),
+            reason = excluded.reason,
+            source = excluded.source,
+            active = 1,
+            suppressed_at = CASE
+                WHEN suppressed_recipients.active = 1 THEN suppressed_recipients.suppressed_at
+                ELSE excluded.suppressed_at
+            END,
+            unsuppressed_at = NULL,
+            updated_at = excluded.updated_at
+    `, [
+        tenant,
+        phone,
+        displayPhone,
+        name,
+        surname,
+        resolvedReason,
+        resolvedSource,
+        current,
+        current
+    ]);
+
+    return mapSuppressedRecipient(queryOne(d, `
+        SELECT *
+        FROM suppressed_recipients
+        WHERE tenant_id = ? AND normalized_phone = ?
+    `, [tenant, phone]));
+}
+
+function getSuppressedRecipientsByPhonesWithDb(d, tenantId, phones = []) {
+    const tenant = resolveTenantId(tenantId);
+    const uniquePhones = Array.from(new Set(
+        (Array.isArray(phones) ? phones : [])
+            .map(normalizePhone)
+            .filter(isValidPhone)
+    ));
+    const suppressed = new Map();
+
+    for (let i = 0; i < uniquePhones.length; i += 500) {
+        const chunk = uniquePhones.slice(i, i + 500);
+        if (chunk.length === 0) continue;
+        queryAll(d, `
+            SELECT *
+            FROM suppressed_recipients
+            WHERE tenant_id = ?
+              AND active = 1
+              AND normalized_phone IN (${chunk.map(() => '?').join(', ')})
+        `, [tenant, ...chunk]).forEach(row => {
+            suppressed.set(row.normalized_phone, mapSuppressedRecipient(row));
+        });
+    }
+
+    return suppressed;
+}
+
 function requireCampaignOwner(ownerEmail) {
     const owner = cleanText(ownerEmail);
     if (!owner) throw new DbError('Kampanya sahibi doğrulanamadı', 401, 'CAMPAIGN_OWNER_REQUIRED');
@@ -1433,11 +2145,17 @@ function requireCampaignOwner(ownerEmail) {
 
 function ensureCampaignOwner(d, campaignId, ownerEmail, tenantId = null) {
     const owner = requireCampaignOwner(ownerEmail);
-    const row = queryOne(d, 'SELECT id, tenant_id, owner_email, status FROM campaign_runs WHERE id = ?', [campaignId]);
+    const row = queryOne(d, 'SELECT * FROM campaign_runs WHERE id = ?', [campaignId]);
     if (!row) throw new DbError('Kampanya bulunamadı', 404, 'CAMPAIGN_NOT_FOUND');
     if (tenantId && row.tenant_id !== resolveTenantId(tenantId)) throw new DbError('Bu kampanyaya erişim yetkiniz yok', 403, 'CAMPAIGN_FORBIDDEN');
     if (row.owner_email !== owner) throw new DbError('Bu kampanyaya erişim yetkiniz yok', 403, 'CAMPAIGN_FORBIDDEN');
     return row;
+}
+
+function assertCampaignRestartable(row) {
+    if (row?.status === STATUS_CAMPAIGN_FINISHED) {
+        throw new DbError('Bu kampanya bitirildi; tekrar mesaj gönderilemez', 409, 'CAMPAIGN_FINISHED');
+    }
 }
 
 function assertNoActiveCampaign(d, ownerEmail, tenantId, excludeCampaignId = null) {
@@ -1460,7 +2178,7 @@ function assertNoActiveCampaign(d, ownerEmail, tenantId, excludeCampaignId = nul
     if (row) throw new DbError('Bu kullanıcı için zaten aktif bir kampanya var', 409, 'CAMPAIGN_ALREADY_ACTIVE');
 }
 
-const createCampaignRun = async (input = {}) => withWriteTransaction('create-campaign-run', (d) => {
+const createCampaignRun = async (input = {}) => withWriteTransaction(null, (d) => {
     const campaignId = String(input.id || '').trim();
     if (!campaignId) throw new DbError('Campaign id zorunlu', 400, 'CAMPAIGN_ID_REQUIRED');
     const tenant = resolveTenantId(input.tenantId);
@@ -1469,6 +2187,19 @@ const createCampaignRun = async (input = {}) => withWriteTransaction('create-cam
     assertNoActiveCampaign(d, ownerEmail, tenant);
     const normalized = normalizeContactsDetailed(input.contacts || []);
     if (normalized.contacts.length === 0) throw new DbError('Gönderilecek geçerli kişi yok', 400, 'CAMPAIGN_CONTACTS_REQUIRED');
+    const unavailableByPhone = getUnavailableWhatsAppRecipientsByPhonesWithDb(
+        d,
+        tenant,
+        normalized.contacts.map(contact => contact.normalized_phone)
+    );
+    const suppressedByPhone = getSuppressedRecipientsByPhonesWithDb(
+        d,
+        tenant,
+        normalized.contacts.map(contact => contact.normalized_phone)
+    );
+    const suppressedOnlyCount = normalized.contacts.filter(contact => (
+        !unavailableByPhone.has(contact.normalized_phone) && suppressedByPhone.has(contact.normalized_phone)
+    )).length;
 
     const delayRange = Array.isArray(input.delayRange) ? input.delayRange : [];
     const delayMinMs = Number.parseInt(delayRange[0], 10) * 1000 || null;
@@ -1490,9 +2221,15 @@ const createCampaignRun = async (input = {}) => withWriteTransaction('create-cam
         delayMaxMs,
         current,
         toSqlJson({
-            import_summary: normalized.summary,
+            import_summary: {
+                ...normalized.summary,
+                unavailable_whatsapp: unavailableByPhone.size,
+                suppressed: suppressedOnlyCount
+            },
             batch_size: input.batchSize,
             batch_pause_minutes: input.batchPauseMinutes,
+            long_pause_size: input.longPauseSize,
+            long_pause_minutes: input.longPauseMinutes,
             media_count: Number(input.mediaCount || 0),
             media_files: Array.isArray(input.mediaFiles) ? input.mediaFiles : []
         }),
@@ -1501,10 +2238,18 @@ const createCampaignRun = async (input = {}) => withWriteTransaction('create-cam
     ]);
 
     normalized.contacts.forEach(contact => {
+        const unavailable = unavailableByPhone.get(contact.normalized_phone);
+        const suppressed = suppressedByPhone.get(contact.normalized_phone);
+        const status = unavailable
+            ? STATUS_NOT_ON_WHATSAPP
+            : (suppressed ? STATUS_SUPPRESSED : 'pending');
+        const lastError = unavailable
+            ? `WhatsApp kullanıcısı değil (önceden doğrulandı: ${unavailable.last_detected_at})`
+            : (suppressed ? suppressed.reason : null);
         d.run(`INSERT INTO campaign_recipients (
             tenant_id, campaign_run_id, contact_id, phone, normalized_phone, name, surname, status,
-            attempt_count, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`, [
+            attempt_count, last_error, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`, [
             tenant,
             campaignId,
             contact.id || null,
@@ -1512,6 +2257,8 @@ const createCampaignRun = async (input = {}) => withWriteTransaction('create-cam
             contact.normalized_phone,
             contact.name,
             contact.surname,
+            status,
+            lastError,
             current,
             current
         ]);
@@ -1522,6 +2269,11 @@ const createCampaignRun = async (input = {}) => withWriteTransaction('create-cam
 
 const setCampaignRunStatus = async (campaignId, status, metadata = {}) => withWriteTransaction(null, (d) => {
     const current = now();
+    const existing = queryOne(d, 'SELECT status, pause_until, pause_reason FROM campaign_runs WHERE id = ?', [campaignId]);
+    if (existing?.status === STATUS_CAMPAIGN_FINISHED && status !== STATUS_CAMPAIGN_FINISHED) {
+        return getCampaignRunStatusWithDb(d, campaignId);
+    }
+    const preserveTimedPause = status === 'stopped' && shouldPreserveTimedPause(existing, current);
     const fields = ['status = ?', 'updated_at = ?'];
     const params = [status, current];
 
@@ -1537,9 +2289,31 @@ const setCampaignRunStatus = async (campaignId, status, metadata = {}) => withWr
         fields.push('completed_at = ?');
         params.push(current);
     }
+    if (status === STATUS_CAMPAIGN_FINISHED) {
+        fields.push('finished_at = ?');
+        params.push(current);
+    }
     if (metadata.error !== undefined) {
         fields.push('error = ?');
         params.push(String(metadata.error || ''));
+    }
+    const metadataSetsPause = metadata.pause_reason !== undefined || metadata.pause_until !== undefined;
+    if (['paused', 'stopped', 'completed', STATUS_CAMPAIGN_FINISHED].includes(status)) {
+        if (!preserveTimedPause && !metadataSetsPause) {
+            fields.push('pause_until = NULL');
+            fields.push('pause_reason = NULL');
+        }
+        fields.push('wait_until = NULL');
+        fields.push('current_recipient_name = NULL');
+        fields.push('current_recipient_phone = NULL');
+    }
+    if (metadata.pause_until !== undefined) {
+        fields.push('pause_until = ?');
+        params.push(metadata.pause_until === null ? null : String(metadata.pause_until || ''));
+    }
+    if (metadata.pause_reason !== undefined) {
+        fields.push('pause_reason = ?');
+        params.push(metadata.pause_reason === null ? null : String(metadata.pause_reason || ''));
     }
 
     params.push(campaignId);
@@ -1547,29 +2321,110 @@ const setCampaignRunStatus = async (campaignId, status, metadata = {}) => withWr
     return getCampaignRunStatusWithDb(d, campaignId);
 });
 
-const addCampaignLog = async (campaignId, type, message, progress, metadata = {}) => withWriteTransaction(null, (d) => {
-    const run = queryOne(d, 'SELECT tenant_id FROM campaign_runs WHERE id = ?', [campaignId]);
-    d.run(
-        'INSERT INTO campaign_logs (tenant_id, campaign_run_id, type, message, progress, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [run?.tenant_id || DEFAULT_TENANT_ID, campaignId, type, String(message || ''), progress === undefined ? null : Number(progress), toSqlJson(metadata), now()]
-    );
+function updateCampaignRuntimeStateWithDb(d, campaignId, state = {}) {
+    const allowed = [
+        'pause_until',
+        'pause_reason',
+        'wait_until',
+        'current_recipient_name',
+        'current_recipient_phone',
+        'last_recipient_name',
+        'last_recipient_phone'
+    ];
+    const fields = [];
+    const params = [];
+
+    allowed.forEach(key => {
+        if (!Object.prototype.hasOwnProperty.call(state, key)) return;
+        fields.push(`${key} = ?`);
+        const value = state[key];
+        params.push(value === undefined || value === null ? null : String(value));
+    });
+
+    if (fields.length === 0) return getCampaignRunStatusWithDb(d, campaignId);
+    const current = now();
+    fields.push('updated_at = ?');
+    params.push(current, campaignId);
+    d.run(`UPDATE campaign_runs SET ${fields.join(', ')} WHERE id = ?`, params);
+    return getCampaignRunStatusWithDb(d, campaignId);
+}
+
+const updateCampaignRuntimeState = async (campaignId, state = {}) => withWriteTransaction(null, (d) => {
+    return updateCampaignRuntimeStateWithDb(d, campaignId, state);
 });
 
-const updateCampaignRecipient = async (campaignId, contact, status, error = null) => withWriteTransaction(null, (d) => {
+const updateCampaignMediaFiles = async (campaignId, mediaFiles) => withWriteTransaction(null, (d) => {
+    const current = now();
+    const run = queryOne(d, 'SELECT metadata FROM campaign_runs WHERE id = ?', [campaignId]);
+    if (!run) return null;
+
+    let metadata = {};
+    try {
+        metadata = JSON.parse(run.metadata || '{}');
+    } catch (_) {}
+
+    metadata.media_files = Array.isArray(mediaFiles) ? mediaFiles : [];
+    metadata.media_count = metadata.media_files.length;
+
+    d.run(
+        'UPDATE campaign_runs SET metadata = ?, updated_at = ? WHERE id = ?',
+        [toSqlJson(metadata), current, campaignId]
+    );
+    return getCampaignRunStatusWithDb(d, campaignId);
+});
+
+function getCampaignTenantIdWithDb(d, campaignId, tenantId = null) {
+    if (tenantId) return resolveTenantId(tenantId);
+    const run = queryOne(d, 'SELECT tenant_id FROM campaign_runs WHERE id = ?', [campaignId]);
+    return run?.tenant_id || DEFAULT_TENANT_ID;
+}
+
+function addCampaignLogWithDb(d, campaignId, type, message, progress, metadata = {}, tenantId = null) {
+    d.run(
+        'INSERT INTO campaign_logs (tenant_id, campaign_run_id, type, message, progress, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [getCampaignTenantIdWithDb(d, campaignId, tenantId), campaignId, type, String(message || ''), progress === undefined ? null : Number(progress), toSqlJson(metadata), now()]
+    );
+}
+
+const addCampaignLog = async (campaignId, type, message, progress, metadata = {}, tenantId = null) => withWriteTransaction(null, (d) => {
+    return addCampaignLogWithDb(d, campaignId, type, message, progress, metadata, tenantId);
+});
+
+function updateCampaignRecipientWithDb(d, campaignId, contact, status, error = null, tenantId = null) {
     const normalizedPhone = normalizePhone(contact?.phone || contact?.normalized_phone);
     if (!normalizedPhone) return null;
     const current = now();
     const sentAt = status === 'sent' ? current : null;
+    const nextRetryAt = null;
     d.run(`UPDATE campaign_recipients
-        SET status = ?, attempt_count = attempt_count + 1, last_error = ?, sent_at = COALESCE(?, sent_at), updated_at = ?
+        SET status = ?,
+            attempt_count = attempt_count + 1,
+            last_error = ?,
+            sent_at = COALESCE(?, sent_at),
+            last_attempted_at = ?,
+            next_retry_at = ?,
+            updated_at = ?
         WHERE campaign_run_id = ? AND normalized_phone = ?`, [
         status,
         error ? (error instanceof Error ? (error.stack || String(error)) : String(error)) : null,
         sentAt,
         current,
+        nextRetryAt,
+        current,
         campaignId,
         normalizedPhone
     ]);
+
+    if (status === STATUS_NOT_ON_WHATSAPP) {
+        upsertUnavailableWhatsAppRecipientWithDb(d, {
+            tenantId: getCampaignTenantIdWithDb(d, campaignId, tenantId),
+            normalizedPhone,
+            contact,
+            reason: error || 'WhatsApp kullanıcısı değil',
+            campaignId,
+            detectedAt: current
+        });
+    }
 
     const counts = queryOne(d, `
         SELECT
@@ -1586,16 +2441,25 @@ const updateCampaignRecipient = async (campaignId, contact, status, error = null
         campaignId
     ]);
     return getCampaignRunStatusWithDb(d, campaignId);
+}
+
+const updateCampaignRecipient = async (campaignId, contact, status, error = null, tenantId = null) => withWriteTransaction(null, (d) => {
+    return updateCampaignRecipientWithDb(d, campaignId, contact, status, error, tenantId);
 });
 
-const setRecipientMessageId = async (campaignId, normalizedPhone, messageId) => {
+function setRecipientMessageIdWithDb(d, campaignId, normalizedPhone, messageId) {
     if (!messageId) return;
-    const d = await getDb();
     d.run(
         'UPDATE campaign_recipients SET message_id = ?, updated_at = ? WHERE campaign_run_id = ? AND normalized_phone = ?',
         [String(messageId), now(), campaignId, normalizePhone(normalizedPhone)]
     );
-    save();
+}
+
+const setRecipientMessageId = async (campaignId, normalizedPhone, messageId) => {
+    if (!messageId) return;
+    return withWriteTransaction(null, (d) => {
+        return setRecipientMessageIdWithDb(d, campaignId, normalizedPhone, messageId);
+    });
 };
 
 const updateDeliveryStatus = async (messageId, deliveryStatus) => {
@@ -1660,18 +2524,38 @@ const getLatestCampaignRunStatus = async (ownerEmail = null, tenantId = null) =>
     return row ? getCampaignRunStatusWithDb(d, row.id, owner, tenant) : null;
 };
 
+const getDueBatchPauseCampaignRuns = async (asOf = new Date()) => {
+    const d = await getDb();
+    const cutoff = asOf instanceof Date ? asOf.toISOString() : String(asOf || now());
+    const rows = queryAll(d, `
+        SELECT * FROM campaign_runs
+        WHERE status = 'running'
+          AND pause_reason IN ('batch_pause', 'long_pause', 'night_pause')
+          AND pause_until IS NOT NULL
+          AND pause_until != ''
+          AND pause_until <= ?
+        ORDER BY pause_until ASC
+    `, [cutoff]);
+    return rows.map(row => applyCampaignRecipientSummary(d, mapCampaignRun(row)));
+};
+
 const stopLatestRunningCampaign = async (ownerEmail, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction(null, (d) => {
     const owner = requireCampaignOwner(ownerEmail);
     const tenant = resolveTenantId(tenantId);
     const row = queryOne(d, `
-        SELECT id FROM campaign_runs
+        SELECT id, pause_until, pause_reason FROM campaign_runs
         WHERE tenant_id = ? AND owner_email = ? AND status IN ('queued', 'running', 'paused')
         ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
         LIMIT 1
     `, [tenant, owner]);
     if (!row) return null;
     const current = now();
-    d.run('UPDATE campaign_runs SET status = ?, stopped_at = ?, updated_at = ? WHERE id = ?', ['stopped', current, current, row.id]);
+    const preserveTimedPause = shouldPreserveTimedPause(row, current);
+    const pauseFields = preserveTimedPause ? '' : 'pause_until = NULL, pause_reason = NULL,';
+    d.run(`UPDATE campaign_runs
+        SET status = ?, stopped_at = ?, ${pauseFields}
+            wait_until = NULL, current_recipient_name = NULL, current_recipient_phone = NULL, updated_at = ?
+        WHERE id = ?`, ['stopped', current, current, row.id]);
     return getCampaignRunStatusWithDb(d, row.id, owner, tenant);
 });
 
@@ -1684,7 +2568,38 @@ const stopCampaignRun = async (campaignId, ownerEmail, tenantId = DEFAULT_TENANT
     }
 
     const current = now();
-    d.run('UPDATE campaign_runs SET status = ?, stopped_at = ?, updated_at = ? WHERE id = ?', ['stopped', current, current, campaignId]);
+    const preserveTimedPause = shouldPreserveTimedPause(row, current);
+    const pauseFields = preserveTimedPause ? '' : 'pause_until = NULL, pause_reason = NULL,';
+    d.run(`UPDATE campaign_runs
+        SET status = ?, stopped_at = ?, ${pauseFields}
+            wait_until = NULL, current_recipient_name = NULL, current_recipient_phone = NULL, updated_at = ?
+        WHERE id = ?`, ['stopped', current, current, campaignId]);
+    return getCampaignRunStatusWithDb(d, campaignId, owner, tenant);
+});
+
+const finishCampaignRun = async (campaignId, ownerEmail, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction(null, (d) => {
+    const owner = requireCampaignOwner(ownerEmail);
+    const tenant = resolveTenantId(tenantId);
+    const row = ensureCampaignOwner(d, campaignId, owner, tenant);
+    if (row.status === STATUS_CAMPAIGN_FINISHED) {
+        return getCampaignRunStatusWithDb(d, campaignId, owner, tenant);
+    }
+
+    const current = now();
+    d.run(`
+        UPDATE campaign_runs
+        SET status = ?,
+            stopped_at = COALESCE(stopped_at, ?),
+            finished_at = ?,
+            pause_until = NULL,
+            pause_reason = NULL,
+            wait_until = NULL,
+            current_recipient_name = NULL,
+            current_recipient_phone = NULL,
+            error = NULL,
+            updated_at = ?
+        WHERE id = ?
+    `, [STATUS_CAMPAIGN_FINISHED, current, current, current, campaignId]);
     return getCampaignRunStatusWithDb(d, campaignId, owner, tenant);
 });
 
@@ -1700,39 +2615,113 @@ const getCampaignRecipientsForRun = async (campaignId, ownerEmail, statuses = []
     }
 
     return queryAll(d, `
-        SELECT contact_id, phone, normalized_phone, name, surname, status, attempt_count, last_error
+        SELECT contact_id, phone, normalized_phone, name, surname, status, attempt_count, last_error, last_attempted_at, next_retry_at
         FROM campaign_recipients
         ${where}
         ORDER BY id ASC
-    `, params).map(row => ({
-        id: row.contact_id || undefined,
-        phone: row.phone,
-        normalized_phone: row.normalized_phone,
-        name: row.name,
-        surname: row.surname,
-        status: row.status,
-        attempt_count: row.attempt_count,
-        last_error: row.last_error || null
-    }));
+    `, params).map(mapCampaignRecipient);
 };
 
-const prepareCampaignRunForRestart = async (campaignId, ownerEmail, mode, tenantId = DEFAULT_TENANT_ID) => withWriteTransaction(null, (d) => {
-    const owner = requireCampaignOwner(ownerEmail);
+const getCampaignRecipientsForRestart = async (campaignId, ownerEmail, mode, tenantId = DEFAULT_TENANT_ID, options = {}) => {
+    const d = await getDb();
     const tenant = resolveTenantId(tenantId);
-    const row = ensureCampaignOwner(d, campaignId, owner, tenant);
-    if (row.status === 'running') throw new DbError('Çalışan kampanya yeniden başlatılamaz', 409, 'CAMPAIGN_ALREADY_RUNNING');
+    const row = ensureCampaignOwner(d, campaignId, ownerEmail, tenant);
+    assertCampaignRestartable(row);
     if (!['resume', 'retry'].includes(mode)) throw new DbError('Geçersiz kampanya yeniden başlatma modu', 400, 'CAMPAIGN_RESTART_MODE_INVALID');
-    assertNoActiveCampaign(d, owner, tenant, campaignId);
 
-    const current = now();
-    if (mode === 'retry' || mode === 'resume') {
-        d.run(`
-            UPDATE campaign_recipients
-            SET status = 'pending', last_error = NULL, sent_at = NULL, updated_at = ?
-            WHERE campaign_run_id = ? AND status = 'failed'
-        `, [current, campaignId]);
+    const firstPassPending = hasUnattemptedPendingRecipientsWithDb(d, campaignId, tenant);
+    if (mode === 'resume') {
+        if (firstPassPending) {
+            return queryAll(d, `
+                SELECT contact_id, phone, normalized_phone, name, surname, status, attempt_count, last_error, last_attempted_at, next_retry_at
+                FROM campaign_recipients
+                WHERE campaign_run_id = ?
+                  AND tenant_id = ?
+                  AND status = 'pending'
+                  AND attempt_count = 0
+                ORDER BY id ASC
+            `, [campaignId, tenant]).map(mapCampaignRecipient);
+        }
+
+        return queryAll(d, `
+            SELECT contact_id, phone, normalized_phone, name, surname, status, attempt_count, last_error, last_attempted_at, next_retry_at
+            FROM campaign_recipients
+            WHERE campaign_run_id = ?
+              AND tenant_id = ?
+              AND status = 'pending'
+            ORDER BY id ASC
+        `, [campaignId, tenant]).map(mapCampaignRecipient);
     }
 
+    if (firstPassPending) return [];
+
+    const statuses = ['pending', ...TEMPORARY_RETRY_STATUSES];
+
+    return queryAll(d, `
+        SELECT contact_id, phone, normalized_phone, name, surname, status, attempt_count, last_error, last_attempted_at, next_retry_at
+        FROM campaign_recipients
+        WHERE campaign_run_id = ?
+          AND tenant_id = ?
+          AND status IN (${statuses.map(() => '?').join(', ')})
+          AND (
+              status != 'pending'
+              OR attempt_count > 0
+          )
+        ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, id ASC
+    `, [campaignId, tenant, ...statuses]).map(mapCampaignRecipient);
+};
+
+const getRetryableSkippedCampaignRecipients = async (campaignId, ownerEmail, tenantId = DEFAULT_TENANT_ID, options = {}) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const row = ensureCampaignOwner(d, campaignId, ownerEmail, tenant);
+    assertCampaignRestartable(row);
+    if (hasUnattemptedPendingRecipientsWithDb(d, campaignId, tenant)) return [];
+
+    const cooldownMs = Number.parseInt(options.cooldownMs, 10);
+    const resolvedCooldownMs = Number.isFinite(cooldownMs) && cooldownMs > 0
+        ? cooldownMs
+        : DEFAULT_RECIPIENT_COOLDOWN_MS;
+    const asOfMs = options.asOf instanceof Date
+        ? options.asOf.getTime()
+        : Number.parseInt(options.asOfMs ?? Date.now(), 10);
+    const resolvedAsOfMs = Number.isFinite(asOfMs) ? asOfMs : Date.now();
+
+    const rows = queryAll(d, `
+        SELECT
+            cr.contact_id,
+            cr.phone,
+            cr.normalized_phone,
+            cr.name,
+            cr.surname,
+            cr.status,
+            cr.attempt_count,
+            cr.last_error,
+            cr.last_attempted_at,
+            cr.next_retry_at,
+            rh.last_sent_at AS cooldown_last_sent_at
+        FROM campaign_recipients cr
+        LEFT JOIN recipient_history rh
+          ON rh.tenant_id = cr.tenant_id
+         AND rh.normalized_phone = cr.normalized_phone
+        WHERE cr.campaign_run_id = ?
+          AND cr.tenant_id = ?
+          AND cr.status IN (${SKIPPED_RETRY_STATUSES.map(() => '?').join(', ')})
+        ORDER BY cr.id ASC
+    `, [campaignId, tenant, ...SKIPPED_RETRY_STATUSES]);
+
+    return rows
+        .filter(row => {
+            if (!isRetryDue(row, resolvedAsOfMs)) return false;
+            if (row.status !== 'skipped_cooldown') return true;
+            const lastSentAt = new Date(row.cooldown_last_sent_at || '').getTime();
+            if (!Number.isFinite(lastSentAt)) return true;
+            return resolvedAsOfMs - lastSentAt >= resolvedCooldownMs;
+        })
+        .map(mapCampaignRecipient);
+};
+
+function queueCampaignRunForRestart(d, row, campaignId, current) {
     const counts = queryOne(d, `
         SELECT
             SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent_count,
@@ -1740,6 +2729,11 @@ const prepareCampaignRunForRestart = async (campaignId, ownerEmail, mode, tenant
         FROM campaign_recipients
         WHERE campaign_run_id = ?
     `, [campaignId]);
+
+    const currentTimedPauseStillActive = shouldPreserveTimedPause(row, current);
+    const pauseResetFields = currentTimedPauseStillActive
+        ? ''
+        : 'pause_until = NULL, pause_reason = NULL,';
 
     d.run(`
         UPDATE campaign_runs
@@ -1749,6 +2743,10 @@ const prepareCampaignRunForRestart = async (campaignId, ownerEmail, mode, tenant
             stopped_at = NULL,
             completed_at = NULL,
             error = NULL,
+            ${pauseResetFields}
+            wait_until = NULL,
+            current_recipient_name = NULL,
+            current_recipient_phone = NULL,
             updated_at = ?
         WHERE id = ?
     `, [
@@ -1757,6 +2755,78 @@ const prepareCampaignRunForRestart = async (campaignId, ownerEmail, mode, tenant
         current,
         campaignId
     ]);
+}
+
+const prepareCampaignRunForRestart = async (campaignId, ownerEmail, mode, tenantId = DEFAULT_TENANT_ID, options = {}) => withWriteTransaction(null, (d) => {
+    const owner = requireCampaignOwner(ownerEmail);
+    const tenant = resolveTenantId(tenantId);
+    const row = ensureCampaignOwner(d, campaignId, owner, tenant);
+    assertCampaignRestartable(row);
+    if (row.status === 'running') throw new DbError('Çalışan kampanya yeniden başlatılamaz', 409, 'CAMPAIGN_ALREADY_RUNNING');
+    if (!['resume', 'retry'].includes(mode)) throw new DbError('Geçersiz kampanya yeniden başlatma modu', 400, 'CAMPAIGN_RESTART_MODE_INVALID');
+    assertNoActiveCampaign(d, owner, tenant, campaignId);
+
+    const current = resolveAsOfIso(options);
+    const firstPassPending = hasUnattemptedPendingRecipientsWithDb(d, campaignId, tenant);
+    if (firstPassPending && mode === 'retry') {
+        throw new DbError('Önce hiç denenmemiş bekleyen numaralar tamamlanmalı', 400, 'CAMPAIGN_FIRST_PASS_PENDING');
+    }
+
+    const restartStatuses = mode === 'retry' ? TEMPORARY_RETRY_STATUSES : [];
+    if (restartStatuses.length > 0) {
+        d.run(`
+            UPDATE campaign_recipients
+            SET status = 'pending',
+                last_error = NULL,
+                sent_at = NULL,
+                next_retry_at = NULL,
+                updated_at = ?
+            WHERE campaign_run_id = ?
+              AND tenant_id = ?
+              AND status IN (${restartStatuses.map(() => '?').join(', ')})
+        `, [current, campaignId, tenant, ...restartStatuses]);
+    }
+
+    queueCampaignRunForRestart(d, row, campaignId, current);
+
+    return getCampaignRunStatusWithDb(d, campaignId, owner, tenant);
+});
+
+const prepareSkippedCampaignRunForRetry = async (campaignId, ownerEmail, recipients = [], tenantId = DEFAULT_TENANT_ID) => withWriteTransaction(null, (d) => {
+    const owner = requireCampaignOwner(ownerEmail);
+    const tenant = resolveTenantId(tenantId);
+    const row = ensureCampaignOwner(d, campaignId, owner, tenant);
+    assertCampaignRestartable(row);
+    if (row.status === 'running') throw new DbError('Çalışan kampanya yeniden başlatılamaz', 409, 'CAMPAIGN_ALREADY_RUNNING');
+    assertNoActiveCampaign(d, owner, tenant, campaignId);
+    if (hasUnattemptedPendingRecipientsWithDb(d, campaignId, tenant)) {
+        throw new DbError('Önce hiç denenmemiş bekleyen numaralar tamamlanmalı', 400, 'CAMPAIGN_FIRST_PASS_PENDING');
+    }
+
+    const normalizedPhones = Array.from(new Set(
+        (Array.isArray(recipients) ? recipients : [])
+            .map(contact => normalizePhone(contact?.normalized_phone || contact?.phone))
+            .filter(isValidPhone)
+    ));
+    if (normalizedPhones.length === 0) throw new DbError('Tekrar denenecek atlanan kişi yok', 400, 'CAMPAIGN_RETRY_SKIPPED_EMPTY');
+
+    const current = now();
+    const result = d.run(`
+        UPDATE campaign_recipients
+        SET status = 'pending', last_error = NULL, sent_at = NULL, next_retry_at = NULL, updated_at = ?
+        WHERE campaign_run_id = ?
+          AND tenant_id = ?
+          AND normalized_phone IN (${normalizedPhones.map(() => '?').join(', ')})
+          AND status IN (${SKIPPED_RETRY_STATUSES.map(() => '?').join(', ')})
+          AND (
+              next_retry_at IS NULL
+              OR next_retry_at = ''
+              OR next_retry_at <= ?
+          )
+    `, [current, campaignId, tenant, ...normalizedPhones, ...SKIPPED_RETRY_STATUSES, current]);
+    if (Number(result?.changes || 0) === 0) throw new DbError('Tekrar denenecek atlanan kişi yok', 400, 'CAMPAIGN_RETRY_SKIPPED_EMPTY');
+
+    queueCampaignRunForRestart(d, row, campaignId, current);
 
     return getCampaignRunStatusWithDb(d, campaignId, owner, tenant);
 });
@@ -1886,7 +2956,7 @@ const purgeCampaignLogs = async (retentionDays) => {
         const result = d.run(
             `DELETE FROM campaign_logs WHERE created_at < ?
              AND campaign_run_id IN (
-                 SELECT id FROM campaign_runs WHERE status IN ('completed','stopped','paused') AND updated_at < ?
+                 SELECT id FROM campaign_runs WHERE status IN ('completed','stopped','paused','finished') AND updated_at < ?
              )`,
             [cutoff, cutoff]
         );
@@ -1901,7 +2971,7 @@ const purgeCampaignRuns = async (retentionDays) => {
     return withWriteTransaction(null, (d) => {
         // campaign_recipients ve campaign_logs CASCADE ile silinir
         const result = d.run(
-            `DELETE FROM campaign_runs WHERE status IN ('completed','stopped','paused') AND updated_at < ?`,
+            `DELETE FROM campaign_runs WHERE status IN ('completed','stopped','paused','finished') AND updated_at < ?`,
             [cutoff]
         );
         return { deleted: Number(result?.changes || 0), cutoff, enabled: true };
@@ -1961,16 +3031,87 @@ const getCampaignReport = async (campaignId, tenantId) => {
     ).reduce((acc, row) => { acc[row.status] = Number(row.count); return acc; }, {});
 
     const failedRecipients = queryAll(d,
-        "SELECT phone, name, last_error, updated_at FROM campaign_recipients WHERE campaign_run_id = ? AND status = 'failed' ORDER BY updated_at DESC LIMIT 50",
+        "SELECT phone, name, surname, status, attempt_count, last_error, last_attempted_at, next_retry_at, updated_at FROM campaign_recipients WHERE campaign_run_id = ? AND status = 'failed' ORDER BY updated_at DESC LIMIT 50",
         [campaignId]
     );
+
+    const unsentRecipients = queryAll(d, `
+        SELECT phone, normalized_phone, name, surname, status, attempt_count, last_error, last_attempted_at, next_retry_at, updated_at
+        FROM campaign_recipients
+        WHERE campaign_run_id = ?
+          AND tenant_id = ?
+          AND (
+              status IN ('failed', 'validation_unknown')
+              OR (status = 'pending' AND attempt_count > 0)
+          )
+        ORDER BY datetime(COALESCE(last_attempted_at, updated_at)) DESC, id DESC
+    `, [campaignId, tenant]).map(row => ({
+        ...row,
+        phone: row.phone || row.normalized_phone || '',
+        normalized_phone: row.normalized_phone || normalizePhone(row.phone),
+        name: row.name || '',
+        surname: row.surname || '',
+        attempt_count: Number(row.attempt_count || 0),
+        last_error: row.last_error || ''
+    }));
+
+    const unavailableRecipients = queryAll(d, `
+        SELECT phone, normalized_phone, name, surname, status, attempt_count, last_error, last_attempted_at, next_retry_at, updated_at
+        FROM campaign_recipients
+        WHERE campaign_run_id = ?
+          AND tenant_id = ?
+          AND status = ?
+        ORDER BY datetime(updated_at) DESC, id DESC
+    `, [campaignId, tenant, STATUS_NOT_ON_WHATSAPP]).map(row => ({
+        ...row,
+        phone: row.phone || row.normalized_phone || '',
+        normalized_phone: row.normalized_phone || normalizePhone(row.phone),
+        name: row.name || '',
+        surname: row.surname || '',
+        attempt_count: Number(row.attempt_count || 0),
+        last_error: row.last_error || 'WhatsApp kullanıcısı değil'
+    }));
+
+    const sentRecipients = queryAll(d, `
+        SELECT phone, normalized_phone, name, surname, status, attempt_count, sent_at, updated_at
+        FROM campaign_recipients
+        WHERE campaign_run_id = ?
+          AND tenant_id = ?
+          AND status = 'sent'
+        ORDER BY datetime(COALESCE(sent_at, updated_at)) DESC, id DESC
+    `, [campaignId, tenant]).map(row => ({
+        ...row,
+        phone: row.phone || row.normalized_phone || '',
+        normalized_phone: row.normalized_phone || normalizePhone(row.phone),
+        name: row.name || '',
+        surname: row.surname || '',
+        attempt_count: Number(row.attempt_count || 0)
+    }));
+
+    const skippedRecipients = queryAll(d, `
+        SELECT phone, name, surname, status, attempt_count, last_error, last_attempted_at, next_retry_at, updated_at
+        FROM campaign_recipients
+        WHERE campaign_run_id = ?
+          AND status IN ('skipped', 'skipped_cooldown', 'not_on_whatsapp', 'validation_unknown', 'suppressed')
+        ORDER BY updated_at DESC
+        LIMIT 200
+    `, [campaignId]);
 
     const logs = queryAll(d,
         'SELECT id, type, message, progress, metadata, created_at FROM campaign_logs WHERE campaign_run_id = ? ORDER BY id DESC LIMIT 500',
         [campaignId]
     ).reverse().map(mapCampaignLog);
 
-    return { run, recipient_stats: recipientStats, failed_recipients: failedRecipients, logs };
+    return {
+        run,
+        recipient_stats: recipientStats,
+        failed_recipients: failedRecipients,
+        skipped_recipients: skippedRecipients,
+        unsent_recipients: unsentRecipients,
+        unavailable_recipients: unavailableRecipients,
+        sent_recipients: sentRecipients,
+        logs
+    };
 };
 
 const getCampaignSummary = async (tenantId) => {
@@ -2016,6 +3157,272 @@ const getCampaignSummary = async (tenantId) => {
         },
         recent_campaigns: recent
     };
+};
+
+const recordUnavailableWhatsAppRecipient = async (contact, tenantId = DEFAULT_TENANT_ID, metadata = {}) => withWriteTransaction(null, (d) => {
+    const tenant = resolveTenantId(tenantId);
+    ensureTenant(d, tenant);
+    return upsertUnavailableWhatsAppRecipientWithDb(d, {
+        tenantId: tenant,
+        normalizedPhone: contact?.normalized_phone || contact?.phone,
+        contact,
+        reason: metadata.reason || 'WhatsApp kullanıcısı değil',
+        campaignId: metadata.campaignId || null,
+        detectedAt: metadata.detectedAt || now()
+    });
+});
+
+const getUnavailableWhatsAppRecipient = async (phone, tenantId = DEFAULT_TENANT_ID) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const normalizedPhone = normalizePhone(phone);
+    if (!isValidPhone(normalizedPhone)) return null;
+    return mapUnavailableWhatsAppRecipient(queryOne(d, `
+        SELECT *
+        FROM unavailable_whatsapp_recipients
+        WHERE tenant_id = ? AND normalized_phone = ?
+    `, [tenant, normalizedPhone]));
+};
+
+const isUnavailableWhatsAppRecipient = async (phone, tenantId = DEFAULT_TENANT_ID) => {
+    const recipient = await getUnavailableWhatsAppRecipient(phone, tenantId);
+    return !!recipient;
+};
+
+const getUnavailableWhatsAppRecipients = async (tenantId = DEFAULT_TENANT_ID, options = {}) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const limit = Math.min(1000, Math.max(1, Number.parseInt(options.limit, 10) || 200));
+    const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
+    return queryAll(d, `
+        SELECT *
+        FROM unavailable_whatsapp_recipients
+        WHERE tenant_id = ?
+        ORDER BY datetime(last_detected_at) DESC, normalized_phone ASC
+        LIMIT ? OFFSET ?
+    `, [tenant, limit, offset]).map(mapUnavailableWhatsAppRecipient);
+};
+
+const FAILED_REPORT_STATUSES = ['failed', 'validation_unknown'];
+
+function normalizeRecipientReportOptions(options = {}) {
+    const rawLimit = Number.parseInt(options.limit, 10);
+    const rawOffset = Number.parseInt(options.offset, 10);
+    return {
+        limit: Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 100)),
+        offset: Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0),
+        search: cleanText(options.search || '')
+    };
+}
+
+const getFailedCampaignRecipients = async (tenantId = DEFAULT_TENANT_ID, options = {}) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const { limit, offset, search } = normalizeRecipientReportOptions(options);
+    const where = [
+        'cr.tenant_id = ?',
+        `cr.status IN (${FAILED_REPORT_STATUSES.map(() => '?').join(', ')})`
+    ];
+    const params = [tenant, ...FAILED_REPORT_STATUSES];
+
+    if (search) {
+        const like = `%${search}%`;
+        where.push('(cr.normalized_phone LIKE ? OR cr.phone LIKE ? OR cr.name LIKE ? OR cr.surname LIKE ? OR cr.last_error LIKE ?)');
+        params.push(like, like, like, like, like);
+    }
+
+    const whereSql = where.join(' AND ');
+    const rows = queryAll(d, `
+        SELECT
+            cr.campaign_run_id,
+            cr.phone,
+            cr.normalized_phone,
+            cr.name,
+            cr.surname,
+            cr.status,
+            cr.attempt_count,
+            cr.last_error,
+            cr.last_attempted_at,
+            cr.next_retry_at,
+            cr.updated_at,
+            run.status AS campaign_status,
+            run.created_at AS campaign_created_at,
+            run.updated_at AS campaign_updated_at
+        FROM campaign_recipients cr
+        LEFT JOIN campaign_runs run
+          ON run.id = cr.campaign_run_id
+         AND run.tenant_id = cr.tenant_id
+        WHERE ${whereSql}
+        ORDER BY datetime(cr.updated_at) DESC, cr.id DESC
+        LIMIT ? OFFSET ?
+    `, [...params, limit, offset]).map(row => ({
+        campaign_run_id: row.campaign_run_id,
+        phone: row.phone || row.normalized_phone || '',
+        normalized_phone: row.normalized_phone || normalizePhone(row.phone),
+        name: row.name || '',
+        surname: row.surname || '',
+        status: row.status,
+        attempt_count: Number(row.attempt_count || 0),
+        last_error: row.last_error || '',
+        last_attempted_at: row.last_attempted_at || null,
+        next_retry_at: row.next_retry_at || null,
+        updated_at: row.updated_at,
+        campaign_status: row.campaign_status || null,
+        campaign_created_at: row.campaign_created_at || null,
+        campaign_updated_at: row.campaign_updated_at || null
+    }));
+
+    const totalRow = queryOne(d, `
+        SELECT COUNT(*) AS total
+        FROM campaign_recipients cr
+        WHERE ${whereSql}
+    `, params);
+
+    return {
+        recipients: rows,
+        total: Number(totalRow?.total || 0),
+        limit,
+        offset,
+        has_more: offset + rows.length < Number(totalRow?.total || 0)
+    };
+};
+
+const suppressRecipients = async (contactsList = [], tenantId = DEFAULT_TENANT_ID, options = {}) => withWriteTransaction('suppress-recipients', (d) => {
+    const tenant = resolveTenantId(tenantId);
+    ensureTenant(d, tenant);
+    const { contacts, summary } = normalizeContactsDetailed(contactsList);
+    if (contacts.length === 0) throw new DbError('Gönderim dışı bırakılacak geçerli telefon yok', 400, 'SUPPRESSED_RECIPIENTS_EMPTY');
+
+    const current = now();
+    const recipients = contacts
+        .map(contact => upsertSuppressedRecipientWithDb(d, {
+            tenantId: tenant,
+            normalizedPhone: contact.normalized_phone,
+            contact,
+            reason: options.reason || 'Manuel olarak gönderim dışı bırakıldı',
+            source: options.source || 'manual',
+            suppressedAt: current
+        }))
+        .filter(Boolean);
+    const recipientPhones = recipients.map(recipient => recipient.normalized_phone);
+    const suppressibleStatuses = ['pending', 'failed', 'validation_unknown', 'skipped', 'skipped_cooldown'];
+    let affectedCampaignRecipients = 0;
+
+    for (let i = 0; i < recipientPhones.length; i += 500) {
+        const chunk = recipientPhones.slice(i, i + 500);
+        if (chunk.length === 0) continue;
+        const result = d.run(`
+            UPDATE campaign_recipients
+            SET status = ?,
+                last_error = ?,
+                next_retry_at = NULL,
+                updated_at = ?
+            WHERE tenant_id = ?
+              AND normalized_phone IN (${chunk.map(() => '?').join(', ')})
+              AND status IN (${suppressibleStatuses.map(() => '?').join(', ')})
+              AND campaign_run_id IN (
+                  SELECT id
+                  FROM campaign_runs
+                  WHERE tenant_id = ?
+                    AND status IN ('queued', 'running', 'paused', 'stopped')
+              )
+        `, [
+            STATUS_SUPPRESSED,
+            options.reason || 'Manuel olarak gönderim dışı bırakıldı',
+            current,
+            tenant,
+            ...chunk,
+            ...suppressibleStatuses,
+            tenant
+        ]);
+        affectedCampaignRecipients += Number(result?.changes || 0);
+    }
+
+    audit(d, 'recipients_suppressed', 'suppressed_recipient', 'bulk', {
+        count: recipients.length,
+        affected_campaign_recipients: affectedCampaignRecipients,
+        phones: recipientPhones
+    }, tenant);
+
+    return {
+        recipients,
+        summary: {
+            ...summary,
+            saved: recipients.length,
+            affected_campaign_recipients: affectedCampaignRecipients
+        }
+    };
+});
+
+const unsuppressRecipients = async (phones = [], tenantId = DEFAULT_TENANT_ID) => withWriteTransaction('unsuppress-recipients', (d) => {
+    const tenant = resolveTenantId(tenantId);
+    ensureTenant(d, tenant);
+    const normalizedPhones = Array.from(new Set(
+        (Array.isArray(phones) ? phones : [])
+            .map(normalizePhone)
+            .filter(isValidPhone)
+    ));
+    if (normalizedPhones.length === 0) throw new DbError('Gönderime geri alınacak geçerli telefon yok', 400, 'SUPPRESSED_RECIPIENTS_EMPTY');
+
+    const current = now();
+    const result = d.run(`
+        UPDATE suppressed_recipients
+        SET active = 0,
+            unsuppressed_at = ?,
+            updated_at = ?
+        WHERE tenant_id = ?
+          AND active = 1
+          AND normalized_phone IN (${normalizedPhones.map(() => '?').join(', ')})
+    `, [current, current, tenant, ...normalizedPhones]);
+
+    audit(d, 'recipients_unsuppressed', 'suppressed_recipient', 'bulk', {
+        count: Number(result?.changes || 0),
+        phones: normalizedPhones
+    }, tenant);
+
+    return { success: true, removed: Number(result?.changes || 0) };
+});
+
+const getSuppressedRecipient = async (phone, tenantId = DEFAULT_TENANT_ID) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const normalizedPhone = normalizePhone(phone);
+    if (!isValidPhone(normalizedPhone)) return null;
+    return mapSuppressedRecipient(queryOne(d, `
+        SELECT *
+        FROM suppressed_recipients
+        WHERE tenant_id = ? AND normalized_phone = ? AND active = 1
+    `, [tenant, normalizedPhone]));
+};
+
+const isSuppressedRecipient = async (phone, tenantId = DEFAULT_TENANT_ID) => {
+    const recipient = await getSuppressedRecipient(phone, tenantId);
+    return !!recipient;
+};
+
+const getSuppressedRecipients = async (tenantId = DEFAULT_TENANT_ID, options = {}) => {
+    const d = await getDb();
+    const tenant = resolveTenantId(tenantId);
+    const limit = Math.min(1000, Math.max(1, Number.parseInt(options.limit, 10) || 200));
+    const offset = Math.max(0, Number.parseInt(options.offset, 10) || 0);
+    const includeInactive = options.active === 'all';
+    const active = options.active === false || options.active === 'false' ? 0 : 1;
+    const params = [tenant];
+    let activeSql = '';
+    if (!includeInactive) {
+        activeSql = 'AND active = ?';
+        params.push(active);
+    }
+    params.push(limit, offset);
+
+    return queryAll(d, `
+        SELECT *
+        FROM suppressed_recipients
+        WHERE tenant_id = ?
+          ${activeSql}
+        ORDER BY datetime(updated_at) DESC, normalized_phone ASC
+        LIMIT ? OFFSET ?
+    `, params).map(mapSuppressedRecipient);
 };
 
 const getDailySendCount = async (tenantId = DEFAULT_TENANT_ID, date = businessDate()) => {
@@ -2076,7 +3483,7 @@ const checkCooldownWithMessage = async (contacts, messageHash, tenantId = DEFAUL
     return { sameMessage, differentMessage };
 };
 
-const recordRecipientSend = async (phone, tenantId = DEFAULT_TENANT_ID, sentAt = new Date(), messageHash = null) => withWriteTransaction(null, (d) => {
+function recordRecipientSendWithDb(d, phone, tenantId = DEFAULT_TENANT_ID, sentAt = new Date(), messageHash = null) {
     const tenant = resolveTenantId(tenantId);
     const normalizedPhone = normalizePhone(phone);
     if (!isValidPhone(normalizedPhone)) return { recorded: false };
@@ -2100,6 +3507,43 @@ const recordRecipientSend = async (phone, tenantId = DEFAULT_TENANT_ID, sentAt =
     `, [tenant, date, currentIso]);
 
     return { recorded: true, tenant_id: tenant, normalized_phone: normalizedPhone, send_date: date };
+}
+
+const recordRecipientSend = async (phone, tenantId = DEFAULT_TENANT_ID, sentAt = new Date(), messageHash = null) => withWriteTransaction(null, (d) => {
+    return recordRecipientSendWithDb(d, phone, tenantId, sentAt, messageHash);
+});
+
+const recordCampaignRecipientResult = async (campaignId, result = {}) => withWriteTransaction(null, (d) => {
+    let resolvedTenantId = result.tenantId ? resolveTenantId(result.tenantId) : null;
+    const campaignTenantId = () => {
+        if (!resolvedTenantId) resolvedTenantId = getCampaignTenantIdWithDb(d, campaignId);
+        return resolvedTenantId;
+    };
+    const recipient = result.contact;
+
+    if (result.messageId) {
+        setRecipientMessageIdWithDb(d, campaignId, recipient?.phone || recipient?.normalized_phone, result.messageId);
+    }
+    if (result.sendLog?.phone) {
+        recordRecipientSendWithDb(d, result.sendLog.phone, campaignTenantId(), new Date(), result.sendLog.msgHash);
+    }
+    if (result.status) {
+        updateCampaignRecipientWithDb(d, campaignId, recipient, result.status, result.error, campaignTenantId());
+    }
+    if (result.runtimeState) {
+        updateCampaignRuntimeStateWithDb(d, campaignId, result.runtimeState);
+    }
+    if (result.log) {
+        addCampaignLogWithDb(
+            d,
+            campaignId,
+            result.log.type,
+            result.log.message,
+            result.log.progress,
+            result.log.metadata,
+            campaignTenantId()
+        );
+    }
 });
 
 const cleanupRecipientHistory = async (tenantId = DEFAULT_TENANT_ID, retentionMs = 48 * 60 * 60 * 1000) => {
@@ -2157,7 +3601,7 @@ const getUserByEmail = async (email) => {
     return queryOne(d, 'SELECT * FROM users WHERE email = ? AND status = ?', [cleanText(email), 'active']);
 };
 
-const createUser = async (tenantId, email, passwordHash, role, displayName) => withWriteTransaction('create-user', (d) => {
+const createUser = async (tenantId, email, passwordHash, role, displayName) => withWriteTransaction(null, (d) => {
     const tenant = resolveTenantId(tenantId);
     ensureTenant(d, tenant);
     const userEmail = cleanText(email);
@@ -2207,25 +3651,26 @@ const deleteUser = async (userId) => withWriteTransaction('delete-user', (d) => 
 });
 
 module.exports = {
-    DbError,
     getDb,
     save,
     createBackup,
     requireSuccessfulBackup,
     resolveBackupRetentionCount,
+    resolveBackupMinIntervalMs,
     getMigrationStatus,
     applyPendingMigrations,
-    migrateJSONs,
     DEFAULT_TENANT_ID,
+    STATUS_NOT_ON_WHATSAPP,
+    STATUS_SUPPRESSED,
+    STATUS_CAMPAIGN_FINISHED,
     normalizePhone,
     normalizeContact,
-    normalizeContacts,
     normalizeContactsDetailed,
-    getTenants,
     createTenant,
     getGroups,
     getGroupContacts,
     getGroupContactsPage,
+    getExportableContacts,
     createGroup,
     updateGroupContacts,
     deleteGroup,
@@ -2236,14 +3681,31 @@ module.exports = {
     createTemplate,
     createCampaignRun,
     setCampaignRunStatus,
+    updateCampaignRuntimeState,
+    updateCampaignMediaFiles,
     addCampaignLog,
     updateCampaignRecipient,
+    recordCampaignRecipientResult,
     getCampaignRunStatus,
     getLatestCampaignRunStatus,
+    getDueBatchPauseCampaignRuns,
     stopLatestRunningCampaign,
     stopCampaignRun,
+    finishCampaignRun,
     getCampaignRecipientsForRun,
+    getCampaignRecipientsForRestart,
+    getRetryableSkippedCampaignRecipients,
     prepareCampaignRunForRestart,
+    prepareSkippedCampaignRunForRetry,
+    recordUnavailableWhatsAppRecipient,
+    getUnavailableWhatsAppRecipient,
+    isUnavailableWhatsAppRecipient,
+    getUnavailableWhatsAppRecipients,
+    getFailedCampaignRecipients,
+    suppressRecipients,
+    unsuppressRecipients,
+    isSuppressedRecipient,
+    getSuppressedRecipients,
     addAuditLog,
     getAuditLogs,
     purgeExpiredAuditLogs,
@@ -2253,6 +3715,7 @@ module.exports = {
     getRecipientCooldownExpiresAt,
     checkCooldownWithMessage,
     recordRecipientSend,
+    __writeTransactionCountForTests: () => writeTransactionCountForTests,
     cleanupRecipientHistory,
     getSession,
     setSession,

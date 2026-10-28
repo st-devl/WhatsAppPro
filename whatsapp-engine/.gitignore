@@ -3,6 +3,8 @@ node_modules/
 auth/
 data/database.sqlite
 data/database.sqlite-*
+data/database.sqlite-wal
+data/database.sqlite-shm
 data/database.sqlite.*
 data/backups/
 data/contacts.json

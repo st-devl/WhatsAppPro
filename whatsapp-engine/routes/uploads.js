@@ -20,7 +20,7 @@ function createUploadRouter(options = {}) {
 
     router.post('/upload-media', asyncHandler(async (req, res) => {
         await runUpload(upload.array('media'), req, res);
-        sendSuccess(res, await uploadService.replaceMedia(req.files || [], context(req)), 'MEDIA_UPLOADED');
+        sendSuccess(res, await uploadService.addMedia(req.files || [], context(req)), 'MEDIA_UPLOADED');
     }));
 
     router.delete('/upload-media', asyncHandler(async (req, res) => {

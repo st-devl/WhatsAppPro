@@ -51,17 +51,33 @@ class WhatsAppRegistry {
         return `tenant:${String(tenantId)}`;
     }
 
+    emitToTenant(event, payload, tenantId) {
+        if (!this.options.io || !tenantId) return;
+        this.options.io.to(this.tenantRoom(tenantId)).emit(event, payload);
+    }
+
     isTenantSupported(tenantId) {
         return !!tenantId;
     }
 
-    getStatus(tenantId) {
-        if (!tenantId) return { whatsapp: 'unconfigured', http: this.httpStatus };
-        // QR ekranına vs girdiği an lazy-init tetiklenmesi için getOrCreate kullanıyoruz
-        const r = this.getOrCreate(tenantId);
-        const status = r ? r.getStatus() : { whatsapp: 'unconfigured' };
-        status.http = this.httpStatus;
-        return status;
+    getStatus(tenantId, options = {}) {
+        if (!tenantId) return { whatsapp: 'unconfigured', http: this.httpStatus, initialized: false };
+        const createIfMissing = options.createIfMissing !== false;
+        const r = createIfMissing ? this.getOrCreate(tenantId) : this.get(tenantId);
+        const status = r ? r.getStatus() : { whatsapp: 'idle', initialized: false };
+        return {
+            ...status,
+            http: this.httpStatus,
+            initialized: !!r
+        };
+    }
+
+    getStatusSnapshot(tenantId) {
+        return this.getStatus(tenantId, { createIfMissing: false });
+    }
+
+    getHttpStatus() {
+        return this.httpStatus;
     }
 
     setHttpStatus(status, error = null) {

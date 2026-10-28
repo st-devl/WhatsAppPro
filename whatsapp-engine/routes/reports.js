@@ -20,6 +20,25 @@ function createReportsRouter(db) {
         sendSuccess(res, { events }, 'SYSTEM_EVENTS');
     }));
 
+    router.get('/unavailable-whatsapp', asyncHandler(async (req, res) => {
+        const { limit, offset } = req.query;
+        const recipients = await db.getUnavailableWhatsAppRecipients(tenantId(req), {
+            limit: Number.parseInt(limit, 10) || 200,
+            offset: Number.parseInt(offset, 10) || 0
+        });
+        sendSuccess(res, { recipients }, 'UNAVAILABLE_WHATSAPP_RECIPIENTS');
+    }));
+
+    router.get('/failed-recipients', asyncHandler(async (req, res) => {
+        const { limit, offset, search } = req.query;
+        const report = await db.getFailedCampaignRecipients(tenantId(req), {
+            limit: Number.parseInt(limit, 10) || 100,
+            offset: Number.parseInt(offset, 10) || 0,
+            search: search || ''
+        });
+        sendSuccess(res, report, 'FAILED_RECIPIENTS');
+    }));
+
     router.get('/campaigns/:campaignId/report', asyncHandler(async (req, res) => {
         const report = await db.getCampaignReport(req.params.campaignId, tenantId(req));
         if (!report) throw createApiError(404, 'Kampanya bulunamadı', 'CAMPAIGN_NOT_FOUND');

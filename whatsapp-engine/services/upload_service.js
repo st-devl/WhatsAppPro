@@ -20,6 +20,7 @@ const {
     requiredString,
     requiredUploadFile
 } = require('../lib/validation');
+const { invalidateMediaUploadCache } = require('../lib/media_upload_cache');
 const { componentLogger } = require('../lib/logger');
 
 const PHONE_ALIASES = ['Numara', 'numara', 'phone', 'Phone', 'telefon', 'Telefon', 'tel', 'Tel', 'cep', 'Cep', 'mobile', 'Mobile', 'no', 'No', 'number', 'Number', 'PhoneNumber', 'phone_number', 'telefon_no'];
@@ -66,11 +67,15 @@ function createUploadService(options = {}) {
     const tenantId = (context = {}) => String(context.tenantId || 'default').trim() || 'default';
 
     return {
-        async replaceMedia(files = [], context = {}) {
+        async addMedia(files = [], context = {}) {
             const tenant = tenantId(context);
             try {
                 await validateMediaFiles(baseDir, files);
-                await cleanupExpiredMedia(baseDir, mediaPolicy, Date.now(), tenant);
+                const expiredPaths = await cleanupExpiredMedia(baseDir, mediaPolicy, Date.now(), tenant);
+                mediaStore.removeAll(
+                    expiredPaths.map(filePath => publicMediaPath(baseDir, filePath, tenant)),
+                    tenant
+                );
                 await assertMediaQuota(baseDir, mediaPolicy, tenant);
                 const mediaFiles = files.map(file => ({
                     path: publicMediaPath(baseDir, file.path, tenant),
@@ -79,9 +84,10 @@ function createUploadService(options = {}) {
                     size: file.size || 0,
                     uploaded_at: new Date().toISOString()
                 }));
-                return mediaStore.replace(mediaFiles, tenant);
+                return mediaStore.append(mediaFiles, tenant);
             } catch (err) {
                 await removeUploadedFiles(baseDir, files);
+                files.forEach(file => invalidateMediaUploadCache(file.path));
                 if (err.status) throw err;
                 throw badRequest(err.message, err.code || 'INVALID_MEDIA_FILE');
             }
@@ -90,9 +96,10 @@ function createUploadService(options = {}) {
         async removeMedia(inputPath, context = {}) {
             const tenant = tenantId(context);
             const mediaPath = requiredString(inputPath, 'Medya yolu gerekli', 'MEDIA_PATH_REQUIRED');
-            mediaStore.remove(mediaPath, tenant);
             const absoluteMediaPath = assertInsideUploads(baseDir, mediaPath, tenant);
             await fs.remove(absoluteMediaPath);
+            invalidateMediaUploadCache(absoluteMediaPath);
+            mediaStore.remove(mediaPath, tenant);
             return mediaStore.list(tenant);
         },
 

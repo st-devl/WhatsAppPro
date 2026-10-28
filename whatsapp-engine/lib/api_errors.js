@@ -54,6 +54,12 @@ function createNotFoundMiddleware() {
     };
 }
 
+function createApiVersionRemovedMiddleware() {
+    return (req, res, next) => {
+        next(createApiError(410, 'Bu API sürümü kaldırıldı. Lütfen /api/v1 kullanın.', 'API_VERSION_REMOVED'));
+    };
+}
+
 module.exports = {
     ApiError,
     createApiError,
@@ -61,5 +67,6 @@ module.exports = {
     asyncHandler,
     sendApiError,
     createErrorMiddleware,
-    createNotFoundMiddleware
+    createNotFoundMiddleware,
+    createApiVersionRemovedMiddleware
 };

@@ -93,6 +93,9 @@ async function expectStatus(status, fn, message) {
         const stoppedCampaign = await db.stopLatestRunningCampaign(ownerEmail);
         assert(stoppedCampaign.id === campaign.id && stoppedCampaign.status === 'stopped', 'owner-scoped latest campaign stop failed');
 
+        const immediateRetryRecipients = await db.getCampaignRecipientsForRestart(campaign.id, ownerEmail, 'retry');
+        assert(immediateRetryRecipients.length === 1, 'failed recipient should be immediately available in unsent retry pool after first pass');
+
         const retryRun = await db.prepareCampaignRunForRestart(campaign.id, ownerEmail, 'retry');
         assert(retryRun.status === 'queued' && retryRun.failed_count === 0, 'retry preparation did not reset failed recipients');
         const retryRecipients = await db.getCampaignRecipientsForRun(campaign.id, ownerEmail, ['pending']);
@@ -142,7 +145,7 @@ async function expectStatus(status, fn, message) {
         const backups = fs.readdirSync(path.join(tempDir, 'backups')).filter(file => file.endsWith('.sqlite'));
         assert(backups.length > 0, 'backup files were not created for write operations');
 
-        console.log(JSON.stringify({ ok: true, tempDir, backups: backups.length, journalMode, driver: 'sql.js' }, null, 2));
+        console.log(JSON.stringify({ ok: true, tempDir, backups: backups.length, journalMode, driver: d.driver }, null, 2));
     } finally {
         fs.removeSync(tempDir);
     }

@@ -16,14 +16,22 @@
     "verify:data": "node scripts/verify-data-layer.js",
     "verify:runtime-data": "node scripts/verify-runtime-data-policy.js",
     "test:env": "node --test tests/env_validator.test.js",
+    "test:process-lock": "node --test tests/process_lock.test.js",
+    "test:db-checkpoint": "node --test tests/db_checkpoint.test.js",
+    "test:db-driver": "node --test tests/db_driver.test.js",
+    "test:sqljs": "DB_DRIVER=sqljs node --test tests/db_integrity.test.js tests/campaign_safety.test.js tests/regression_api.test.js tests/db_checkpoint.test.js tests/http_integration.test.js",
     "test:db": "node --test tests/db_integrity.test.js",
+    "test:db-backup": "node --test tests/db_backup.test.js",
     "test:message": "node --test tests/message_renderer.test.js",
     "test:integration": "node --test tests/http_integration.test.js",
     "test:regression": "node --test tests/regression_api.test.js",
+    "test:health": "node --test tests/health_checks.test.js",
     "test:security": "node --test tests/upload_security.test.js",
     "test:campaign": "node --test tests/campaign_safety.test.js",
+    "test:media-cache": "node --test tests/media_upload_cache.test.js",
+    "test:media-thumbnail": "node --test tests/media_thumbnail.test.js",
     "test:e2e": "playwright test",
-    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:env && npm run test:db && npm run test:message && npm run test:security && npm run test:campaign && npm run test:integration && npm run test:regression"
+    "test": "npm run verify:data && npm run verify:runtime-data && npm run test:env && npm run test:process-lock && npm run test:health && npm run test:db-checkpoint && npm run test:db-driver && npm run test:db && npm run test:db-backup && npm run test:message && npm run test:security && npm run test:campaign && npm run test:media-cache && npm run test:media-thumbnail && npm run test:integration && npm run test:regression && npm run test:sqljs"
   },
   "keywords": [
     "whatsapp",
@@ -43,6 +51,7 @@
     "fs-extra": "^11.2.0",
     "multer": "^1.4.5-lts.1",
     "pino": "^9.0.0",
+    "qrcode": "1.5.1",
     "socket.io": "^4.7.5",
     "sql.js": "^1.14.1",
     "uuid": "^14.0.0"

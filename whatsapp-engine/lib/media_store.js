@@ -50,11 +50,25 @@ class MediaStore {
         return this.list(tenantId);
     }
 
-    remove(mediaPath, tenantId = 'default') {
+    append(files, tenantId = 'default') {
         const key = this.key(tenantId);
-        this.filesByTenant.set(key, this.list(key).filter(item => item.path !== mediaPath));
+        this.filesByTenant.set(key, [...this.list(key), ...files]);
         this.persist();
         return this.list(key);
+    }
+
+    removeAll(mediaPaths = [], tenantId = 'default') {
+        const removedPaths = new Set(mediaPaths);
+        if (removedPaths.size === 0) return this.list(tenantId);
+
+        const key = this.key(tenantId);
+        this.filesByTenant.set(key, this.list(key).filter(item => !removedPaths.has(item.path)));
+        this.persist();
+        return this.list(key);
+    }
+
+    remove(mediaPath, tenantId = 'default') {
+        return this.removeAll([mediaPath], tenantId);
     }
 
     clear(tenantId = 'default') {

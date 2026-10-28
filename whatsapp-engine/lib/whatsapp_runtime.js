@@ -49,7 +49,7 @@ class WhatsAppRuntime {
     }
 
     getStatus() {
-        return this.status;
+        return { ...this.status };
     }
 
     setHttpStatus(value, error = null) {
@@ -84,15 +84,29 @@ class WhatsAppRuntime {
         this.isConnected = false;
         this.lastQR = null;
         if (this.sock) {
-            this.sock.ev.removeAllListeners();
-            this.sock.end();
+            try {
+                this.sock.ev.removeAllListeners();
+                this.sock.end();
+            } catch (_) {}
             this.sock = null;
         }
+        
+        // Baileys asenkron yazma kuyrugunu tamamlasin diye 300 ms bekliyoruz
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
         const sessionPath = this.sessionPath();
-        if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath);
+        if (fs.existsSync(sessionPath)) {
+            try {
+                fs.removeSync(sessionPath);
+                this.logger.info({ tenantId: this.tenantId }, 'whatsapp_session_directory_removed');
+            } catch (err) {
+                this.logger.error({ err, tenantId: this.tenantId }, 'whatsapp_session_directory_remove_failed');
+            }
+        }
         this.retryCount = 0;
-        this.scheduleInit(1000);
+        this.scheduleInit(200);
     }
+
 
     async init() {
         if (this.initLock) return;

@@ -42,6 +42,19 @@ test('normalizePhone: harf ve gecersiz karakterler temizlenir', () => {
     assert.equal(db.normalizePhone('tel:0532ABC123'), '0532123');
 });
 
+test('normalizePhone: 0090 uluslararasi cikis kodunu 90 formatina indirger', () => {
+    assert.equal(db.normalizePhone('0090 532 123 45 67'), '905321234567');
+});
+
+test('normalizePhone: Excel kaynakli .0 uzantisini temizler', () => {
+    assert.equal(db.normalizePhone('905321234567.0'), '905321234567');
+});
+
+test('normalizePhone: bilimsel gosterimi gecersiz sayar', () => {
+    assert.equal(db.normalizePhone('5.32123E+09'), '');
+    assert.equal(db.normalizeContact({ phone: '5.32123E+09', name: 'X' }), null);
+});
+
 test('normalizeContact: gecersiz telefon null doner', () => {
     assert.equal(db.normalizeContact({ phone: 'abc', name: 'X' }), null);
 });
@@ -249,6 +262,7 @@ test('getGroups contact_count silinmemis kisileri sayar', async () => {
     const found = groups.find(g => g.id === 'count-group');
     assert.ok(found);
     assert.equal(found.contact_count, 3);
+    assert.equal(found.sendable_count, 3);
 });
 
 test('kisi silindikten sonra contact_count guncellenir', async () => {
@@ -262,6 +276,31 @@ test('kisi silindikten sonra contact_count guncellenir', async () => {
     const found = groups.find(g => g.id === 'count-after-del-group');
     assert.ok(found);
     assert.equal(found.contact_count, 1);
+    assert.equal(found.sendable_count, 1);
+});
+
+test('getGroups sendable_count engellenmis ve WhatsApp olmayan kisileri haric tutar', async () => {
+    await db.createGroup('sendable-count-group', 'Sendable Count Grup');
+    await db.createContact('sendable-count-group', { phone: '05390000001', name: 'A' });
+    await db.createContact('sendable-count-group', { phone: '05390000002', name: 'B' });
+    await db.createContact('sendable-count-group', { phone: '05390000003', name: 'C' });
+    await db.createContact('sendable-count-group', { phone: '05390000004', name: 'D' });
+
+    await db.suppressRecipients([{ phone: '05390000002', name: 'B' }]);
+    await db.recordUnavailableWhatsAppRecipient({ phone: '05390000003', name: 'C' });
+
+    const groups = await db.getGroups();
+    const found = groups.find(g => g.id === 'sendable-count-group');
+    assert.ok(found);
+    assert.equal(found.contact_count, 4);
+    assert.equal(found.sendable_count, 2);
+
+    const exportable = await db.getExportableContacts();
+    const phones = new Set(exportable.map(contact => contact.normalized_phone));
+    assert.equal(phones.has('905390000001'), true);
+    assert.equal(phones.has('905390000002'), false);
+    assert.equal(phones.has('905390000003'), false);
+    assert.equal(phones.has('905390000004'), true);
 });
 
 // ─── Pagination Testleri ───

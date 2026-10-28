@@ -23,9 +23,11 @@ const { createSessionMiddleware } = require('../middleware/session');
 const { createSecurityHeaders, requireSameOriginForStateChanges } = require('../middleware/security');
 const { requireAuth } = require('../middleware/auth');
 const { createAuthRouter } = require('../routes/auth');
+const { createFaviconRouter } = require('../routes/favicon');
+const { createVendorAssetsRouter } = require('../routes/vendor_assets');
 const { createGroupRouter } = require('../routes/groups');
 const { createContactRouter } = require('../routes/contacts');
-const { createErrorMiddleware, createNotFoundMiddleware } = require('../lib/api_errors');
+const { createApiVersionRemovedMiddleware, createErrorMiddleware, createNotFoundMiddleware } = require('../lib/api_errors');
 const { registerCampaignSocket } = require('../socket/campaign_socket');
 const { createTenantUploadMiddleware } = require('../lib/tenant_uploads');
 const { parseTrustProxy } = require('../lib/proxy_config');
@@ -49,13 +51,15 @@ async function createHarness(options = {}) {
     });
 
     app.set('trust proxy', options.trustProxy ?? false);
-    app.use(sessionMiddleware);
-    io.engine.use(sessionMiddleware);
     app.use(createRequestLoggerMiddleware());
     app.use(createSecurityHeaders({ secureCookies: false }));
+    app.use(createFaviconRouter(path.join(__dirname, '..')));
+    app.use(sessionMiddleware);
+    io.engine.use(sessionMiddleware);
+    app.use(createVendorAssetsRouter({ requireAuth }));
     app.use(express.json({ limit: '1mb' }));
     app.use(requireSameOriginForStateChanges);
-    app.use('/api', createAuthRouter({
+    app.use('/api/v1', createAuthRouter({
         adminEmail: ADMIN_EMAIL,
         adminPassHash: ADMIN_HASH,
         db,
@@ -64,11 +68,12 @@ async function createHarness(options = {}) {
         sessionCookieOptions,
         defaultTenantId: 'default'
     }));
-    app.use('/api', requireAuth);
+    app.use('/api/v1', requireAuth);
     app.get('/uploads/:tenantId/*', requireAuth, createTenantUploadMiddleware(tempDir));
-    app.use('/api', createGroupRouter(db));
-    app.use('/api', createContactRouter(db));
-    app.use('/api', createNotFoundMiddleware());
+    app.use('/api/v1', createGroupRouter(db));
+    app.use('/api/v1', createContactRouter(db));
+    app.use('/api/v1', createNotFoundMiddleware());
+    app.use('/api', createApiVersionRemovedMiddleware());
     app.use(createErrorMiddleware());
 
     registerCampaignSocket(io, {
@@ -119,7 +124,7 @@ async function requestJson(harness, method, route, body = null, headers = {}) {
 }
 
 async function login(harness) {
-    const response = await requestJson(harness, 'POST', '/api/login', {
+    const response = await requestJson(harness, 'POST', '/api/v1/login', {
         email: ADMIN_EMAIL,
         password: ADMIN_PASSWORD
     });
@@ -160,16 +165,58 @@ test.after(async () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
+test('favicon assets are public and declared by the pages', async () => {
+    const harness = await createHarness();
+    try {
+        const ico = await fetch(`${harness.baseUrl}/favicon.ico`, { redirect: 'manual' });
+        assert.equal(ico.status, 302);
+        assert.equal(ico.headers.get('location'), '/favicon.svg');
+
+        const svg = await fetch(`${harness.baseUrl}/favicon.svg`);
+        assert.equal(svg.status, 200);
+        assert.match(svg.headers.get('content-type') || '', /image\/svg\+xml/);
+        assert.match(await svg.text(), /WhasAppC PRO/);
+
+        const loginHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'login.html'), 'utf8');
+        const dashboardHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+        assert.match(loginHtml, /\/favicon\.svg/);
+        assert.match(dashboardHtml, /\/favicon\.svg/);
+    } finally {
+        await harness.close();
+    }
+});
+
+test('dashboard QR library is served locally for authenticated sessions', async () => {
+    const harness = await createHarness();
+    try {
+        const unauthenticated = await fetch(`${harness.baseUrl}/vendor/qrcode.min.js`, { redirect: 'manual' });
+        assert.equal(unauthenticated.status, 302);
+        assert.equal(unauthenticated.headers.get('location'), '/login.html');
+
+        const cookie = await login(harness);
+        const vendor = await fetch(`${harness.baseUrl}/vendor/qrcode.min.js`, { headers: { Cookie: cookie } });
+        assert.equal(vendor.status, 200);
+        assert.match(vendor.headers.get('content-type') || '', /javascript/);
+        assert.match(await vendor.text(), /QRCode/);
+
+        const dashboardHtml = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+        assert.match(dashboardHtml, /\/vendor\/qrcode\.min\.js/);
+        assert.doesNotMatch(dashboardHtml, /cdn\.jsdelivr\.net/);
+    } finally {
+        await harness.close();
+    }
+});
+
 test('login, auth check and logout flow', async () => {
     const harness = await createHarness();
     try {
         const cookie = await login(harness);
 
-        const check = await requestJson(harness, 'GET', '/api/check-auth', null, { Cookie: cookie });
+        const check = await requestJson(harness, 'GET', '/api/v1/check-auth', null, { Cookie: cookie });
         assert.equal(check.status, 200);
         assert.equal(check.body.data.authenticated, true);
 
-        const logout = await requestJson(harness, 'POST', '/api/logout', null, { Cookie: cookie });
+        const logout = await requestJson(harness, 'POST', '/api/v1/logout', null, { Cookie: cookie });
         assert.equal(logout.status, 200);
         assert.equal(logout.body.code, 'LOGOUT_SUCCESS');
     } finally {
@@ -180,7 +227,7 @@ test('login, auth check and logout flow', async () => {
 test('cross-origin state-changing request is blocked', async () => {
     const harness = await createHarness();
     try {
-        const response = await requestJson(harness, 'POST', '/api/login', {
+        const response = await requestJson(harness, 'POST', '/api/v1/login', {
             email: ADMIN_EMAIL,
             password: ADMIN_PASSWORD
         }, {
@@ -196,7 +243,7 @@ test('cross-origin state-changing request is blocked', async () => {
 test('state-changing request without origin is blocked', async () => {
     const harness = await createHarness();
     try {
-        const response = await fetch(`${harness.baseUrl}/api/login`, {
+        const response = await fetch(`${harness.baseUrl}/api/v1/login`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
@@ -213,9 +260,9 @@ test('login brute force is rate limited', async () => {
     const harness = await createHarness({ maxAttempts: 2 });
     try {
         const payload = { email: ADMIN_EMAIL, password: 'wrong-password' };
-        assert.equal((await requestJson(harness, 'POST', '/api/login', payload)).status, 401);
-        assert.equal((await requestJson(harness, 'POST', '/api/login', payload)).status, 401);
-        const blocked = await requestJson(harness, 'POST', '/api/login', payload);
+        assert.equal((await requestJson(harness, 'POST', '/api/v1/login', payload)).status, 401);
+        assert.equal((await requestJson(harness, 'POST', '/api/v1/login', payload)).status, 401);
+        const blocked = await requestJson(harness, 'POST', '/api/v1/login', payload);
         assert.equal(blocked.status, 429);
         assert.equal(blocked.body.code, 'RATE_LIMITED');
     } finally {
@@ -227,9 +274,9 @@ test('rate limit ignores spoofed forwarded IP when proxy trust is disabled', asy
     const harness = await createHarness({ maxAttempts: 2, trustProxy: false });
     try {
         const payload = { email: ADMIN_EMAIL, password: 'wrong-password' };
-        assert.equal((await requestJson(harness, 'POST', '/api/login', payload, { 'X-Forwarded-For': '198.51.100.1' })).status, 401);
-        assert.equal((await requestJson(harness, 'POST', '/api/login', payload, { 'X-Forwarded-For': '198.51.100.2' })).status, 401);
-        const blocked = await requestJson(harness, 'POST', '/api/login', payload, { 'X-Forwarded-For': '198.51.100.3' });
+        assert.equal((await requestJson(harness, 'POST', '/api/v1/login', payload, { 'X-Forwarded-For': '198.51.100.1' })).status, 401);
+        assert.equal((await requestJson(harness, 'POST', '/api/v1/login', payload, { 'X-Forwarded-For': '198.51.100.2' })).status, 401);
+        const blocked = await requestJson(harness, 'POST', '/api/v1/login', payload, { 'X-Forwarded-For': '198.51.100.3' });
         assert.equal(blocked.status, 429);
     } finally {
         await harness.close();
@@ -245,17 +292,17 @@ test('trust proxy parser defaults closed and accepts explicit proxy settings', (
 test('group and contact CRUD routes require an authenticated session', async () => {
     const harness = await createHarness();
     try {
-        const unauthenticated = await requestJson(harness, 'GET', '/api/groups');
+        const unauthenticated = await requestJson(harness, 'GET', '/api/v1/groups');
         assert.equal(unauthenticated.status, 401);
 
         const cookie = await login(harness);
         const groupName = `Integration Group ${Date.now()}`;
-        const group = await requestJson(harness, 'POST', '/api/groups', { name: groupName }, { Cookie: cookie });
+        const group = await requestJson(harness, 'POST', '/api/v1/groups', { name: groupName }, { Cookie: cookie });
         assert.equal(group.status, 201);
         assert.equal(group.body.code, 'GROUP_CREATED');
         const groupId = group.body.data.id;
 
-        const contact = await requestJson(harness, 'POST', `/api/groups/${groupId}/contacts`, {
+        const contact = await requestJson(harness, 'POST', `/api/v1/groups/${groupId}/contacts`, {
             name: 'Ali',
             surname: 'Yilmaz',
             phone: '05320000000'
@@ -264,7 +311,7 @@ test('group and contact CRUD routes require an authenticated session', async () 
         assert.equal(contact.body.data.phone, '905320000000');
 
         const contactId = contact.body.data.id;
-        const updated = await requestJson(harness, 'PATCH', `/api/groups/${groupId}/contacts/${contactId}`, {
+        const updated = await requestJson(harness, 'PATCH', `/api/v1/groups/${groupId}/contacts/${contactId}`, {
             name: 'Veli',
             phone: '05320000001'
         }, { Cookie: cookie });
@@ -272,16 +319,31 @@ test('group and contact CRUD routes require an authenticated session', async () 
         assert.equal(updated.body.data.name, 'Veli');
         assert.equal(updated.body.data.phone, '905320000001');
 
-        const page = await requestJson(harness, 'GET', `/api/groups/${groupId}/contacts?limit=10&search=Veli`, null, { Cookie: cookie });
+        const page = await requestJson(harness, 'GET', `/api/v1/groups/${groupId}/contacts?limit=10&search=Veli`, null, { Cookie: cookie });
         assert.equal(page.status, 200);
         assert.equal(page.body.data.length, 1);
         assert.equal(page.body.meta.pagination.total, 1);
 
-        const deleted = await requestJson(harness, 'DELETE', `/api/groups/${groupId}/contacts/${contactId}`, null, { Cookie: cookie });
+        const deleted = await requestJson(harness, 'DELETE', `/api/v1/groups/${groupId}/contacts/${contactId}`, null, { Cookie: cookie });
         assert.equal(deleted.status, 200);
 
-        const deletedGroup = await requestJson(harness, 'DELETE', `/api/groups/${groupId}`, null, { Cookie: cookie });
+        const deletedGroup = await requestJson(harness, 'DELETE', `/api/v1/groups/${groupId}`, null, { Cookie: cookie });
         assert.equal(deletedGroup.status, 200);
+    } finally {
+        await harness.close();
+    }
+});
+
+test('legacy API paths return the removed-version envelope', async () => {
+    const harness = await createHarness();
+    try {
+        const response = await requestJson(harness, 'GET', '/api/groups');
+        assert.equal(response.status, 410);
+        assert.deepEqual(response.body, {
+            data: null,
+            error: 'Bu API sürümü kaldırıldı. Lütfen /api/v1 kullanın.',
+            code: 'API_VERSION_REMOVED'
+        });
     } finally {
         await harness.close();
     }

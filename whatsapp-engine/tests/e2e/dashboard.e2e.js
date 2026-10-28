@@ -25,6 +25,7 @@ const { createSessionMiddleware } = require('../../middleware/session');
 const { createSecurityHeaders, requireSameOriginForStateChanges } = require('../../middleware/security');
 const { requireAuth } = require('../../middleware/auth');
 const { createAuthRouter } = require('../../routes/auth');
+const { createVendorAssetsRouter } = require('../../routes/vendor_assets');
 const { createGroupRouter } = require('../../routes/groups');
 const { createContactRouter } = require('../../routes/contacts');
 const { createTemplateRouter } = require('../../routes/templates');
@@ -32,7 +33,7 @@ const { createCampaignRouter } = require('../../routes/campaigns');
 const { createUploadRouter } = require('../../routes/uploads');
 const { createSystemRouter } = require('../../routes/system');
 const { createAuditRouter } = require('../../routes/audit');
-const { createErrorMiddleware, createNotFoundMiddleware } = require('../../lib/api_errors');
+const { createApiVersionRemovedMiddleware, createErrorMiddleware, createNotFoundMiddleware } = require('../../lib/api_errors');
 const { registerCampaignSocket } = require('../../socket/campaign_socket');
 const { createUploadMiddleware } = require('../../lib/upload_middleware');
 const { MediaStore } = require('../../lib/media_store');
@@ -89,6 +90,7 @@ async function createHarness() {
     io.engine.use(sessionMiddleware);
     app.use(createRequestLoggerMiddleware());
     app.use(createSecurityHeaders({ secureCookies: false }));
+    app.use(createVendorAssetsRouter({ requireAuth }));
     app.use(express.json({ limit: '1mb' }));
     app.use(requireSameOriginForStateChanges);
     app.use('/css', express.static(path.join(engineRoot, 'public/css')));
@@ -102,15 +104,14 @@ async function createHarness() {
         defaultTenantId: 'default'
     };
     const apiOptions = { baseDir: tempDir, upload, mediaStore, db };
-    app.use('/api', createAuthRouter(authOptions));
     app.use('/api/v1', createAuthRouter(authOptions));
     app.use(requireAuth, express.static(path.join(engineRoot, 'public')));
     app.use('/shared', requireAuth, express.static(path.join(engineRoot, 'shared')));
     app.use('/uploads', requireAuth, express.static(path.join(tempDir, 'uploads')));
-    app.use('/api', requireAuth);
+    app.use('/api/v1', requireAuth);
     mountProtectedApi(app, '/api/v1', apiOptions);
-    mountProtectedApi(app, '/api', apiOptions);
-    app.use('/api', createNotFoundMiddleware());
+    app.use('/api/v1', createNotFoundMiddleware());
+    app.use('/api', createApiVersionRemovedMiddleware());
     app.use(createErrorMiddleware());
 
     registerCampaignSocket(io, { runtime: mockRuntime, campaignService: mockCampaignService });

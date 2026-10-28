@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">WhasAppC PRO</title>
+  <desc id="desc">Green square chat icon with a white W.</desc>
+  <defs>
+    <linearGradient id="bg" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b7a5f" />
+      <stop offset="1" stop-color="#0f3d3a" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#bg)" />
+  <path d="M18 17h28a9 9 0 0 1 9 9v10a9 9 0 0 1-9 9H31l-8 8v-8h-5a9 9 0 0 1-9-9V26a9 9 0 0 1 9-9z" fill="#ffffff" opacity=".15" />
+  <path d="M20 24h5.2l3.8 15.1L33 24h4l3.9 15.1L44.7 24H50l-6.1 20h-4.5l-3.4-13.1L32.6 44h-4.4L24.7 30.9 21.4 44H17z" fill="#fff" />
+</svg>
