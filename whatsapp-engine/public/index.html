@@ -4,8 +4,10 @@
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
     <title>WhasAppC PRO</title>
+    <link href="/favicon.svg" rel="icon" type="image/svg+xml" sizes="any">
+    <link href="/favicon.ico" rel="shortcut icon">
     <script src="/socket.io/socket.io.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <script defer src="/vendor/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link href="/css/app.css" rel="stylesheet">
@@ -236,7 +238,7 @@
                                 </div>
                                 <div class="space-y-2">
                                     <div class="flex justify-between items-center text-xs font-bold text-slate-600">
-                                        <span>Günlük Limit</span>
+                                        <span>3 Saatlik Mola Sınırı</span>
                                         <span class="text-primary"><span id="daily-limit-label">250</span> Mesaj</span>
                                     </div>
                                     <input id="daily-limit" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" type="number" value="250">
@@ -255,12 +257,16 @@
                             <div class="w-full bg-white/10 h-3 rounded-full overflow-hidden">
                                 <div id="prog-bar" class="bg-secondary h-full rounded-full transition-all duration-1000" style="width: 0%"></div>
                             </div>
-                            <div class="flex justify-between text-[10px] font-bold text-white/60">
+                            <div class="flex flex-wrap justify-between gap-4 text-[10px] font-bold text-white/60">
                                 <span id="prog-total">TOPLAM: 0</span>
                                 <span id="prog-eta">TAHMİN: --</span>
                                 <span id="prog-batch-pause">MOLA: --</span>
+                                <span id="prog-next-delay">BEKLEME: --</span>
                                 <span id="prog-sent">BAŞARILI: --</span>
                                 <span id="prog-failed">HATALI: --</span>
+                                <span id="prog-skipped">ATLANDI: --</span>
+                                <span id="prog-validation">BELİRSİZ: --</span>
+                                <span id="prog-last-recipient" class="w-full truncate text-white/70">SON GÖNDERİLEN: --</span>
                             </div>
                         </div>
 
@@ -277,9 +283,17 @@
                                 <span class="material-symbols-outlined text-lg">restart_alt</span>
                                 KALDIĞIN YERDEN DEVAM ET
                             </button>
-                            <button id="retry-btn" class="hidden bg-amber-500 text-white py-4 rounded-lg font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 hover:bg-amber-600 transition-colors active:scale-[0.98]">
+                            <button id="retry-btn" class="hidden col-span-2 bg-amber-500 text-white py-4 px-2 rounded-lg font-bold font-headline tracking-widest text-[11px] leading-tight items-center justify-center gap-2 hover:bg-amber-600 transition-colors active:scale-[0.98]">
                                 <span class="material-symbols-outlined text-lg">replay</span>
-                                TEKRAR DENE
+                                GÖNDERİLMEYENLERE TEKRAR GÖNDER
+                            </button>
+                            <button id="retry-skipped-btn" class="hidden bg-blue-600 text-white py-4 rounded-lg font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 hover:bg-blue-700 transition-colors active:scale-[0.98]">
+                                <span class="material-symbols-outlined text-lg">playlist_add_check</span>
+                                ATLANANLARI DENE
+                            </button>
+                            <button id="finish-campaign-btn" class="hidden col-span-2 bg-slate-900 text-white py-4 rounded-lg font-bold font-headline tracking-widest text-xs items-center justify-center gap-2 hover:bg-slate-800 transition-colors active:scale-[0.98]">
+                                <span class="material-symbols-outlined text-lg">block</span>
+                                KAMPANYAYI BİTİR
                             </button>
                         </div>
                     </div>
@@ -330,7 +344,7 @@
                                     <span class="material-symbols-outlined">person_add</span>
                                 </div>
                                 <h4 class="font-bold text-slate-900 text-sm mb-1">Manuel Ekle</h4>
-                                <p class="text-xs text-slate-500 leading-relaxed">Tekil kişi bilgilerini el ile hızlıca sisteme dahil edin.</p>
+                                <p class="text-xs text-slate-500 leading-relaxed">Seçili gruba tekil kişiyi el ile hızlıca dahil edin.</p>
                             </button>
 
                             <button id="download-sample-card" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-amber-500/50 transition-all cursor-pointer group">
@@ -341,16 +355,13 @@
                                 <p class="text-xs text-slate-500 leading-relaxed">Doğru içe aktarma formatı için şablon dosyasını indirin.</p>
                             </button>
 
-                            <div class="bg-primary p-6 rounded-xl shadow-sm border border-primary-container relative overflow-hidden flex flex-col justify-between">
-                                <div class="relative z-10">
-                                    <h4 class="font-bold text-white text-sm mb-3">Grup Adı Ver &amp; Kaydet</h4>
-                                    <input id="quick-group-name" class="w-full bg-slate-800 border-none rounded-lg text-white text-xs placeholder:text-slate-500 focus:ring-1 focus:ring-emerald-500 mb-3" placeholder="Grup adını yazın..." type="text">
+                            <button id="download-current-contacts-card" class="text-left bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10 hover:border-blue-500/50 transition-all cursor-pointer group">
+                                <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                    <span class="material-symbols-outlined">file_download</span>
                                 </div>
-                                <button id="save-inline-group-btn" class="w-full bg-emerald-600 text-white font-bold text-xs py-2.5 rounded-lg hover:bg-emerald-700 transition-colors z-10">Hepsini Kaydet</button>
-                                <div class="absolute -right-4 -bottom-4 opacity-10">
-                                    <span class="material-symbols-outlined text-8xl text-white">save</span>
-                                </div>
-                            </div>
+                                <h4 class="font-bold text-slate-900 text-sm mb-1">Güncel Rehberi İndir</h4>
+                                <p class="text-xs text-slate-500 leading-relaxed">Engellenenler hariç güncel listeyi Excel olarak alın.</p>
+                            </button>
                         </div>
 
                         <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 overflow-hidden">
@@ -359,18 +370,27 @@
                                     <span class="w-2 h-6 bg-emerald-500 rounded-full"></span>
                                     <div>
                                         <h3 id="active-group-name" class="font-headline font-bold text-slate-900">Seçili Grup Yok</h3>
-                                        <p class="text-xs text-slate-500">Toplam <span id="num-badge" class="font-bold text-slate-900">0</span> kayıt bulundu</p>
+                                        <p class="text-xs text-slate-500"><span id="num-badge" class="font-bold text-slate-900">0 kişi / 0 gönderilebilir</span></p>
                                     </div>
                                 </div>
-                                <button id="clear-list-btn" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-error text-error hover:bg-error hover:text-white transition-all text-xs font-bold">
-                                    <span class="material-symbols-outlined text-sm">delete_sweep</span>
-                                    Grubu Temizle
-                                </button>
+                                <div class="flex items-center gap-2">
+                                    <button id="suppress-selected-btn" disabled class="flex items-center gap-2 px-4 py-2 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-600 hover:text-white transition-all text-xs font-bold opacity-50 cursor-not-allowed">
+                                        <span class="material-symbols-outlined text-sm">block</span>
+                                        <span data-role="label">Gönderimden Çıkar</span>
+                                    </button>
+                                    <button id="clear-list-btn" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-error text-error hover:bg-error hover:text-white transition-all text-xs font-bold">
+                                        <span class="material-symbols-outlined text-sm">delete_sweep</span>
+                                        Grubu Temizle
+                                    </button>
+                                </div>
                             </div>
                             <div class="overflow-x-auto">
                                 <table class="w-full text-left border-collapse">
                                     <thead class="bg-slate-50/50">
                                         <tr>
+                                            <th class="px-4 py-4 w-12">
+                                                <input id="contacts-select-all" type="checkbox" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500" aria-label="Görünen kişileri seç">
+                                            </th>
                                             <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider w-20">Sıra</th>
                                             <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Ad Soyad</th>
                                             <th class="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Telefon</th>
@@ -378,7 +398,7 @@
                                         </tr>
                                     </thead>
                                     <tbody id="contacts-table-body" class="divide-y divide-outline-variant/5">
-                                        <tr><td colspan="4" class="p-16 text-center text-slate-300 font-bold uppercase text-[10px] tracking-widest">Lütfen Yandan Bir Grup Seçin</td></tr>
+                                        <tr><td colspan="5" class="p-16 text-center text-slate-300 font-bold uppercase text-[10px] tracking-widest">Lütfen Yandan Bir Grup Seçin</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -510,6 +530,57 @@
                     </div>
                 </div>
 
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant/10 shadow-sm overflow-hidden">
+                        <div class="px-6 py-4 border-b border-outline-variant/5 flex items-center justify-between gap-3">
+                            <h3 class="font-headline font-bold text-slate-900">WhatsApp Kullanmayanlar</h3>
+                            <button id="unavailable-whatsapp-refresh-btn" class="text-slate-500 hover:text-primary transition-colors p-1" title="Yenile">
+                                <span class="material-symbols-outlined text-sm">refresh</span>
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto max-h-[360px]">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50/80 sticky top-0">
+                                    <tr>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Ad</th>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Telefon</th>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Sebep</th>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Tespit</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="unavailable-whatsapp-tbody" class="divide-y divide-outline-variant/5">
+                                    <tr><td colspan="4" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="bg-surface-container-lowest rounded-xl border border-outline-variant/10 shadow-sm overflow-hidden">
+                        <div class="px-6 py-4 border-b border-outline-variant/5 flex items-center justify-between gap-3">
+                            <h3 class="font-headline font-bold text-slate-900">Mesaj Gönderilemeyenler</h3>
+                            <button id="failed-recipients-refresh-btn" class="text-slate-500 hover:text-primary transition-colors p-1" title="Yenile">
+                                <span class="material-symbols-outlined text-sm">refresh</span>
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto max-h-[360px]">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50/80 sticky top-0">
+                                    <tr>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Ad</th>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Telefon</th>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Durum</th>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase text-center">Deneme</th>
+                                        <th class="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Son Hata</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="failed-recipients-tbody" class="divide-y divide-outline-variant/5">
+                                    <tr><td colspan="5" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- System Events -->
                 <div class="bg-surface-container-lowest rounded-xl border border-outline-variant/10 shadow-sm overflow-hidden">
                     <div class="px-6 py-4 border-b border-outline-variant/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -530,6 +601,15 @@
                                 <option value="reconnect_paused">Yeniden Bağlanma Durdu</option>
                                 <option value="error_burst">Hata Patlaması</option>
                                 <option value="media_missing">Medya Eksik</option>
+                                <option value="server_started">Sunucu Başladı</option>
+                                <option value="campaign_started">Kampanya Başladı</option>
+                                <option value="campaign_resumed">Kampanya Devam Etti</option>
+                                <option value="campaign_retry_started">Gönderilmeyenler Tekrarlandı</option>
+                                <option value="campaign_retry_skipped_started">Atlananlar Tekrarlandı</option>
+                                <option value="campaign_completed">Kampanya Tamamlandı</option>
+                                <option value="campaign_paused">Kampanya Durakladı</option>
+                                <option value="campaign_stopped">Kampanya Durduruldu</option>
+                                <option value="campaign_finished">Kampanya Bitirildi</option>
                             </select>
                             <button id="sysevt-refresh-btn" class="text-slate-500 hover:text-primary transition-colors p-1" title="Yenile">
                                 <span class="material-symbols-outlined text-sm">refresh</span>
@@ -628,40 +708,95 @@
         </div>
     </div>
 
-    <div id="campaign-complete-modal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-primary/20 backdrop-blur-md p-6">
-        <div class="bg-white/95 w-full max-w-md rounded-2xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-white/20 relative flex flex-col items-center text-center">
-            <div class="flex flex-col items-center space-y-6 p-10 pb-6 w-full">
-                <div class="w-24 h-24 bg-secondary/5 rounded-full flex items-center justify-center relative">
+    <div id="campaign-complete-modal" class="fixed inset-0 z-[120] hidden items-center justify-center bg-primary/20 backdrop-blur-md p-4 md:p-6">
+        <div class="bg-white/95 w-full max-w-5xl max-h-[90vh] rounded-2xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.14)] border border-white/20 relative flex flex-col items-center text-center overflow-hidden">
+            <div class="flex flex-col items-center space-y-4 p-8 pb-5 w-full">
+                <div class="w-16 h-16 bg-secondary/5 rounded-full flex items-center justify-center relative">
                     <div class="absolute inset-0 bg-secondary/10 rounded-full animate-ping opacity-25"></div>
-                    <div class="w-20 h-20 bg-secondary/10 rounded-full flex items-center justify-center">
-                        <span class="material-symbols-outlined text-secondary text-5xl" style="font-variation-settings: 'FILL' 1, 'wght' 700;">check_circle</span>
+                    <div class="w-12 h-12 bg-secondary/10 rounded-full flex items-center justify-center">
+                        <span class="material-symbols-outlined text-secondary text-4xl" style="font-variation-settings: 'FILL' 1, 'wght' 700;">check_circle</span>
                     </div>
                 </div>
-                <div class="space-y-3">
-                    <h3 class="text-2xl font-black font-headline text-primary tracking-tight leading-none">Gönderiler tamamlandı</h3>
+                <div class="space-y-2">
+                    <h3 id="campaign-complete-title" class="text-2xl font-black font-headline text-primary tracking-tight leading-none">Gönderiler tamamlandı</h3>
                     <p id="campaign-complete-summary" class="text-sm text-on-surface-variant/80 font-medium leading-relaxed px-4">Tüm hedefler işlendi. İlerleme %100 olarak tamamlandı.</p>
                 </div>
             </div>
-            <div id="campaign-skipped-report" class="hidden w-full px-6 pb-4">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-xs font-bold text-red-500 uppercase tracking-wider">Gönderilemeyenler</span>
-                    <button id="campaign-report-download-btn" class="flex items-center gap-1 text-xs font-bold text-primary hover:text-primary/70 transition-colors">
-                        <span class="material-symbols-outlined text-sm">download</span> CSV İndir
-                    </button>
-                </div>
-                <div class="rounded-xl border border-slate-200 overflow-hidden">
-                    <div class="max-h-48 overflow-y-auto">
-                        <table class="w-full text-xs text-left">
-                            <thead class="bg-slate-50 sticky top-0">
-                                <tr>
-                                    <th class="px-3 py-2 font-semibold text-slate-500">Ad Soyad</th>
-                                    <th class="px-3 py-2 font-semibold text-slate-500">Numara</th>
-                                    <th class="px-3 py-2 font-semibold text-slate-500">Sebep</th>
-                                </tr>
-                            </thead>
-                            <tbody id="campaign-skipped-tbody" class="divide-y divide-slate-100"></tbody>
-                        </table>
-                    </div>
+            <div id="campaign-detailed-report" class="hidden w-full px-5 md:px-6 pb-4 overflow-y-auto text-left">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <section id="campaign-unsent-report" class="rounded-xl border border-rose-100 bg-rose-50/20 overflow-hidden">
+                        <div class="p-4 border-b border-rose-100 flex items-center justify-between gap-3">
+                            <div>
+                                <h4 class="text-xs font-black text-rose-700 uppercase tracking-wider">Mesaj Ulaşmayanlar</h4>
+                                <p id="campaign-unsent-count" class="text-[11px] text-rose-700/70 font-bold mt-1">0 kayıt</p>
+                            </div>
+                            <button id="campaign-block-unsent-btn" class="flex items-center gap-1 px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-[10px] font-black uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed">
+                                <span class="material-symbols-outlined text-sm">block</span>
+                                Engelle
+                            </button>
+                        </div>
+                        <div class="max-h-72 overflow-y-auto">
+                            <table class="w-full text-xs text-left">
+                                <thead class="bg-white/80 sticky top-0">
+                                    <tr>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Ad Soyad</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Numara</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500 text-center">Deneme</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="campaign-unsent-tbody" class="divide-y divide-rose-100"></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section id="campaign-unavailable-report" class="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden">
+                        <div class="p-4 border-b border-slate-200 flex items-center justify-between gap-3">
+                            <div>
+                                <h4 class="text-xs font-black text-slate-700 uppercase tracking-wider">WhatsApp Kullanmayanlar</h4>
+                                <p id="campaign-unavailable-count" class="text-[11px] text-slate-500 font-bold mt-1">0 kayıt</p>
+                            </div>
+                            <button id="campaign-block-unavailable-btn" class="flex items-center gap-1 px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 text-[10px] font-black uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed">
+                                <span class="material-symbols-outlined text-sm">block</span>
+                                Engelle
+                            </button>
+                        </div>
+                        <div class="max-h-72 overflow-y-auto">
+                            <table class="w-full text-xs text-left">
+                                <thead class="bg-white/80 sticky top-0">
+                                    <tr>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Ad Soyad</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Numara</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Sebep</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="campaign-unavailable-tbody" class="divide-y divide-slate-200"></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section id="campaign-sent-report" class="rounded-xl border border-emerald-100 bg-emerald-50/20 overflow-hidden">
+                        <div class="p-4 border-b border-emerald-100 flex items-center justify-between gap-3">
+                            <div>
+                                <h4 class="text-xs font-black text-emerald-700 uppercase tracking-wider">Başarılı Gönderimler</h4>
+                                <p id="campaign-sent-count" class="text-[11px] text-emerald-700/70 font-bold mt-1">0 kayıt</p>
+                            </div>
+                            <button id="campaign-report-download-btn" class="flex items-center gap-1 text-xs font-bold text-primary hover:text-primary/70 transition-colors">
+                                <span class="material-symbols-outlined text-sm">download</span> CSV
+                            </button>
+                        </div>
+                        <div class="max-h-72 overflow-y-auto">
+                            <table class="w-full text-xs text-left">
+                                <thead class="bg-white/80 sticky top-0">
+                                    <tr>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Ad Soyad</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Numara</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500 text-center">Deneme</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="campaign-sent-tbody" class="divide-y divide-emerald-100"></tbody>
+                            </table>
+                        </div>
+                    </section>
                 </div>
             </div>
             <div class="w-full px-6 pb-8 pt-2 flex gap-3">
@@ -777,10 +912,31 @@
                                     <tr>
                                         <th class="px-3 py-2 font-semibold text-slate-500">Ad</th>
                                         <th class="px-3 py-2 font-semibold text-slate-500">Telefon</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500 text-center">Deneme</th>
                                         <th class="px-3 py-2 font-semibold text-slate-500">Hata</th>
                                     </tr>
                                 </thead>
                                 <tbody id="cdet-failed-tbody" class="divide-y divide-slate-100"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Skipped / Unavailable Recipients -->
+                <div id="cdet-skipped-section" class="hidden">
+                    <h4 class="text-[10px] font-bold text-amber-600 uppercase tracking-widest mb-2">Atlanan / WhatsApp Kullanılamayan Alıcılar</h4>
+                    <div class="rounded-xl border border-slate-200 overflow-hidden">
+                        <div class="max-h-48 overflow-y-auto">
+                            <table class="w-full text-xs text-left">
+                                <thead class="bg-slate-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Ad</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Telefon</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Durum</th>
+                                        <th class="px-3 py-2 font-semibold text-slate-500">Sebep</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cdet-skipped-tbody" class="divide-y divide-slate-100"></tbody>
                             </table>
                         </div>
                     </div>

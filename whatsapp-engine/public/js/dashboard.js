@@ -2,6 +2,9 @@ let _socket = null;
 
 function _initSocketListeners(sock) {
     sock.on('connect_error', () => setPanelConnectionError('Sunucu bağlantısı kurulamadı'));
+    sock.on('connect', () => {
+        refreshActiveCampaignSnapshot({ hydrateLogs: true }).catch(() => {});
+    });
     sock.on('qr', qr => {
         const canvas = document.getElementById('qr-canvas');
         canvas.classList.remove('hidden');
@@ -17,44 +20,41 @@ function _initSocketListeners(sock) {
     sock.on('status', status => setWhatsAppUiStatus(status));
     sock.on('campaign-started', data => {
         setActiveCampaignId(data?.campaignId || data?.status?.id || getActiveCampaignId());
+        hydratedCampaignLogsForId = null;
         setCampaignControls('running');
-        updateCampaignEstimate(data?.status?.estimate_remaining_minutes);
-        updateBatchPauseCountdown(null);
-        document.getElementById('prog-sent').innerText = 'BAŞARILI: 0';
-        document.getElementById('prog-failed').innerText = 'HATALI: 0';
-        if (data?.status?.progress !== undefined) {
-            document.getElementById('prog-box').classList.remove('hidden');
-            document.getElementById('prog-bar').style.width = `${data.status.progress}%`;
-            document.getElementById('prog-text').innerText = `${Math.round(data.status.progress)}%`;
-        }
+        renderCampaignProgress(data?.status || {});
     });
     sock.on('campaign-progress', data => {
-        const pct = data.progress ?? 0;
-        document.getElementById('prog-box').classList.remove('hidden');
-        document.getElementById('prog-bar').style.width = `${pct}%`;
-        document.getElementById('prog-text').innerText = `${pct}%`;
-        document.getElementById('prog-count').innerText = `${data.processed}/${data.total} kişi işlendi`;
-        document.getElementById('prog-total').innerText = `TOPLAM: ${data.total}`;
-        document.getElementById('prog-sent').innerText = `BAŞARILI: ${data.sent}`;
-        document.getElementById('prog-failed').innerText = `HATALI: ${data.failed}`;
+        renderCampaignProgress(data || {});
+        if (data?.status) setCampaignControls(data.status);
     });
     sock.on('log', data => {
         const logs = document.getElementById('logs');
         const div = document.createElement('div');
-        const colorClass = data.type === 'error' ? 'text-red-300' : (data.type === 'success' ? 'text-secondary-fixed-dim' : (data.type === 'wait' ? 'text-amber-300' : 'text-slate-300'));
+        const colorClass = data.type === 'error' ? 'text-red-300' : (data.type === 'success' ? 'text-secondary-fixed-dim' : (['wait', 'warn'].includes(data.type) ? 'text-amber-300' : 'text-slate-300'));
         div.className = colorClass;
         div.innerText = `> ${data.message}`;
         logs.prepend(div);
         while (logs.children.length > 300) logs.removeChild(logs.lastChild);
 
-        if (data.progress !== undefined) {
+        const hasCountdownState = data.wait_until !== undefined
+            || data.pause_until !== undefined
+            || data.batch_pause_until !== undefined
+            || data.long_pause_until !== undefined
+            || data.night_pause_until !== undefined;
+        if (data.progress !== undefined && !hasCountdownState) {
             document.getElementById('prog-box').classList.remove('hidden');
             document.getElementById('prog-bar').style.width = `${data.progress}%`;
             document.getElementById('prog-text').innerText = `${Math.round(data.progress)}%`;
             document.getElementById('prog-count').innerText = data.message;
         }
         if (data.estimate_remaining_minutes !== undefined) updateCampaignEstimate(data.estimate_remaining_minutes);
-        if (data.batch_pause_until !== undefined) updateBatchPauseCountdown(data.batch_pause_until);
+        if (data.pause_until !== undefined) updateBatchPauseCountdown(data.pause_until, data.pause_reason);
+        if (data.batch_pause_until !== undefined) updateBatchPauseCountdown(data.batch_pause_until, 'batch_pause');
+        if (data.long_pause_until !== undefined) updateBatchPauseCountdown(data.long_pause_until, 'long_pause');
+        if (data.night_pause_until !== undefined) updateBatchPauseCountdown(data.night_pause_until, 'night_pause');
+        if (data.wait_until !== undefined) updateInterMessageCountdown(data.wait_until);
+        if (data.current_recipient_name || data.last_recipient_name) updateRecipientDisplay(data);
 
         if (data.done) {
             document.getElementById('prog-box').classList.remove('hidden');
@@ -63,10 +63,10 @@ function _initSocketListeners(sock) {
             document.getElementById('prog-count').innerText = data.message;
             updateCampaignEstimate(0);
             updateBatchPauseCountdown(null);
+            updateInterMessageCountdown(null);
             setCampaignControls('completed');
             if (data.sentCount === 0) {
                 showToast(data.message, 'error');
-                resetCampaignUI();
             } else {
                 showCampaignCompleteModal(data.skippedReport || [], data.message);
             }
@@ -75,6 +75,9 @@ function _initSocketListeners(sock) {
 
         if (data.message.toLocaleLowerCase('tr-TR').includes('durduruldu')) {
             setCampaignControls('stopped');
+        }
+        if (data.message.toLocaleLowerCase('tr-TR').includes('bitirildi')) {
+            setCampaignControls('finished');
         }
     });
 }
@@ -95,8 +98,17 @@ const appState = window.WhasAppCState;
 const ui = window.WhasAppCUI;
 const messageRenderer = window.WhasAppCMessageRenderer;
 let batchPauseCountdownTimer = null;
+let interMessageCountdownTimer = null;
+let campaignStatusPollTimer = null;
+let campaignStatusPollInFlight = false;
+let hydratedCampaignLogsForId = null;
 let currentFrontendRevision = null;
 let releaseWatcherTimer = null;
+let selectedContactPhones = new Set();
+let suppressedRecipients = [];
+let suppressedPhoneSet = new Set();
+let suppressedRecipientsLoaded = false;
+let lastCampaignDetailedReport = null;
 appState.expose([
     'currentContacts',
     'visibleContacts',
@@ -220,10 +232,13 @@ function setCampaignControls(status) {
     const running = ['running', 'sending'].includes(status);
     const resumable = ['paused', 'stopped'].includes(status);
     const retryable = ['paused', 'stopped', 'completed'].includes(status);
+    const finishable = ['queued', 'running', 'sending', 'paused', 'stopped', 'completed'].includes(status);
     setActionButton('send-btn', !running);
     setActionButton('stop-btn', running);
     setActionButton('resume-btn', resumable && !!getActiveCampaignId());
     setActionButton('retry-btn', retryable && !!getActiveCampaignId());
+    setActionButton('retry-skipped-btn', retryable && !!getActiveCampaignId());
+    setActionButton('finish-campaign-btn', finishable && !!getActiveCampaignId());
 }
 
 function formatEstimateMinutes(minutes) {
@@ -241,8 +256,9 @@ function estimateMinutesForContacts(total) {
     const minDelay = Number.parseInt(document.getElementById('min-delay')?.value || '20', 10);
     const maxDelay = Number.parseInt(document.getElementById('max-delay')?.value || '90', 10);
     const averageDelay = ((Number.isFinite(minDelay) ? minDelay : 20) + (Number.isFinite(maxDelay) ? maxDelay : 90)) / 2;
-    const batchPauseSeconds = Math.floor(Math.max(0, count - 1) / 50) * 40 * 60;
-    return Math.max(1, Math.ceil(((count * (averageDelay + 3)) + batchPauseSeconds) / 60));
+    const batchPauseSeconds = Math.floor(Math.max(0, count - 1) / 50) * 15 * 60;
+    const longPauseSeconds = Math.floor(Math.max(0, count - 1) / 250) * 65 * 60;
+    return Math.max(1, Math.ceil(((count * (averageDelay + 3)) + batchPauseSeconds + longPauseSeconds) / 60));
 }
 
 function updateCampaignEstimate(minutes) {
@@ -250,16 +266,171 @@ function updateCampaignEstimate(minutes) {
     if (element) element.innerText = formatEstimateMinutes(minutes);
 }
 
+function numericCount(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function setText(id, value) {
+    const element = document.getElementById(id);
+    if (element) element.innerText = value;
+}
+
 function formatCountdown(ms) {
     const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
-function updateBatchPauseCountdown(untilIso) {
+function formatDurationWords(ms) {
+    const totalMinutes = Math.max(0, Math.ceil(ms / 60000));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours > 0 && minutes > 0) return `${hours} saat ${minutes} dakika`;
+    if (hours > 0) return `${hours} saat`;
+    return `${Math.max(1, minutes)} dakika`;
+}
+
+function futureDeadline(value) {
+    const timestamp = new Date(value || '').getTime();
+    return Number.isFinite(timestamp) && timestamp > Date.now() ? timestamp : null;
+}
+
+function campaignStateMessage(data = {}) {
+    const sent = numericCount(data.sent ?? data.sent_count, 0);
+    const dailyLimit = numericCount(data.daily_limit ?? data.dailyLimit, 0);
+    const error = String(data.error || '').trim();
+    if (data.pause_reason === 'daily_limit' || error.toLocaleLowerCase('tr-TR').includes('günlük limit')) {
+        return dailyLimit > 0
+            ? `Günlük limit doldu (${sent}/${dailyLimit})`
+            : 'Günlük limit doldu';
+    }
+    if (error) return error;
+    return '';
+}
+
+function updateInterMessageCountdown(untilIso) {
+    const element = document.getElementById('prog-next-delay');
+    if (!element) return;
+    const countElement = document.getElementById('prog-count');
+    if (interMessageCountdownTimer) {
+        clearInterval(interMessageCountdownTimer);
+        interMessageCountdownTimer = null;
+    }
+
+    if (!untilIso) {
+        element.innerText = 'BEKLEME: --';
+        if (countElement?.dataset.liveCountdown === 'wait') delete countElement.dataset.liveCountdown;
+        return;
+    }
+
+    const until = new Date(untilIso).getTime();
+    if (!Number.isFinite(until)) {
+        element.innerText = 'BEKLEME: --';
+        return;
+    }
+
+    const render = () => {
+        const remainingMs = until - Date.now();
+        if (remainingMs <= 0) {
+            element.innerText = 'BEKLEME: 0:00';
+            if (countElement) countElement.innerText = 'Sonraki gönderim: 0:00';
+            clearInterval(interMessageCountdownTimer);
+            interMessageCountdownTimer = null;
+            return;
+        }
+        const formatted = formatCountdown(remainingMs);
+        element.innerText = `BEKLEME: ${formatted}`;
+        if (countElement) {
+            countElement.dataset.liveCountdown = 'wait';
+            countElement.innerText = `Sonraki gönderim: ${formatted}`;
+        }
+    };
+
+    render();
+    interMessageCountdownTimer = setInterval(render, 1000);
+}
+
+function updateRecipientDisplay(data = {}) {
+    const hasCurrent = Object.prototype.hasOwnProperty.call(data, 'current_recipient_name');
+    const hasLast = Object.prototype.hasOwnProperty.call(data, 'last_recipient_name');
+    const currentName = String(data.current_recipient_name || '').trim();
+    const lastName = String(data.last_recipient_name || '').trim();
+    const element = document.getElementById('prog-last-recipient');
+    if (!element) return;
+    if (currentName) {
+        element.innerText = `GÖNDERİLİYOR: ${currentName}`;
+        return;
+    }
+    if (lastName) {
+        element.innerText = `SON GÖNDERİLEN: ${lastName}`;
+        return;
+    }
+    if (hasCurrent || hasLast) {
+        element.innerText = 'SON GÖNDERİLEN: --';
+    }
+}
+
+function renderCampaignProgress(data = {}) {
+    const total = numericCount(data.total ?? data.total_count, 0);
+    const processed = numericCount(data.processed, 0);
+    const sent = numericCount(data.sent ?? data.sent_count, 0);
+    const failed = numericCount(data.failed ?? data.failed_count, 0);
+    const skipped = numericCount(data.skipped ?? data.skipped_count, 0);
+    const validationUnknown = numericCount(data.validation_unknown ?? data.validation_unknown_count, 0);
+    const rawProgress = data.progress !== undefined
+        ? numericCount(data.progress, 0)
+        : (total > 0 ? (processed / total) * 100 : 0);
+    const pct = Math.max(0, Math.min(100, Math.round(rawProgress)));
+
+    document.getElementById('prog-box')?.classList.remove('hidden');
+    const bar = document.getElementById('prog-bar');
+    if (bar) bar.style.width = `${pct}%`;
+    setText('prog-text', `${pct}%`);
+    setText('prog-total', `TOPLAM: ${total}`);
+    setText('prog-sent', `BAŞARILI: ${sent}`);
+    setText('prog-failed', `HATALI: ${failed}`);
+    setText('prog-skipped', `ATLANDI: ${skipped}`);
+    setText('prog-validation', `BELİRSİZ: ${validationUnknown}`);
+
+    const countElement = document.getElementById('prog-count');
+    const waitDeadline = futureDeadline(data.wait_until);
+    const pauseReason = data.pause_reason || (data.long_pause_until ? 'long_pause' : (data.night_pause_until ? 'night_pause' : (data.batch_pause_until ? 'batch_pause' : null)));
+    const batchPauseDeadline = futureDeadline(data.batch_pause_until || data.long_pause_until || data.night_pause_until || data.pause_until);
+    const stateMessage = campaignStateMessage(data);
+    if (countElement) delete countElement.dataset.liveCountdown;
+    if (data.phase === 'sending' && data.current_recipient_name) {
+        setText('prog-count', `Gönderiliyor: ${data.current_recipient_name}`);
+    } else if (stateMessage) {
+        setText('prog-count', stateMessage);
+    } else if (['batch_pause', 'long_pause', 'night_pause'].includes(data.phase) || batchPauseDeadline) {
+        if (countElement) countElement.dataset.liveCountdown = 'batch_pause';
+        setText('prog-count', `${processed}/${total} kişi işlendi`);
+    } else if (data.phase === 'inter_message_wait' || waitDeadline) {
+        if (countElement) countElement.dataset.liveCountdown = 'wait';
+        setText('prog-count', `${processed}/${total} kişi işlendi`);
+    } else if (data.status && data.status !== 'running') {
+        setText('prog-count', `Son durum: ${STATUS_LABELS[data.status] || data.status}`);
+    } else {
+        setText('prog-count', `${processed}/${total} kişi işlendi`);
+    }
+
+    if (data.estimate_remaining_minutes !== undefined) updateCampaignEstimate(data.estimate_remaining_minutes);
+    if (data.pause_until !== undefined) updateBatchPauseCountdown(data.pause_until, pauseReason);
+    if (data.batch_pause_until !== undefined) updateBatchPauseCountdown(data.batch_pause_until, 'batch_pause');
+    if (data.long_pause_until !== undefined) updateBatchPauseCountdown(data.long_pause_until, 'long_pause');
+    if (data.night_pause_until !== undefined) updateBatchPauseCountdown(data.night_pause_until, 'night_pause');
+    if (data.wait_until !== undefined) updateInterMessageCountdown(data.wait_until);
+    updateRecipientDisplay(data);
+}
+
+function updateBatchPauseCountdown(untilIso, reason = 'batch_pause') {
     const element = document.getElementById('prog-batch-pause');
     if (!element) return;
+    const countElement = document.getElementById('prog-count');
     if (batchPauseCountdownTimer) {
         clearInterval(batchPauseCountdownTimer);
         batchPauseCountdownTimer = null;
@@ -267,24 +438,45 @@ function updateBatchPauseCountdown(untilIso) {
 
     if (!untilIso) {
         element.innerText = 'MOLA: --';
+        if (countElement?.dataset.liveCountdown === 'batch_pause') delete countElement.dataset.liveCountdown;
         return;
     }
 
     const until = new Date(untilIso).getTime();
     if (!Number.isFinite(until)) {
         element.innerText = 'MOLA: --';
+        if (countElement?.dataset.liveCountdown === 'batch_pause') delete countElement.dataset.liveCountdown;
         return;
     }
 
     const render = () => {
         const remainingMs = until - Date.now();
         if (remainingMs <= 0) {
-            element.innerText = 'MOLA: BAŞLIYOR';
+            element.innerText = 'MOLA: devam ediyor';
+            if (countElement) {
+                countElement.innerText = 'Mola süresi doldu, gönderim devam ediyor...';
+                delete countElement.dataset.liveCountdown;
+            }
             clearInterval(batchPauseCountdownTimer);
             batchPauseCountdownTimer = null;
             return;
         }
-        element.innerText = `MOLA: ${formatCountdown(remainingMs)}`;
+        const remainingMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+        const remainingWords = formatDurationWords(remainingMs);
+        let message = `${remainingMinutes} dk sonra devam edecek`;
+        let countMessage = `Zorunlu mola: ${message}`;
+        if (reason === 'long_pause') {
+            message = `65 dk bekleme sınırına geldiniz. Kalan: ${remainingWords}`;
+            countMessage = `65 dk bekleme sınırına geldiniz. ${remainingWords} kaldı`;
+        } else if (reason === 'night_pause') {
+            message = `Günlük gönderim başlama saatine ${remainingWords} kaldı`;
+            countMessage = message;
+        }
+        element.innerText = `MOLA: ${message} (${formatCountdown(remainingMs)})`;
+        if (countElement) {
+            countElement.dataset.liveCountdown = 'batch_pause';
+            countElement.innerText = countMessage;
+        }
     };
 
     render();
@@ -381,7 +573,11 @@ async function refreshRuntimeStatus() {
 }
 
 function normalizePhone(phone) {
-    let digits = String(phone || '').replace(/[^\d]/g, '');
+    let raw = String(phone || '').trim();
+    if (/[eE][+-]?\d+/.test(raw)) return '';
+    raw = raw.replace(/\.0+$/, '');
+    let digits = raw.replace(/[^\d]/g, '');
+    if (digits.startsWith('0090')) digits = digits.slice(2);
     if (digits.length === 10 && digits.startsWith('5')) digits = `90${digits}`;
     if (digits.length === 11 && digits.startsWith('05')) digits = `90${digits.slice(1)}`;
     return digits;
@@ -441,6 +637,30 @@ function getGroupContactCount(group) {
     return Number(group?.contact_count ?? group?.contacts?.length ?? 0);
 }
 
+function getGroupSendableCount(group) {
+    if (group?.sendable_count !== undefined && group?.sendable_count !== null) {
+        return Number(group.sendable_count || 0);
+    }
+    const contacts = Array.isArray(group?.contacts) ? group.contacts : [];
+    if (contacts.length > 0) {
+        return contacts.filter(contact => !isSuppressedPhone(contact.phone)).length;
+    }
+    return getGroupContactCount(group);
+}
+
+function formatGroupCount(group) {
+    return `${getGroupContactCount(group)} kişi / ${getGroupSendableCount(group)} gönderilebilir`;
+}
+
+function getCurrentContactSummaryLabel() {
+    const activeGroup = groups.find(group => group.id === activeGroupId);
+    const total = currentContacts.length;
+    const sendable = activeGroup
+        ? getGroupSendableCount(activeGroup)
+        : currentContacts.filter(contact => !isSuppressedPhone(contact.phone)).length;
+    return `${total} kişi / ${sendable} gönderilebilir`;
+}
+
 async function loadGroupContacts(groupId, options = {}) {
     const params = new URLSearchParams({
         limit: String(options.limit || 500),
@@ -475,20 +695,153 @@ async function ensureGroupContactsLoaded(groupId) {
     group.contacts = dedupeContacts(allContacts);
     group.contactsLoaded = true;
     group.contact_count = group.contacts.length;
+    if (group.sendable_count === undefined || group.sendable_count === null) {
+        group.sendable_count = group.contacts.filter(contact => !isSuppressedPhone(contact.phone)).length;
+    }
     return group.contacts;
 }
 
 async function getSelectedCampaignContacts() {
+    try {
+        await loadSuppressedRecipients();
+    } catch (err) {
+        console.warn('Gönderim dışı liste yüklenemedi:', err);
+    }
     const selectedGroups = groups.filter(group => selectedCampaignGroupIds.has(group.id));
     await Promise.all(selectedGroups.map(group => ensureGroupContactsLoaded(group.id)));
     const groupContacts = selectedGroups.flatMap(group => group.contacts || []);
-    return dedupeContacts([...groupContacts, ...getManualCampaignContacts()]);
+    return dedupeContacts([...groupContacts, ...getManualCampaignContacts()])
+        .filter(contact => !isSuppressedPhone(contact.phone));
+}
+
+function setSuppressedRecipients(recipients = []) {
+    suppressedRecipients = Array.isArray(recipients) ? recipients : [];
+    suppressedPhoneSet = new Set(
+        suppressedRecipients
+            .filter(item => item?.active !== false)
+            .map(item => normalizePhone(item.normalized_phone || item.phone))
+            .filter(Boolean)
+    );
+    selectedContactPhones = new Set([...selectedContactPhones].filter(phone => !suppressedPhoneSet.has(phone)));
+}
+
+async function loadSuppressedRecipients(options = {}) {
+    if (suppressedRecipientsLoaded && !options.force) return suppressedRecipients;
+    const params = new URLSearchParams({
+        limit: String(options.limit || 1000),
+        offset: String(options.offset || 0)
+    });
+    const data = await fetchJson(`${API_BASE}/suppressed-recipients?${params.toString()}`, {}, 12000);
+    setSuppressedRecipients(data?.recipients || []);
+    suppressedRecipientsLoaded = true;
+    return suppressedRecipients;
+}
+
+function isSuppressedPhone(phone) {
+    return suppressedPhoneSet.has(normalizePhone(phone));
+}
+
+function selectableVisiblePhones() {
+    const list = contactFilterQuery ? visibleContacts : currentContacts;
+    return list
+        .map(contact => normalizePhone(contact.phone))
+        .filter(phone => phone && !suppressedPhoneSet.has(phone));
+}
+
+function selectedContactsForSuppression() {
+    return currentContacts.filter(contact => {
+        const phone = normalizePhone(contact.phone);
+        return phone && selectedContactPhones.has(phone) && !suppressedPhoneSet.has(phone);
+    });
+}
+
+function updateSuppressionControls() {
+    const selectedCount = selectedContactsForSuppression().length;
+    const button = document.getElementById('suppress-selected-btn');
+    if (button) {
+        button.disabled = selectedCount === 0;
+        button.classList.toggle('opacity-50', selectedCount === 0);
+        button.classList.toggle('cursor-not-allowed', selectedCount === 0);
+        const label = button.querySelector('[data-role="label"]');
+        if (label) label.textContent = selectedCount > 0 ? `Gönderimden Çıkar (${selectedCount})` : 'Gönderimden Çıkar';
+    }
+
+    const selectAll = document.getElementById('contacts-select-all');
+    if (selectAll) {
+        const phones = selectableVisiblePhones();
+        const selectedVisible = phones.filter(phone => selectedContactPhones.has(phone));
+        selectAll.checked = phones.length > 0 && selectedVisible.length === phones.length;
+        selectAll.indeterminate = selectedVisible.length > 0 && selectedVisible.length < phones.length;
+        selectAll.disabled = phones.length === 0;
+    }
+}
+
+function toggleContactSelection(phone, checked) {
+    const normalized = normalizePhone(phone);
+    if (!normalized || suppressedPhoneSet.has(normalized)) return;
+    if (checked) selectedContactPhones.add(normalized);
+    else selectedContactPhones.delete(normalized);
+    updateSuppressionControls();
+}
+
+function toggleVisibleContactSelection(checked) {
+    selectableVisiblePhones().forEach(phone => {
+        if (checked) selectedContactPhones.add(phone);
+        else selectedContactPhones.delete(phone);
+    });
+    updateContactsTable();
+}
+
+async function suppressContacts(contacts, reason = 'Manuel olarak gönderim dışı bırakıldı') {
+    const normalizedContacts = dedupeContacts(contacts || []).filter(contact => !isSuppressedPhone(contact.phone));
+    if (normalizedContacts.length === 0) return;
+    try {
+        await fetchJson(`${API_BASE}/suppressed-recipients`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contacts: normalizedContacts,
+                reason
+            })
+        }, 12000);
+        selectedContactPhones = new Set();
+        await loadSuppressedRecipients({ force: true });
+        await loadGroups();
+        updateContactsTable();
+        updateCampaignTargetSummary();
+        showToast(`${normalizedContacts.length} numara gönderim dışı bırakıldı`, 'success');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function suppressSelectedContacts() {
+    suppressContacts(selectedContactsForSuppression());
+}
+
+async function unsuppressPhones(phones = []) {
+    const normalizedPhones = Array.from(new Set((phones || []).map(normalizePhone).filter(Boolean)));
+    if (normalizedPhones.length === 0) return;
+    try {
+        await fetchJson(`${API_BASE}/suppressed-recipients/remove`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phones: normalizedPhones })
+        }, 12000);
+        await loadSuppressedRecipients({ force: true });
+        await loadGroups();
+        updateContactsTable();
+        updateCampaignTargetSummary();
+        showToast('Numara tekrar gönderime alındı', 'success');
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
 }
 
 function updateCampaignTargetSummary() {
     const selectedGroupsTotal = groups
         .filter(group => selectedCampaignGroupIds.has(group.id))
-        .reduce((sum, group) => sum + getGroupContactCount(group), 0);
+        .reduce((sum, group) => sum + getGroupSendableCount(group), 0);
     const total = selectedGroupsTotal + getManualCampaignContacts().length;
     const selectedCount = selectedCampaignGroupIds.size;
     const countEl = document.getElementById('campaign-selected-count');
@@ -523,7 +876,7 @@ function renderCampaignGroupChecklist() {
     }
 
     container.innerHTML = groups.map(group => {
-        const count = getGroupContactCount(group);
+        const countLabel = formatGroupCount(group);
         const checked = selectedCampaignGroupIds.has(group.id);
         return `
             <label class="flex items-center justify-between p-3 rounded-lg border ${checked ? 'bg-secondary/5 border-secondary/20' : 'border-transparent hover:bg-slate-50 hover:border-slate-100'} transition-all cursor-pointer">
@@ -531,7 +884,7 @@ function renderCampaignGroupChecklist() {
                     <input class="rounded border-slate-300 text-secondary focus:ring-secondary" type="checkbox" data-action="toggle-campaign-group" data-group-id="${escapeHtml(group.id)}" ${checked ? 'checked' : ''}>
                     <span class="text-sm font-medium text-slate-700 truncate" title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</span>
                 </div>
-                <span class="text-xs text-slate-400 font-bold whitespace-nowrap">${count} Kişi</span>
+                <span class="text-xs text-slate-400 font-bold whitespace-nowrap">${escapeHtml(countLabel)}</span>
             </label>
         `;
     }).join('');
@@ -619,45 +972,189 @@ function switchTab(tab) {
     const mobileTabReports = document.getElementById('mobile-tab-reports');
     if (mobileTabReports) mobileTabReports.className = tab === 'reports' ? 'flex flex-col items-center justify-center text-secondary p-2' : 'flex flex-col items-center justify-center text-slate-400 p-2 opacity-60';
 
-    if (tab === 'contacts') updateContactsTable();
+    if (tab === 'contacts') {
+        loadSuppressedRecipients()
+            .then(updateContactsTable)
+            .catch(err => {
+                console.warn('Gönderim dışı liste yüklenemedi:', err);
+                updateContactsTable();
+            });
+    }
     if (tab === 'users') loadUsers();
     if (tab === 'reports') loadReports();
 }
 
 
-function showCampaignCompleteModal(skippedReport = [], summary = '') {
+function normalizeCampaignDetailedReport(reportOrSkipped = []) {
+    if (Array.isArray(reportOrSkipped)) {
+        return {
+            unsent_recipients: reportOrSkipped.map(item => ({
+                phone: item.phone || '',
+                name: item.name || '',
+                surname: item.surname || '',
+                status: item.status || 'failed',
+                attempt_count: Number(item.attempt_count || 0),
+                last_error: item.reason || item.last_error || ''
+            })),
+            unavailable_recipients: [],
+            sent_recipients: []
+        };
+    }
+    const report = reportOrSkipped || {};
+    return {
+        ...report,
+        unsent_recipients: Array.isArray(report.unsent_recipients) ? report.unsent_recipients : [],
+        unavailable_recipients: Array.isArray(report.unavailable_recipients) ? report.unavailable_recipients : [],
+        sent_recipients: Array.isArray(report.sent_recipients) ? report.sent_recipients : []
+    };
+}
+
+function renderCampaignReportRows(tbodyId, rows = [], columns = []) {
+    const tbody = document.getElementById(tbodyId);
+    if (!tbody) return;
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="${columns.length}" class="px-3 py-8 text-center text-slate-400 font-bold uppercase tracking-wider">Kayıt yok</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows.map(row => `
+        <tr class="hover:bg-white/70">
+            ${columns.map(column => column(row)).join('')}
+        </tr>
+    `).join('');
+}
+
+function renderCampaignDetailedReport(report, options = {}) {
+    const detail = document.getElementById('campaign-detailed-report');
+    if (!detail) return;
+    const unsent = report.unsent_recipients || [];
+    const unavailable = report.unavailable_recipients || [];
+    const sent = report.sent_recipients || [];
+    const shouldShow = options.forceDetailed || unsent.length > 0 || unavailable.length > 0 || sent.length > 0;
+    detail.classList.toggle('hidden', !shouldShow);
+    if (!shouldShow) return;
+
+    const nameCell = row => `<td class="px-3 py-2 text-slate-700 max-w-[140px] truncate" title="${escapeHtml(recipientDisplayNameFromRow(row))}">${escapeHtml(recipientDisplayNameFromRow(row))}</td>`;
+    const phoneCell = row => `<td class="px-3 py-2 text-slate-600 font-mono whitespace-nowrap">${escapeHtml(String(row.phone || row.normalized_phone || ''))}</td>`;
+    const attemptsCell = row => `<td class="px-3 py-2 text-center font-black text-slate-700">${Number(row.attempt_count || 0)}</td>`;
+
+    renderCampaignReportRows('campaign-unsent-tbody', unsent, [
+        nameCell,
+        phoneCell,
+        attemptsCell
+    ]);
+    renderCampaignReportRows('campaign-unavailable-tbody', unavailable, [
+        nameCell,
+        phoneCell,
+        row => `<td class="px-3 py-2 text-slate-500 max-w-[140px] truncate" title="${escapeHtml(row.last_error || 'WhatsApp kullanıcısı değil')}">${escapeHtml(errorPreview(row.last_error || 'WhatsApp kullanıcısı değil', 70))}</td>`
+    ]);
+    renderCampaignReportRows('campaign-sent-tbody', sent, [
+        nameCell,
+        phoneCell,
+        attemptsCell
+    ]);
+
+    setText('campaign-unsent-count', `${unsent.length} kayıt`);
+    setText('campaign-unavailable-count', `${unavailable.length} kayıt`);
+    setText('campaign-sent-count', `${sent.length} kayıt`);
+
+    const unsentBtn = document.getElementById('campaign-block-unsent-btn');
+    const unavailableBtn = document.getElementById('campaign-block-unavailable-btn');
+    if (unsentBtn) {
+        unsentBtn.disabled = unsent.length === 0;
+        unsentBtn.onclick = () => suppressCampaignReportRecipients('unsent');
+    }
+    if (unavailableBtn) {
+        unavailableBtn.disabled = unavailable.length === 0;
+        unavailableBtn.onclick = () => suppressCampaignReportRecipients('unavailable');
+    }
+    const downloadBtn = document.getElementById('campaign-report-download-btn');
+    if (downloadBtn) downloadBtn.onclick = () => downloadCampaignReportCSV(report);
+}
+
+function showCampaignCompleteModal(reportOrSkipped = [], summary = '', options = {}) {
     const summaryEl = document.getElementById('campaign-complete-summary');
     if (summaryEl && summary) summaryEl.textContent = summary;
-
-    const reportSection = document.getElementById('campaign-skipped-report');
-    const tbody = document.getElementById('campaign-skipped-tbody');
-
-    if (skippedReport && skippedReport.length > 0) {
-        tbody.innerHTML = skippedReport.map(r => `
-            <tr class="hover:bg-slate-50">
-                <td class="px-3 py-2 text-slate-700 max-w-[120px] truncate">${escapeHtml(r.name || '—')}</td>
-                <td class="px-3 py-2 text-slate-600 font-mono">${escapeHtml(String(r.phone || ''))}</td>
-                <td class="px-3 py-2 text-red-500">${escapeHtml(r.reason || '')}</td>
-            </tr>`).join('');
-        reportSection.classList.remove('hidden');
-        document.getElementById('campaign-report-download-btn').onclick = () => downloadSkippedReportCSV(skippedReport);
-    } else {
-        reportSection.classList.add('hidden');
-        tbody.innerHTML = '';
-    }
+    const titleEl = document.getElementById('campaign-complete-title');
+    if (titleEl) titleEl.textContent = options.title || 'Gönderiler tamamlandı';
+    const report = normalizeCampaignDetailedReport(reportOrSkipped);
+    lastCampaignDetailedReport = report;
+    renderCampaignDetailedReport(report, { forceDetailed: !!options.forceDetailed });
 
     document.getElementById('campaign-complete-modal').classList.remove('hidden');
     document.getElementById('campaign-complete-modal').classList.add('flex');
 }
 
+function campaignReportCsvRows(report) {
+    const rows = [];
+    const pushRows = (listName, items, reasonGetter = row => row.last_error || '') => {
+        (items || []).forEach(row => {
+            rows.push([
+                listName,
+                recipientDisplayNameFromRow(row),
+                row.phone || row.normalized_phone || '',
+                RECIPIENT_STATUS_LABELS[row.status] || row.status || '',
+                String(Number(row.attempt_count || 0)),
+                reasonGetter(row)
+            ]);
+        });
+    };
+    pushRows('Mesaj Ulaşmayanlar', report.unsent_recipients);
+    pushRows('WhatsApp Kullanmayanlar', report.unavailable_recipients, row => row.last_error || 'WhatsApp kullanıcısı değil');
+    pushRows('Başarılı Gönderimler', report.sent_recipients, () => '');
+    return rows;
+}
+
+function downloadCampaignReportCSV(report) {
+    const header = ['Liste', 'Ad Soyad', 'Numara', 'Durum', 'Deneme', 'Sebep'];
+    const rows = campaignReportCsvRows(report).map(row => row.map(value => (
+        `"${String(value || '').replace(/"/g, '""')}"`
+    )).join(','));
+    const csv = '\ufeff' + [header.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kampanya_raporu_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function suppressCampaignReportRecipients(type) {
+    const report = lastCampaignDetailedReport || {};
+    const rows = type === 'unavailable'
+        ? report.unavailable_recipients || []
+        : report.unsent_recipients || [];
+    const contacts = dedupeContacts(rows.map(row => ({
+        phone: row.phone || row.normalized_phone,
+        name: row.name || '',
+        surname: row.surname || ''
+    })));
+    if (contacts.length === 0) return showToast('Engellenecek numara yok', 'info');
+    const confirmed = window.confirm(`${contacts.length} numara tüm rehberlerde gönderim dışı bırakılacak. Devam edilsin mi?`);
+    if (!confirmed) return;
+    await suppressContacts(
+        contacts,
+        type === 'unavailable'
+            ? 'Kampanya raporundan WhatsApp kullanmayanlar engellendi'
+            : 'Kampanya raporundan mesaj ulaşmayanlar engellendi'
+    );
+}
+
 function downloadSkippedReportCSV(report) {
+    const normalized = normalizeCampaignDetailedReport(report);
+    if (Array.isArray(report)) {
+        normalized.unsent_recipients = report.map(row => ({
+            ...row,
+            last_error: row.reason || row.last_error || ''
+        }));
+    }
     const header = 'Ad Soyad,Numara,Sebep';
-    const rows = report.map(r => [
-        `"${String(r.name || '').replace(/"/g, '""')}"`,
-        `"${String(r.phone || '').replace(/"/g, '""')}"`,
-        `"${String(r.reason || '').replace(/"/g, '""')}"`
+    const rows = normalized.unsent_recipients.map(r => [
+        `"${String(recipientDisplayNameFromRow(r)).replace(/"/g, '""')}"`,
+        `"${String(r.phone || r.normalized_phone || '').replace(/"/g, '""')}"`,
+        `"${String(r.last_error || '').replace(/"/g, '""')}"`
     ].join(','));
-    const csv = '﻿' + [header, ...rows].join('\n');
+    const csv = '\ufeff' + [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -674,6 +1171,8 @@ function resetCampaignUI() {
     document.getElementById('prog-count').innerText = '';
     updateCampaignEstimate(0);
     updateBatchPauseCountdown(null);
+    updateInterMessageCountdown(null);
+    setText('prog-last-recipient', 'SON GÖNDERİLEN: --');
     setActiveCampaignId(null);
     setCampaignControls('idle');
 }
@@ -681,8 +1180,12 @@ function resetCampaignUI() {
 function closeCampaignCompleteModal() {
     document.getElementById('campaign-complete-modal').classList.add('hidden');
     document.getElementById('campaign-complete-modal').classList.remove('flex');
-    document.getElementById('campaign-skipped-report').classList.add('hidden');
-    document.getElementById('campaign-skipped-tbody').innerHTML = '';
+    document.getElementById('campaign-detailed-report').classList.add('hidden');
+    ['campaign-unsent-tbody', 'campaign-unavailable-tbody', 'campaign-sent-tbody'].forEach(id => {
+        const tbody = document.getElementById(id);
+        if (tbody) tbody.innerHTML = '';
+    });
+    lastCampaignDetailedReport = null;
     resetCampaignUI();
 }
 
@@ -874,14 +1377,10 @@ function openGroupSaveModal() {
 
     const activeGroup = groups.find(g => g.id === activeGroupId);
     const nameInput = document.getElementById('save-group-name');
-    ui.setField('save-group-name', ui.getField('quick-group-name').trim() || (activeGroup ? activeGroup.name : ''));
+    ui.setField('save-group-name', activeGroup ? activeGroup.name : '');
     document.getElementById('save-group-summary').innerText = `${currentContacts.length} kişi kaydedilecek.`;
     showModal('save-group-modal');
     setTimeout(() => nameInput.focus(), 30);
-}
-
-function saveInlineGroupName() {
-    openGroupSaveModal();
 }
 
 function closeGroupSaveModal() {
@@ -933,7 +1432,6 @@ async function saveCurrentListAsGroup() {
         selectedCampaignGroupIds.add(targetGroupId);
         renderCampaignGroupChecklist();
         closeGroupSaveModal();
-        ui.clearFields(['quick-group-name']);
         clearUnsavedContactsDraft();
         showToast(`"${groupName}" grubuna ${currentContacts.length} kişi kaydedildi`, 'success');
     } catch (err) {
@@ -977,16 +1475,9 @@ async function saveManualContact() {
             if (!res.ok) throw new Error(apiErrorMessage(data, 'Kişi eklenemedi'));
             currentContacts = dedupeContacts([...currentContacts, unwrapApiPayload(data)]);
             visibleContacts = currentContacts;
-            const group = groups.find(g => g.id === activeGroupId);
-            if (group) {
-                group.contacts = [...currentContacts];
-                group.contactsLoaded = true;
-                group.contact_count = currentContacts.length;
-            }
             hideModal('manual-modal');
+            await loadGroups();
             updateContactsTable();
-            renderGroupsSidebar();
-            renderCampaignGroupChecklist();
             ui.clearFields(['manual-name', 'manual-phone']);
             showToast('Kişi eklendi', 'success');
             return;
@@ -1021,6 +1512,8 @@ async function resetConnection() {
 
 function downloadSample() { window.location.href = `${API_BASE}/download-sample`; }
 
+function downloadCurrentContacts() { window.location.href = `${API_BASE}/contacts/export`; }
+
 function clearList() {
     if (window.confirm('Tüm rehber silinecek. Emin misiniz?')) {
         currentContacts = [];
@@ -1042,15 +1535,8 @@ async function removeContact(index) {
             if (!res.ok) throw new Error(apiErrorMessage(data, 'Kişi silinemedi'));
             currentContacts = currentContacts.filter(item => String(item.id) !== String(contact.id));
             visibleContacts = contactFilterQuery ? visibleContacts.filter(item => String(item.id) !== String(contact.id)) : currentContacts;
-            const group = groups.find(g => g.id === activeGroupId);
-            if (group) {
-                group.contacts = [...currentContacts];
-                group.contactsLoaded = true;
-                group.contact_count = currentContacts.length;
-            }
+            await loadGroups();
             updateContactsTable();
-            renderGroupsSidebar();
-            renderCampaignGroupChecklist();
             showToast('Kişi silindi', 'success');
             return;
         } catch (err) {
@@ -1114,16 +1600,9 @@ async function saveEditedContact() {
             const updatedContact = unwrapApiPayload(updated);
             currentContacts = currentContacts.map(item => String(item.id) === String(contactId) ? updatedContact : item);
             visibleContacts = contactFilterQuery ? visibleContacts.map(item => String(item.id) === String(contactId) ? updatedContact : item) : currentContacts;
-            const group = groups.find(g => g.id === activeGroupId);
-            if (group) {
-                group.contacts = [...currentContacts];
-                group.contactsLoaded = true;
-                group.contact_count = currentContacts.length;
-            }
             closeEditContactModal();
+            await loadGroups();
             updateContactsTable();
-            renderGroupsSidebar();
-            renderCampaignGroupChecklist();
             showToast('Kişi güncellendi', 'success');
             return;
         } catch (err) {
@@ -1143,26 +1622,37 @@ async function saveEditedContact() {
 
 function updateContactsTable() {
     const list = contactFilterQuery ? visibleContacts : currentContacts;
-    document.getElementById('num-badge').innerText = currentContacts.length;
+    const activePhones = new Set(currentContacts.map(contact => normalizePhone(contact.phone)).filter(Boolean));
+    selectedContactPhones = new Set([...selectedContactPhones].filter(phone => activePhones.has(phone) && !suppressedPhoneSet.has(phone)));
+    document.getElementById('num-badge').innerText = getCurrentContactSummaryLabel();
     document.getElementById('contacts-pagination-label').innerText = `${list.length} / ${currentContacts.length} gösteriliyor`;
     if (currentContacts.length === 0) {
         ui.renderTableBody('contacts-table-body', {
             rows: [],
-            emptyHtml: '<tr><td colspan="4" class="p-20 text-center text-slate-300 font-bold uppercase text-[10px]">Rehber Boş</td></tr>'
+            emptyHtml: '<tr><td colspan="5" class="p-20 text-center text-slate-300 font-bold uppercase text-[10px]">Rehber Boş</td></tr>'
         });
+        updateSuppressionControls();
         return;
     }
     if (list.length === 0) {
         ui.renderTableBody('contacts-table-body', {
             rows: [],
-            emptyHtml: '<tr><td colspan="4" class="p-20 text-center text-slate-300 font-bold uppercase text-[10px]">Arama sonucu bulunamadı</td></tr>'
+            emptyHtml: '<tr><td colspan="5" class="p-20 text-center text-slate-300 font-bold uppercase text-[10px]">Arama sonucu bulunamadı</td></tr>'
         });
+        updateSuppressionControls();
         return;
     }
     ui.renderTableBody('contacts-table-body', {
         rows: list,
-        rowRenderer: (c, i) => `
-        <tr class="hover:bg-slate-50/50 transition-colors">
+        rowRenderer: (c, i) => {
+            const normalizedPhone = normalizePhone(c.phone);
+            const suppressed = isSuppressedPhone(normalizedPhone);
+            const selected = selectedContactPhones.has(normalizedPhone);
+            return `
+        <tr class="${suppressed ? 'bg-rose-50/30' : 'hover:bg-slate-50/50'} transition-colors">
+            <td class="px-4 py-4 w-12">
+                <input type="checkbox" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500" data-action="toggle-contact-selection" data-phone="${escapeHtml(normalizedPhone)}" ${selected ? 'checked' : ''} ${suppressed ? 'disabled' : ''}>
+            </td>
             <td class="px-6 py-4 text-sm text-slate-500 font-medium">${i + 1}</td>
             <td class="px-6 py-4">
                 <div class="flex items-center gap-3">
@@ -1170,9 +1660,21 @@ function updateContactsTable() {
                     <span class="text-sm font-semibold text-slate-900">${escapeHtml(`${c.name || ''} ${c.surname || ''}`.trim() || 'İsimsiz')}</span>
                 </div>
             </td>
-            <td class="px-6 py-4 text-sm text-slate-600 font-mono">${escapeHtml(c.phone)}</td>
+            <td class="px-6 py-4">
+                <div class="flex flex-col gap-1">
+                    <span class="text-sm text-slate-600 font-mono">${escapeHtml(c.phone)}</span>
+                    ${suppressed ? '<span class="text-[10px] font-bold uppercase tracking-wider text-rose-700">Gönderilmeyecek</span>' : ''}
+                </div>
+            </td>
             <td class="px-6 py-4 text-right">
                 <div class="inline-flex items-center gap-1">
+                    ${suppressed ? `
+                    <button data-action="unsuppress-contact" data-phone="${escapeHtml(normalizedPhone)}" class="p-1.5 rounded-lg text-rose-500 hover:text-emerald-700 hover:bg-emerald-50 transition-all" title="Gönderime geri al">
+                        <span class="material-symbols-outlined text-lg">settings_backup_restore</span>
+                    </button>` : `
+                    <button data-action="suppress-contact" data-contact-index="${i}" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-all" title="Bu numaraya bir daha gönderme">
+                        <span class="material-symbols-outlined text-lg">block</span>
+                    </button>`}
                     <button data-action="edit-contact" data-contact-index="${i}" class="p-1.5 rounded-lg text-slate-400 hover:text-secondary hover:bg-secondary/5 transition-all" title="Kişiyi düzenle">
                         <span class="material-symbols-outlined text-lg">edit</span>
                     </button>
@@ -1182,8 +1684,10 @@ function updateContactsTable() {
                 </div>
             </td>
         </tr>
-        `
+        `;
+        }
     });
+    updateSuppressionControls();
 }
 
 function filterContacts(query) {
@@ -1278,9 +1782,19 @@ async function startCampaign(overrideCooldown = []) {
 
     setActiveCampaignId(null);
     setCampaignControls('running');
-    document.getElementById('prog-box').classList.remove('hidden');
+    renderCampaignProgress({
+        total: targetContacts.length,
+        processed: 0,
+        sent: 0,
+        failed: 0,
+        skipped: 0,
+        validation_unknown: 0,
+        progress: 0,
+        wait_until: null,
+        pause_until: null,
+        last_recipient_name: null
+    });
     updateCampaignEstimate(estimateMinutesForContacts(targetContacts.length));
-    updateBatchPauseCountdown(null);
 
     const delayRange = [
         parseInt(document.getElementById('min-delay').value),
@@ -1351,6 +1865,41 @@ function stopCampaign() {
     getSocket()?.emit('stop-bulk', { campaignId: getActiveCampaignId() });
 }
 
+async function finishCampaignPermanently() {
+    const campaignId = getActiveCampaignId();
+    if (!campaignId) return showToast('Bitirilecek kampanya bulunamadı', 'error');
+    const confirmed = window.confirm('Bu kampanya bitirilecek. Bundan sonra kaldığın yerden devam et, tekrar dene veya atlananları dene ile bu kampanyadan mesaj gönderilmeyecek. Devam edilsin mi?');
+    if (!confirmed) return;
+
+    try {
+        setActionButton('finish-campaign-btn', false);
+        const data = await fetchJson(`${API_BASE}/campaigns/${encodeURIComponent(campaignId)}/finish`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        }, 15000);
+        const campaign = data.campaign || data;
+        setActiveCampaignId(campaign?.id || campaignId);
+        renderCampaignProgress(campaign || { status: 'finished' });
+        updateBatchPauseCountdown(null);
+        updateInterMessageCountdown(null);
+        setCampaignControls('finished');
+        try {
+            const report = await fetchJson(`${API_BASE}/campaigns/${encodeURIComponent(campaignId)}/report`, {}, 15000);
+            showCampaignCompleteModal(
+                report,
+                'Kampanya bitirildi. Aşağıda başarılı gönderimler, mesaj ulaşmayanlar ve WhatsApp kullanmayanlar listelendi.',
+                { title: 'Kampanya raporu', forceDetailed: true }
+            );
+        } catch (reportErr) {
+            showToast(reportErr.message || 'Kampanya raporu alınamadı', 'error');
+        }
+        showToast('Kampanya bitirildi. Bu kampanyadan tekrar mesaj gönderilmeyecek.', 'success');
+    } catch (err) {
+        showToast(err.message || 'Kampanya bitirilemedi', 'error');
+        refreshActiveCampaignSnapshot({ hydrateLogs: false }).catch(() => {});
+    }
+}
+
 function resumeCampaign() {
     const campaignId = getActiveCampaignId();
     if (!campaignId) return showToast('Devam ettirilecek kampanya bulunamadı', 'error');
@@ -1360,9 +1909,16 @@ function resumeCampaign() {
 
 function retryCampaign() {
     const campaignId = getActiveCampaignId();
-    if (!campaignId) return showToast('Retry edilecek kampanya bulunamadı', 'error');
+    if (!campaignId) return showToast('Tekrar gönderilecek kampanya bulunamadı', 'error');
     setCampaignControls('running');
     getSocket()?.emit('retry-bulk', { campaignId });
+}
+
+function retrySkippedCampaign() {
+    const campaignId = getActiveCampaignId();
+    if (!campaignId) return showToast('Tekrar denenecek kampanya bulunamadı', 'error');
+    setCampaignControls('running');
+    getSocket()?.emit('retry-skipped-bulk', { campaignId });
 }
 
 function toggleLogs() {
@@ -1407,14 +1963,15 @@ function renderGroupsSidebar() {
     } else {
         container.innerHTML = groups.map(g => {
             const active = activeGroupId === g.id;
+            const countLabel = formatGroupCount(g);
             return `
                 <div data-action="select-group" data-group-id="${escapeHtml(g.id)}" class="${active ? 'bg-surface-container-lowest border-l-4 border-emerald-600 shadow-sm' : 'bg-transparent hover:bg-slate-200/50'} p-4 rounded-xl flex items-center justify-between group cursor-pointer transition-colors">
                     <div class="min-w-0">
                         <p class="text-sm ${active ? 'font-bold text-slate-900' : 'font-medium text-slate-700'} truncate" title="${escapeHtml(g.name)}">${escapeHtml(g.name)}</p>
                         <p class="text-[11px] text-slate-500">${formatDate(g.created_at || g.createdAt)}</p>
+                        <p class="text-[11px] font-bold ${active ? 'text-emerald-700' : 'text-slate-600'}">${escapeHtml(countLabel)}</p>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
-                        <span class="${active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'} text-[10px] font-bold px-2 py-0.5 rounded-full">${getGroupContactCount(g)}</span>
                         <button data-action="delete-group" data-group-id="${escapeHtml(g.id)}" class="text-slate-400 hover:text-error opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all" title="Grubu sil">
                             <span class="material-symbols-outlined text-sm">close</span>
                         </button>
@@ -1514,39 +2071,67 @@ async function saveCurrentContactsToBackend() {
     }
 }
 
-async function checkActiveCampaign() {
+function renderCampaignLogs(logs = [], campaignId = null) {
+    const logContainer = document.getElementById('logs');
+    if (!logContainer) return;
+    logContainer.innerHTML = '';
+    logs.slice(-300).forEach(log => {
+        const div = document.createElement('div');
+        div.className = log.type === 'error' ? 'text-red-300' : log.type === 'success' ? 'text-secondary-fixed-dim' : log.type === 'wait' ? 'text-amber-300' : 'text-slate-300';
+        div.innerHTML = `[${new Date(log.timestamp).toLocaleTimeString()}] ${escapeHtml(log.message)}`;
+        logContainer.appendChild(div);
+    });
+    logContainer.scrollTop = logContainer.scrollHeight;
+    hydratedCampaignLogsForId = campaignId;
+}
+
+async function refreshActiveCampaignSnapshot(options = {}) {
+    const { hydrateLogs = false } = options;
+    if (campaignStatusPollInFlight) return null;
+    campaignStatusPollInFlight = true;
     try {
         const data = await fetchJson(`${API_BASE}/campaign-status`);
         if (data.campaign && data.campaign.status !== 'completed') {
             setActiveCampaignId(data.campaign.id || getActiveCampaignId());
             setCampaignControls(data.campaign.status);
-            document.getElementById('prog-box').classList.remove('hidden');
-            document.getElementById('prog-bar').style.width = `${data.campaign.progress}%`;
-            document.getElementById('prog-text').innerText = `${Math.round(data.campaign.progress)}%`;
-            updateCampaignEstimate(data.campaign.estimate_remaining_minutes);
-            updateBatchPauseCountdown(null);
-            const processed = data.campaign.processed ?? 0;
-            const total = data.campaign.total ?? 0;
-            document.getElementById('prog-count').innerText = data.campaign.status === 'running'
-                ? `${processed}/${total} kişi işlendi`
-                : `Son durum: ${data.campaign.status}`;
-            document.getElementById('prog-total').innerText = `TOPLAM: ${total}`;
-            document.getElementById('prog-sent').innerText = `BAŞARILI: ${data.campaign.sent_count ?? '--'}`;
-            document.getElementById('prog-failed').innerText = `HATALI: ${data.campaign.failed_count ?? '--'}`;
+            renderCampaignProgress(data.campaign);
 
-            const logContainer = document.getElementById('logs');
-            logContainer.innerHTML = '';
-            data.campaign.logs.slice(-300).forEach(log => {
-                const div = document.createElement('div');
-                div.className = log.type === 'error' ? 'text-red-300' : log.type === 'success' ? 'text-secondary-fixed-dim' : log.type === 'wait' ? 'text-amber-300' : 'text-slate-300';
-                div.innerHTML = `[${new Date(log.timestamp).toLocaleTimeString()}] ${escapeHtml(log.message)}`;
-                logContainer.appendChild(div);
-            });
-            logContainer.scrollTop = logContainer.scrollHeight;
+            const campaignId = data.campaign.id || null;
+            if (hydrateLogs || hydratedCampaignLogsForId !== campaignId) {
+                renderCampaignLogs(data.campaign.logs || [], campaignId);
+            }
+            return data.campaign;
         }
+
+        if (data.campaign?.status === 'completed') {
+            setActiveCampaignId(data.campaign.id || getActiveCampaignId());
+            setCampaignControls('completed');
+            renderCampaignProgress(data.campaign);
+            updateBatchPauseCountdown(null);
+            updateInterMessageCountdown(null);
+        }
+        return data.campaign || null;
     } catch (err) {
         console.error('Kampanya durumu alınamadı', err);
+        return null;
+    } finally {
+        campaignStatusPollInFlight = false;
     }
+}
+
+async function checkActiveCampaign() {
+    return refreshActiveCampaignSnapshot({ hydrateLogs: true });
+}
+
+function startCampaignStatusPolling() {
+    if (campaignStatusPollTimer) clearInterval(campaignStatusPollTimer);
+    campaignStatusPollTimer = setInterval(() => {
+        if (_socket?.connected) return;
+        const campaignId = getActiveCampaignId();
+        const progressVisible = !document.getElementById('prog-box')?.classList.contains('hidden');
+        if (!campaignId && !progressVisible) return;
+        refreshActiveCampaignSnapshot({ hydrateLogs: false });
+    }, 5000);
 }
 
 function updateDelayLabel() {
@@ -1593,7 +2178,7 @@ function bindStaticControls() {
     bindClick('excel-upload-card', () => byId('excel-input')?.click());
     bindClick('manual-open-card', openManualContactModal);
     bindClick('download-sample-card', downloadSample);
-    bindClick('save-inline-group-btn', saveInlineGroupName);
+    bindClick('download-current-contacts-card', downloadCurrentContacts);
     bindClick('manual-cancel-btn', () => hideModal('manual-modal'));
     bindClick('manual-save-btn', saveManualContact);
     bindClick('edit-contact-cancel-btn', closeEditContactModal);
@@ -1615,6 +2200,8 @@ function bindStaticControls() {
     byId('daily-limit')?.addEventListener('input', updateDelayLabel);
     byId('contact-search-input')?.addEventListener('input', event => filterContacts(event.target.value));
     byId('excel-input')?.addEventListener('change', event => uploadExcel(event.target));
+    byId('contacts-select-all')?.addEventListener('change', event => toggleVisibleContactSelection(event.target.checked));
+    bindClick('suppress-selected-btn', suppressSelectedContacts);
 }
 
 function bindDynamicControls() {
@@ -1632,8 +2219,16 @@ function bindDynamicControls() {
         const button = event.target.closest('[data-action]');
         if (!button) return;
         const index = Number(button.dataset.contactIndex);
+        if (button.dataset.action === 'suppress-contact') suppressContacts([visibleContacts[index]]);
+        if (button.dataset.action === 'unsuppress-contact') unsuppressPhones([button.dataset.phone]);
         if (button.dataset.action === 'edit-contact') openEditContact(index);
         if (button.dataset.action === 'remove-contact') removeContact(index);
+    });
+
+    byId('contacts-table-body')?.addEventListener('change', event => {
+        const checkbox = event.target.closest('[data-action="toggle-contact-selection"]');
+        if (!checkbox) return;
+        toggleContactSelection(checkbox.dataset.phone, checkbox.checked);
     });
 
     byId('groups-list')?.addEventListener('click', event => {
@@ -1655,23 +2250,27 @@ function initializeDashboard() {
     document.getElementById('clear-list-btn').addEventListener('click', clearList);
     document.getElementById('send-btn').addEventListener('click', () => startCampaign());
     document.getElementById('stop-btn').addEventListener('click', stopCampaign);
+    document.getElementById('finish-campaign-btn').addEventListener('click', finishCampaignPermanently);
     document.getElementById('resume-btn').addEventListener('click', resumeCampaign);
     document.getElementById('retry-btn').addEventListener('click', retryCampaign);
+    document.getElementById('retry-skipped-btn').addEventListener('click', retrySkippedCampaign);
     document.getElementById('save-group-name').addEventListener('keydown', (event) => {
         if (event.key === 'Enter') saveCurrentListAsGroup();
-    });
-    document.getElementById('quick-group-name').addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') saveInlineGroupName();
     });
     setWhatsAppUiStatus('disconnected', 'BAĞLI DEĞİL');
     updateDelayLabel();
     initReleaseVersion().then(startReleaseWatcher);
     initTemplates();
+    loadSuppressedRecipients().then(() => {
+        updateContactsTable();
+        updateCampaignTargetSummary();
+    }).catch(err => console.warn('Gönderim dışı liste yüklenemedi:', err));
     loadGroups();
     refreshRuntimeStatus();
     checkUserRole();
     setInterval(refreshRuntimeStatus, 15000);
     setTimeout(checkActiveCampaign, 1000);
+    startCampaignStatusPolling();
     setTimeout(getSocket, 3000);
 }
 
@@ -1785,11 +2384,31 @@ document.getElementById('refresh-users-btn')?.addEventListener('click', loadUser
 
 const STATUS_LABELS = {
     completed: 'Tamamlandı', running: 'Devam Ediyor', paused: 'Duraklatıldı', stopped: 'Durduruldu',
-    queued: 'Kuyrukta'
+    finished: 'Bitirildi', queued: 'Kuyrukta'
 };
 const STATUS_COLORS = {
     completed: 'text-secondary', running: 'text-blue-600', paused: 'text-amber-600',
-    stopped: 'text-error', queued: 'text-slate-500'
+    stopped: 'text-error', finished: 'text-slate-900', queued: 'text-slate-500'
+};
+const RECIPIENT_STATUS_LABELS = {
+    sent: 'Başarılı',
+    failed: 'Hatalı',
+    pending: 'Bekleyen',
+    skipped: 'Atlandı',
+    skipped_cooldown: 'Cooldown',
+    not_on_whatsapp: 'WhatsApp yok',
+    suppressed: 'Manuel dışlandı',
+    validation_unknown: 'Doğrulama belirsiz'
+};
+const RECIPIENT_STATUS_COLORS = {
+    sent: 'bg-secondary/10 text-secondary',
+    failed: 'bg-error/10 text-error',
+    pending: 'bg-slate-100 text-slate-600',
+    skipped: 'bg-amber-50 text-amber-700',
+    skipped_cooldown: 'bg-amber-50 text-amber-700',
+    not_on_whatsapp: 'bg-rose-50 text-rose-700',
+    suppressed: 'bg-rose-50 text-rose-700',
+    validation_unknown: 'bg-blue-50 text-blue-700'
 };
 const SEV_COLORS = {
     info: 'text-blue-600 bg-blue-50', warn: 'text-amber-700 bg-amber-50', error: 'text-error bg-error/5'
@@ -1797,7 +2416,12 @@ const SEV_COLORS = {
 const EVENT_COLORS = {
     whatsapp_connected: 'text-green-600', whatsapp_disconnected: 'text-red-600',
     qr_generated: 'text-blue-600', session_invalid_loop: 'text-orange-600 font-bold',
-    reconnect_paused: 'text-red-600', error_burst: 'text-red-600', media_missing: 'text-amber-600'
+    reconnect_paused: 'text-red-600', error_burst: 'text-red-600', media_missing: 'text-amber-600',
+    server_started: 'text-slate-600',
+    campaign_started: 'text-blue-600', campaign_resumed: 'text-blue-600',
+    campaign_retry_started: 'text-amber-600', campaign_retry_skipped_started: 'text-amber-600',
+    campaign_completed: 'text-green-600', campaign_paused: 'text-amber-600',
+    campaign_stopped: 'text-red-600', campaign_finished: 'text-slate-900'
 };
 
 function fmtDate(iso) {
@@ -1806,13 +2430,18 @@ function fmtDate(iso) {
 }
 
 async function loadReports() {
-    await Promise.all([loadReportSummary(), loadSystemEvents()]);
+    await Promise.all([
+        loadReportSummary(),
+        loadUnavailableWhatsAppRecipients(),
+        loadFailedRecipientsReport(),
+        loadSystemEvents()
+    ]);
 }
 
 async function loadReportSummary() {
     try {
         const data = await fetchJson(`${API_BASE}/reports/summary`);
-        const s = data.data;
+        const s = data || {};
         document.getElementById('report-total-campaigns').textContent = s.total_campaigns ?? '—';
         document.getElementById('report-total-sent').textContent = s.total_sent ?? '—';
         document.getElementById('report-total-failed').textContent = s.total_failed ?? '—';
@@ -1854,7 +2483,7 @@ async function loadSystemEvents() {
         if (severity) params.set('severity', severity);
         if (eventType) params.set('event_type', eventType);
         const data = await fetchJson(`${API_BASE}/system-events?${params}`);
-        const events = data.data?.events || [];
+        const events = data?.events || [];
         if (!events.length) {
             container.innerHTML = '<div class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Kayıtlı olay yok</div>';
             return;
@@ -1873,6 +2502,61 @@ async function loadSystemEvents() {
     }
 }
 
+function recipientDisplayNameFromRow(row = {}) {
+    return `${row.name || ''} ${row.surname || ''}`.trim() || row.name || '—';
+}
+
+function errorPreview(value, length = 100) {
+    return String(value || '').split('\n')[0].slice(0, length);
+}
+
+async function loadUnavailableWhatsAppRecipients() {
+    const tbody = document.getElementById('unavailable-whatsapp-tbody');
+    if (!tbody) return;
+    try {
+        const data = await fetchJson(`${API_BASE}/unavailable-whatsapp?limit=100`);
+        const recipients = data?.recipients || [];
+        if (!recipients.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Kayıt yok</td></tr>';
+            return;
+        }
+        tbody.innerHTML = recipients.map(item => `
+            <tr class="hover:bg-slate-50/50 transition-colors">
+                <td class="px-4 py-3 text-xs font-bold text-slate-700">${escapeHtml(recipientDisplayNameFromRow(item))}</td>
+                <td class="px-4 py-3 text-xs font-mono text-slate-600">${escapeHtml(item.display_phone || item.normalized_phone || '')}</td>
+                <td class="px-4 py-3 text-xs text-slate-500 max-w-[180px] truncate" title="${escapeHtml(item.reason || '')}">${escapeHtml(item.reason || 'WhatsApp yok')}</td>
+                <td class="px-4 py-3 text-xs text-slate-400">${fmtDate(item.last_detected_at || item.updated_at)}</td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-error font-bold uppercase text-xs">Yüklenemedi</td></tr>';
+    }
+}
+
+async function loadFailedRecipientsReport() {
+    const tbody = document.getElementById('failed-recipients-tbody');
+    if (!tbody) return;
+    try {
+        const data = await fetchJson(`${API_BASE}/failed-recipients?limit=100`);
+        const recipients = data?.recipients || [];
+        if (!recipients.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-slate-300 font-bold uppercase text-xs">Kayıt yok</td></tr>';
+            return;
+        }
+        tbody.innerHTML = recipients.map(item => `
+            <tr class="hover:bg-slate-50/50 transition-colors">
+                <td class="px-4 py-3 text-xs font-bold text-slate-700">${escapeHtml(recipientDisplayNameFromRow(item))}</td>
+                <td class="px-4 py-3 text-xs font-mono text-slate-600">${escapeHtml(item.phone || item.normalized_phone || '')}</td>
+                <td class="px-4 py-3 text-xs"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${RECIPIENT_STATUS_COLORS[item.status] || 'bg-slate-100 text-slate-600'}">${escapeHtml(RECIPIENT_STATUS_LABELS[item.status] || item.status || '—')}</span></td>
+                <td class="px-4 py-3 text-xs text-center font-black text-error">${Number(item.attempt_count || 0)}</td>
+                <td class="px-4 py-3 text-xs text-slate-500 max-w-[240px] truncate" title="${escapeHtml(item.last_error || '')}">${escapeHtml(errorPreview(item.last_error, 120) || '—')}</td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-error font-bold uppercase text-xs">Yüklenemedi</td></tr>';
+    }
+}
+
 function escapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -1888,11 +2572,12 @@ async function openCampaignDetail(campaignId) {
     document.getElementById('cdet-total').textContent = '—';
     document.getElementById('cdet-logs').innerHTML = '<span class="text-slate-400">Yükleniyor...</span>';
     document.getElementById('cdet-failed-section').classList.add('hidden');
+    document.getElementById('cdet-skipped-section').classList.add('hidden');
     document.getElementById('cdet-recipient-stats').classList.add('hidden');
 
     try {
         const data = await fetchJson(`${API_BASE}/campaigns/${campaignId}/report`);
-        const r = data.data;
+        const r = data || {};
         const run = r.run;
         document.getElementById('cdet-status').textContent = STATUS_LABELS[run.status] || run.status;
         document.getElementById('cdet-sent').textContent = run.sent_count ?? 0;
@@ -1903,8 +2588,9 @@ async function openCampaignDetail(campaignId) {
         const statsBody = document.getElementById('cdet-recipient-stats-body');
         const stats = r.recipient_stats || {};
         if (Object.keys(stats).length > 0) {
-            const STAT_COLORS = { sent: 'bg-secondary/10 text-secondary', failed: 'bg-error/10 text-error', skipped: 'bg-amber-50 text-amber-700', pending: 'bg-slate-100 text-slate-600' };
-            statsBody.innerHTML = Object.entries(stats).map(([k, v]) => `<span class="px-3 py-1 rounded-full text-xs font-bold ${STAT_COLORS[k] || 'bg-slate-100 text-slate-600'}">${k}: ${v}</span>`).join('');
+            statsBody.innerHTML = Object.entries(stats)
+                .map(([k, v]) => `<span class="px-3 py-1 rounded-full text-xs font-bold ${RECIPIENT_STATUS_COLORS[k] || 'bg-slate-100 text-slate-600'}">${RECIPIENT_STATUS_LABELS[k] || k}: ${v}</span>`)
+                .join('');
             statsSection.classList.remove('hidden');
         }
 
@@ -1913,9 +2599,24 @@ async function openCampaignDetail(campaignId) {
         const failed = r.failed_recipients || [];
         if (failed.length > 0) {
             failedTbody.innerHTML = failed.map(f => `
-                <tr><td class="px-3 py-1.5">${escapeHtml(f.name || '—')}</td><td class="px-3 py-1.5 font-mono">${escapeHtml(f.phone || '')}</td><td class="px-3 py-1.5 text-error/80 max-w-[180px] truncate" title="${escapeHtml(f.last_error || '')}">${escapeHtml((f.last_error || '').split('\n')[0].slice(0, 80))}</td></tr>
+                <tr><td class="px-3 py-1.5">${escapeHtml(recipientDisplayNameFromRow(f))}</td><td class="px-3 py-1.5 font-mono">${escapeHtml(f.phone || '')}</td><td class="px-3 py-1.5 text-center font-black text-error">${Number(f.attempt_count || 0)}</td><td class="px-3 py-1.5 text-error/80 max-w-[180px] truncate" title="${escapeHtml(f.last_error || '')}">${escapeHtml(errorPreview(f.last_error, 80))}</td></tr>
             `).join('');
             failedSection.classList.remove('hidden');
+        }
+
+        const skippedSection = document.getElementById('cdet-skipped-section');
+        const skippedTbody = document.getElementById('cdet-skipped-tbody');
+        const skipped = r.skipped_recipients || [];
+        if (skipped.length > 0) {
+            skippedTbody.innerHTML = skipped.map(item => `
+                <tr>
+                    <td class="px-3 py-1.5">${escapeHtml(item.name || '—')}</td>
+                    <td class="px-3 py-1.5 font-mono">${escapeHtml(item.phone || '')}</td>
+                    <td class="px-3 py-1.5"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${RECIPIENT_STATUS_COLORS[item.status] || 'bg-slate-100 text-slate-600'}">${escapeHtml(RECIPIENT_STATUS_LABELS[item.status] || item.status || '—')}</span></td>
+                    <td class="px-3 py-1.5 text-slate-500 max-w-[220px] truncate" title="${escapeHtml(item.last_error || '')}">${escapeHtml((item.last_error || '').split('\n')[0].slice(0, 100))}</td>
+                </tr>
+            `).join('');
+            skippedSection.classList.remove('hidden');
         }
 
         const logsEl = document.getElementById('cdet-logs');
@@ -1943,6 +2644,8 @@ document.getElementById('campaign-detail-modal')?.addEventListener('click', (e) 
     }
 });
 document.getElementById('refresh-reports-btn')?.addEventListener('click', loadReports);
+document.getElementById('unavailable-whatsapp-refresh-btn')?.addEventListener('click', loadUnavailableWhatsAppRecipients);
+document.getElementById('failed-recipients-refresh-btn')?.addEventListener('click', loadFailedRecipientsReport);
 document.getElementById('sysevt-refresh-btn')?.addEventListener('click', loadSystemEvents);
 document.getElementById('sysevt-severity-filter')?.addEventListener('change', loadSystemEvents);
 document.getElementById('sysevt-type-filter')?.addEventListener('change', loadSystemEvents);
