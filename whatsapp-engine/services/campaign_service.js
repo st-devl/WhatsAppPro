@@ -446,20 +446,26 @@ class CampaignService {
         return run;
     }
 
-    async resume(campaignId, ownerEmail, socket, options = {}) {
-        const tenantId = options.tenantId || getTenantFromSocket(socket);
-        await this.assertNotFinished(campaignId, ownerEmail, tenantId);
-        this.assertConnected(tenantId);
-        this.assertNoInMemoryActive(ownerEmail, tenantId, campaignId);
-
-        // Resume sirasinda guncel media store icerigini campaign metadata'sina yazalim
+    // Restart oncesi yeni yuklenen medya varsa kampanyaya yaz. Store bos ise
+    // (kampanya bitince/durunca temizlenir) kampanyanin kayitli medyasi korunur.
+    async syncCampaignMediaFromStore(campaignId, tenantId = 'default') {
         const currentMedia = this.mediaStore.list(tenantId);
+        if (currentMedia.length === 0) return;
         await this.db.updateCampaignMediaFiles(campaignId, currentMedia.map(file => ({
             path: file.path,
             name: file.name,
             mimetype: file.mimetype,
             size: file.size
         })));
+    }
+
+    async resume(campaignId, ownerEmail, socket, options = {}) {
+        const tenantId = options.tenantId || getTenantFromSocket(socket);
+        await this.assertNotFinished(campaignId, ownerEmail, tenantId);
+        this.assertConnected(tenantId);
+        this.assertNoInMemoryActive(ownerEmail, tenantId, campaignId);
+
+        await this.syncCampaignMediaFromStore(campaignId, tenantId);
 
         const unsentContacts = await this.db.getCampaignRecipientsForRestart(campaignId, ownerEmail, 'resume', tenantId);
         if (unsentContacts.length === 0) {
@@ -485,14 +491,7 @@ class CampaignService {
         this.assertConnected(tenantId);
         this.assertNoInMemoryActive(ownerEmail, tenantId, campaignId);
 
-        // Retry sirasinda guncel media store icerigini campaign metadata'sina yazalim
-        const currentMedia = this.mediaStore.list(tenantId);
-        await this.db.updateCampaignMediaFiles(campaignId, currentMedia.map(file => ({
-            path: file.path,
-            name: file.name,
-            mimetype: file.mimetype,
-            size: file.size
-        })));
+        await this.syncCampaignMediaFromStore(campaignId, tenantId);
 
         const failedContacts = await this.db.getCampaignRecipientsForRestart(campaignId, ownerEmail, 'retry', tenantId);
         if (failedContacts.length === 0) {
@@ -522,14 +521,7 @@ class CampaignService {
         this.assertConnected(tenantId);
         this.assertNoInMemoryActive(ownerEmail, tenantId, campaignId);
 
-        // RetrySkipped sirasinda guncel media store icerigini campaign metadata'sina yazalim
-        const currentMedia = this.mediaStore.list(tenantId);
-        await this.db.updateCampaignMediaFiles(campaignId, currentMedia.map(file => ({
-            path: file.path,
-            name: file.name,
-            mimetype: file.mimetype,
-            size: file.size
-        })));
+        await this.syncCampaignMediaFromStore(campaignId, tenantId);
 
         const skippedContacts = await this.db.getRetryableSkippedCampaignRecipients(campaignId, ownerEmail, tenantId);
         if (skippedContacts.length === 0) {

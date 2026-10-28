@@ -1271,3 +1271,37 @@ test('failed recipients do not count toward automatic batch pause threshold', as
     assert.equal(startedPauses.length, 1);
     assert.equal(startedPauses[0].message, '2 gönderim tamamlandı. 1 dk sonra devam edecek.');
 });
+
+test('resume keeps campaign media when the upload store was cleared', async () => {
+    const campaignId = 'resume-keeps-media';
+    const mediaFiles = [{ path: 'uploads/default/video.mp4', name: 'video.mp4', mimetype: 'video/mp4', size: 10 }];
+    await db.createCampaignRun({
+        id: campaignId,
+        tenantId,
+        ownerEmail,
+        contacts: [{ phone: '905320000071', name: 'Ali' }],
+        message: '',
+        delayRange: [20, 90],
+        dailyLimit: 50,
+        mediaCount: 1,
+        mediaFiles
+    });
+    await db.updateCampaignRecipient(campaignId, { phone: '905320000071' }, 'sent', null, tenantId);
+    await db.setCampaignRunStatus(campaignId, 'paused');
+
+    const service = new CampaignService({
+        db,
+        mediaStore: new MediaStore({ filePath: null }),
+        runtime: { connected: () => true, getSocket: () => ({}) },
+        logger: { info: () => {}, error: () => {} }
+    });
+    const socket = { request: { session: { user: { email: ownerEmail, tenant_id: tenantId } } }, emit: () => {} };
+
+    await assert.rejects(
+        () => service.resume(campaignId, ownerEmail, socket, { tenantId }),
+        err => err.code === 'CAMPAIGN_RESUME_EMPTY'
+    );
+    const run = await db.getCampaignRunStatus(campaignId, ownerEmail, tenantId);
+    assert.deepEqual(run.metadata.media_files, mediaFiles);
+    await db.setCampaignRunStatus(campaignId, 'finished');
+});

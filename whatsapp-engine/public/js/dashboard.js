@@ -1743,7 +1743,7 @@ async function saveTemplate() {
     showToast('Şablon kaydedildi', 'success');
 }
 
-async function startCampaign(overrideCooldown = []) {
+async function startCampaign(overrideCooldown = [], options = {}) {
     const sock = getSocket();
     if (!sock) return alert('Sunucu bağlantısı kurulamadı. Sayfayı yenileyin veya sunucu loglarını kontrol edin.');
     if (!Array.isArray(overrideCooldown)) overrideCooldown = [];
@@ -1760,7 +1760,8 @@ async function startCampaign(overrideCooldown = []) {
     if (!text && mediaFiles.length === 0) return alert('Mesaj içeriği veya en az bir görsel gereklidir.');
     if (text && !validateMessageTemplateOrShow(text, targetContacts[0] || previewContact())) return;
 
-    if (overrideCooldown.length === 0) {
+    // Cooldown penceresinden gelindiyse kontrol tekrarlanmaz; işaretsiz gruplar sunucuda atlanır.
+    if (overrideCooldown.length === 0 && !options.cooldownConfirmed) {
         try {
             const preflight = await fetchJson(`${API_BASE}/campaigns/preflight`, {
                 method: 'POST',
@@ -1857,7 +1858,7 @@ function showCooldownConfirmModal(sameMessage, differentMessage, targetContacts,
         }
         modal.classList.add('hidden');
         modal.classList.remove('flex');
-        startCampaign(overrides);
+        startCampaign(overrides, { cooldownConfirmed: true });
     };
 }
 
