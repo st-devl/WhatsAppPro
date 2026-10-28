@@ -2450,9 +2450,18 @@ const updateCampaignRecipient = async (campaignId, contact, status, error = null
 function setRecipientMessageIdWithDb(d, campaignId, normalizedPhone, messageId) {
     if (!messageId) return;
     d.run(
-        'UPDATE campaign_recipients SET message_id = ?, updated_at = ? WHERE campaign_run_id = ? AND normalized_phone = ?',
-        [String(messageId), now(), campaignId, normalizePhone(normalizedPhone)]
+        `UPDATE campaign_recipients
+         SET delivery_status = CASE WHEN message_id IS ? THEN delivery_status END,
+             delivered_at = CASE WHEN message_id IS ? THEN delivered_at END,
+             message_id = ?, updated_at = ?
+         WHERE campaign_run_id = ? AND normalized_phone = ?`,
+        [String(messageId), String(messageId), String(messageId), now(), campaignId, normalizePhone(normalizedPhone)]
     );
+    const earlyStatus = earlyDeliveryStatuses.get(String(messageId));
+    if (earlyStatus) {
+        earlyDeliveryStatuses.delete(String(messageId));
+        applyDeliveryStatusWithDb(d, messageId, earlyStatus);
+    }
 }
 
 const setRecipientMessageId = async (campaignId, normalizedPhone, messageId) => {
@@ -2467,9 +2476,11 @@ const DELIVERY_STATUS_RANK = { server_ack: 1, delivered: 2, read: 3, played: 4 }
 const DELIVERY_STATUS_RANK_SQL = `CASE delivery_status ${Object.entries(DELIVERY_STATUS_RANK)
     .map(([status, rank]) => `WHEN '${status}' THEN ${rank}`).join(' ')} ELSE 0 END`;
 
-const updateDeliveryStatus = async (messageId, deliveryStatus) => {
-    if (!messageId || !DELIVERY_STATUS_RANK[deliveryStatus]) return null;
-    const d = await getDb();
+// Medya gönderiminde message_id birkaç saniye sonra yazılıyor; bu arada gelen bildirimler burada bekler.
+const EARLY_DELIVERY_STATUS_MAX_ENTRIES = 1000;
+const earlyDeliveryStatuses = new Map();
+
+function applyDeliveryStatusWithDb(d, messageId, deliveryStatus) {
     const deliveredAt = deliveryStatus === 'server_ack' ? null : now();
     d.run(
         `UPDATE campaign_recipients
@@ -2477,8 +2488,26 @@ const updateDeliveryStatus = async (messageId, deliveryStatus) => {
          WHERE message_id = ? AND ${DELIVERY_STATUS_RANK_SQL} < ?`,
         [deliveryStatus, deliveredAt, now(), String(messageId), DELIVERY_STATUS_RANK[deliveryStatus]]
     );
+}
+
+function rememberEarlyDeliveryStatus(messageId, deliveryStatus) {
+    const previous = earlyDeliveryStatuses.get(messageId);
+    if (previous && DELIVERY_STATUS_RANK[previous] >= DELIVERY_STATUS_RANK[deliveryStatus]) return;
+    earlyDeliveryStatuses.delete(messageId);
+    earlyDeliveryStatuses.set(messageId, deliveryStatus);
+    while (earlyDeliveryStatuses.size > EARLY_DELIVERY_STATUS_MAX_ENTRIES) {
+        earlyDeliveryStatuses.delete(earlyDeliveryStatuses.keys().next().value);
+    }
+}
+
+const updateDeliveryStatus = async (messageId, deliveryStatus) => {
+    if (!messageId || !DELIVERY_STATUS_RANK[deliveryStatus]) return null;
+    const d = await getDb();
+    applyDeliveryStatusWithDb(d, messageId, deliveryStatus);
     save();
-    return queryOne(d, 'SELECT campaign_run_id, normalized_phone, delivery_status FROM campaign_recipients WHERE message_id = ?', [String(messageId)]);
+    const row = queryOne(d, 'SELECT campaign_run_id, normalized_phone, delivery_status FROM campaign_recipients WHERE message_id = ?', [String(messageId)]);
+    if (!row) rememberEarlyDeliveryStatus(String(messageId), deliveryStatus);
+    return row;
 };
 
 function getCampaignRunStatusWithDb(d, campaignId, ownerEmail = null, tenantId = null) {

@@ -1319,4 +1319,13 @@ test('delivery status only moves forward and records video plays', async () => {
 
     row = await db.updateDeliveryStatus('MSG-DELIVERY', 'server_ack');
     assert.equal(row.delivery_status, 'played');
+
+    // Medya gönderiminde message_id gecikmeli yazılır; önceden gelen bildirimler kaybolmamalı.
+    assert.equal(await db.updateDeliveryStatus('MSG-EARLY', 'server_ack'), null);
+    assert.equal(await db.updateDeliveryStatus('MSG-EARLY', 'delivered'), null);
+
+    await db.setRecipientMessageId('delivery-status-run', '905320000000', 'MSG-EARLY');
+
+    row = await db.updateDeliveryStatus('MSG-EARLY', 'server_ack');
+    assert.equal(row.delivery_status, 'delivered');
 });
