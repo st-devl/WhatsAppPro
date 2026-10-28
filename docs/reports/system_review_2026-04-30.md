@@ -45,7 +45,7 @@ Uygulama cekirdek ozellikleri otomatik testlerde geciyor: auth, DB, grup/kisi CR
 
 ### 1.2 Runtime data politikasi production gercegiyle tam uyumlu degil
 
-- Kanit: `docs/runtime-data-policy.md:25-26` production runtime data'nin persistent storage'da tutulacagini soyluyor. Docker tarafinda `WHASAPPC_DATA_DIR=/data` var (`Dockerfile:14-17`), fakat Passenger `.env` icin bu ayar garanti edilmiyor.
+- Kanit: `docs/runtime-data-policy.md:25-26` production runtime data'nin persistent storage'da tutulacagini soyluyor. Passenger deploy akisi `WHASAPPC_DATA_DIR` degerini kalici data dizinine ayarliyor.
 - Etki: DB, session, auth ve uploads app klasoru altinda kalirsa deploy veya panel publish akislari veri kaybi/ayrisma riski yaratir.
 - Durum: Kod tarafinda giderildi. Passenger deploy `WHASAPPC_DATA_DIR` atar; DB, session, auth, uploads ve media-store bu kalici kokten calisir.
 - Cozum: Production'da onerilen deger: `/home/u341720642/domains/yardimet.site/app-data`.
@@ -58,7 +58,7 @@ Uygulama cekirdek ozellikleri otomatik testlerde geciyor: auth, DB, grup/kisi CR
 
 ### 1.4 WhatsApp gercek gonderim senaryolari manuel olarak tamamlanmamis
 
-- Kanit: `docs/a-dan-zye-task-list.md:362-365` metin-only, metin+coklu medya ve tamamlandi modali testleri isaretlenmemis.
+- Kanit: `docs/archive/a-dan-zye-task-list.md:362-365` metin-only, metin+coklu medya ve tamamlandi modali testleri isaretlenmemis.
 - Etki: Otomatik testler is mantigini dogruluyor; ancak gercek WhatsApp cihaz/baglanti davranisi ve medya teslimi hala manuel kanit gerektiriyor.
 - Cozum: Staging veya production disi bir test numarasi ile manuel checklist tamamlanmali; mumkunse Baileys socket'i mock'lanarak medya payload ve tamamlanma UI e2e testleri genisletilmeli.
 
@@ -123,7 +123,7 @@ Uygulama cekirdek ozellikleri otomatik testlerde geciyor: auth, DB, grup/kisi CR
 
 ### 4.1 Deploy script'leri iki farkli dunya anlatiyor
 
-- Kanit: `deploy.sh` hala Docker Compose remote deploy varsayiyor (`deploy.sh:326-390`), `release.sh` ise node bundle + PM2 akisi kullaniyor (`release.sh:353-488`).
+- Kanit: `deploy.sh` varsayilan olarak Hostinger Passenger production deploy'una gider; `release.sh` ise Passenger ve alternatif Node/PM2 akislarini destekler.
 - Etki: Ekip veya gelecek otomasyon yanlis script'i kullanirsa production farkli davranir.
 - Durum: Kod tarafinda giderildi. `deploy.sh` artik `release.sh` wrapper'i.
 
@@ -131,7 +131,7 @@ Uygulama cekirdek ozellikleri otomatik testlerde geciyor: auth, DB, grup/kisi CR
 
 - Kanit: `release.sh` remote working tree'de sadece belirli partial deploy kalintilarini temizliyor (`release.sh:390-397`), eksik dosyalari `git show HEAD:...` ile geri koyuyor (`release.sh:419-437`), node_modules bundle'i Mac'te hazirlayip remote'a aciyor (`release.sh:359-369`).
 - Etki: Bu kodlar krizi toparladi ama Hostinger Passenger gercegini modellemiyor. Bir yil sonra bakildiginda "neden boyle" sorusu dogurur.
-- Durum: Kismen giderildi. `docker`, `node` ve `hostinger-passenger` hedefleri ayrildi; `node` hedefi PM2 veya kullanici restart komutu icin kaldi.
+- Durum: Giderildi. `hostinger-passenger` varsayilan hedef oldu; `node` hedefi PM2 veya kullanici restart komutu icin alternatif olarak kaldi.
 
 ### 4.3 `release.sh` gecici node_modules bundle temp cleanup eksik
 

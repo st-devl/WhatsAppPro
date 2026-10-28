@@ -7,6 +7,8 @@ Bu sistemde runtime veri kod artifact'i degildir ve Git ile deploy edilmez.
 - `whatsapp-engine/.env`
 - `whatsapp-engine/data/database.sqlite`
 - `whatsapp-engine/data/database.sqlite.*`
+- `whatsapp-engine/data/database.sqlite-wal`
+- `whatsapp-engine/data/database.sqlite-shm`
 - `whatsapp-engine/data/backups/`
 - `whatsapp-engine/data/contacts.json` (legacy import source only)
 - `whatsapp-engine/data/groups.json` (legacy import source only)
@@ -28,5 +30,6 @@ Bu sistemde runtime veri kod artifact'i degildir ve Git ile deploy edilmez.
 - Hostinger Passenger production hedefinde `WHASAPPC_DATA_DIR` kod klasorunun disindaki kalici dizine ayarlanir. Onerilen yol: `/home/u341720642/domains/yardimet.site/app-data`.
 - `WHASAPPC_DATA_DIR` verildiginde SQLite DB, session store, WhatsApp auth session, upload dosyalari, media-store ve process lock ayni kalici veri kokunu kullanir.
 - Backup, auth session ve uploads klasorleri deploy artifact'iyle overwrite edilmez.
+- WAL ve SHM dosyalari da runtime verisidir; deploy artifact'ine alinmaz veya deploy sirasinda silinmez.
 - Restore islemi icin once mevcut DB ve uploads snapshot'i alinir.
 - Aktif runtime state SQLite icindedir; JSON dosyalari sadece eski kurulumlari migrate etmek icin okunur ve `.migrated` olarak ayrilir.

@@ -6,7 +6,7 @@
 - Express
 - Socket.IO
 - Baileys
-- SQLite via `sql.js` to avoid native addon requirements on shared hosting
+- SQLite via Node's built-in `node:sqlite` (`DatabaseSync`) with `sql.js` WASM fallback for runtimes where the built-in driver is unavailable; neither option needs a native addon
 - `pino` structured logging
 
 ## Frontend
@@ -21,4 +21,4 @@
 - Node test runner for unit/integration tests.
 - Playwright for UI E2E.
 - GitHub Actions CI.
-- Dockerfile for container packaging.
+- Hostinger Passenger production deployment.

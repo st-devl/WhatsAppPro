@@ -77,10 +77,10 @@ Kaynak rapor: `docs/reports/remaining_risks_action_plan_2026-04-30.md`
 
 ## P2 - Legacy API Temizligi
 
-- [ ] Legacy `/api` namespace kullanimini logla.
+- [x] Legacy `/api` namespace kaldirildi; eski istekler `API_VERSION_REMOVED` ile `410` doner.
 - [ ] Frontend'in yalnizca `/api/v1` kullandigini dogrula.
 - [ ] External consumer var mi kontrol et.
-- [ ] 30 gun legacy `/api` kullanimi yoksa kaldirma planini baslat.
+- [x] Sunset tarihi gectikten sonra legacy `/api` namespace kaldirildi.
 - [ ] Regression testlerini `/api/v1` odakli hale getir.
 - [ ] Sunset tarihi olan `2026-09-30` yaklasmadan kaldirma kararini tekrar degerlendir.
 

@@ -1,13 +1,10 @@
-./deploy.sh
+# normal deploy
+rtk env PATH=/Users/suheyp/.nvm/versions/node/v22.22.0/bin:$PATH ./deploy-production.sh --with-tests
 
-./deploy-production.sh --skip-css-build
 
-./deploy-production.sh
+# hızlı deploy
 
-DEPLOY_REMOTE_PASSENGER_PATH=/home/u341720642/domains/yardimet.site/nodejs \
-DEPLOY_REMOTE_DATA_PATH=/home/u341720642/domains/yardimet.site/app-data \
-DEPLOY_REMOTE_HEALTH_URL="https://yardimet.site/readyz" \
-./deploy-production.sh --skip-css-build
+rtk env PATH=/Users/suheyp/.nvm/versions/node/v22.22.0/bin:$PATH ./deploy-production.sh
 
 ---
 

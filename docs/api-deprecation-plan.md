@@ -3,23 +3,19 @@
 ## Current Versions
 
 - Preferred API: `/api/v1`
-- Legacy compatibility API: `/api`
+- Removed API: `/api` (30 September 2026)
 
 ## Policy
 
 All new frontend and integration code must use `/api/v1`.
 
-Legacy `/api` routes remain temporarily available for backwards compatibility. Protected legacy responses include:
+The legacy namespace was removed after the sunset date. Requests to `/api/...` other than `/api/v1/...` receive HTTP `410` with the standard error envelope:
 
-- `Deprecation: true`
-- `Link: </api/v1>; rel="successor-version"`
-- `Sunset: Wed, 30 Sep 2026 00:00:00 GMT`
+- `code`: `API_VERSION_REMOVED`
+- Turkish guidance to use `/api/v1`
 
-## Removal Criteria
+## Completion
 
-The legacy `/api` namespace can be removed after:
-
-- Browser frontend uses only `/api/v1`.
-- External consumers have migrated.
-- Access logs show no legacy route usage for at least 30 days.
-- A release note announces the removal.
+- Browser frontend, automated tests, scripts, deployment files, and documentation use `/api/v1`.
+- Auth and session routes remain available at `/api/v1`.
+- `/api/v1` keeps its existing `404` behavior for unknown versioned endpoints.

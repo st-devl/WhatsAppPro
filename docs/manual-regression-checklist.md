@@ -238,7 +238,7 @@ Bu dokuman Faz 10 madde 30'daki manuel regresyon testlerinin adim adim uygulama 
 | Adim | Islem | Beklenen Sonuc | Sonuc |
 |------|-------|----------------|-------|
 | 1 | Mevcut grup ve kisi sayisini not al | Kayit altina al | [ ] |
-| 2 | Uygulamayi restart et | `docker restart` veya `pm2 restart` | [ ] |
+| 2 | Uygulamayi restart et | Passenger icin `touch tmp/restart.txt`; Node runtime icin `pm2 restart whasappc` | [ ] |
 | 3 | Tekrar login ol ve gruplari kontrol et | Grup sayisi ayni olmali | [ ] |
 | 4 | Grup icindeki kisileri kontrol et | Kisi sayilari ayni olmali | [ ] |
 | 5 | Kampanya hedef sayacini kontrol et | Hedef sayilar dogru olmali | [ ] |

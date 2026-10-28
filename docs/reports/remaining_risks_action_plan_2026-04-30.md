@@ -22,7 +22,7 @@ Bu rapordaki onerilen ana strateji:
 | Sql.js DB | Tek process varsayimina bagli | P1 | Tek process'i garanti et; buyume olursa SQLite driver/Postgres'e gec |
 | File session store | Coklu process icin uygun degil | P1 | DB-backed session store eklendi; file store sadece fallback |
 | Teslimat/okundu reconciliation | "sendMessage resolved" basari sayiliyor | P2 | Once submitted status, sonra best-effort receipt takibi |
-| Legacy `/api` namespace | Geriye uyumluluk icin iki API yuzeyi var | P2 | 2026-09-30 sunset takvimine gore kaldir |
+| Legacy `/api` namespace | Kaldirildi; eski istekler `API_VERSION_REMOVED` ile `410` doner | Tamamlandi | 2026-10-28 |
 | Tenant tablolarinin fazlaligi | Single-tenant icin fazla gorunuyor | P3 | Hemen silme; gizli altyapi olarak dondur |
 
 ## 1. WhatsApp Gercek Gonderim Senaryolari
@@ -200,13 +200,13 @@ Gereksiz: Bugun tenant yonetim ekrani, plan/billing, tenant davetiye sistemi vey
 
 Yapilmali: Tenant altyapisi internal kalsin. Single-tenant urun davranisi net olsun.
 
-### 6.2 Legacy `/api` Namespace
+### 6.2 Legacy `/api` Namespace (Tamamlandi)
 
-Mevcut durum: Frontend `/api/v1` kullaniyor, legacy `/api` ise geriye uyumluluk icin duruyor ve deprecation header'i basiyor.
+Mevcut durum: Frontend `/api/v1` kullaniyor. Legacy namespace kaldirildi; versioned olmayan `/api/...` istekleri `API_VERSION_REMOVED` koduyla `410` alir.
 
 Yapilmali:
 
-- Access log ile legacy `/api` kullanan var mi izlenmeli.
+- Eski API istemcileri `/api/v1` kullanacak sekilde guncellenmeli.
 - 30 gun hic kullanim yoksa legacy routes kaldirilmali.
 - Kaldirmadan once regression testleri `/api/v1` odakli hale getirilmeli.
 
@@ -257,7 +257,7 @@ Sure: 1-2 gun
 
 - Single-tenant davranisini dokumante et.
 - Tenant UI veya multi-account beklentisi olusturabilecek metinleri kaldir.
-- Legacy `/api` kullanimini logla.
+- Legacy `/api` namespace kaldirildi; eski istekler `410` ile yonlendirilir.
 - Session store icin DB-backed tasarim kararini hazirla.
 
 ### Faz 2: Session ve DB Dayanikliligi

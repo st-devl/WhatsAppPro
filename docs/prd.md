@@ -32,7 +32,7 @@ Backend sıradan bir CRUD (Oluştur, Oku, Güncelle, Sil) uygulamasından ziyade
 
 Atomic ve Transactional Veritabanı: lib/db.js üzerinden yönetilen veritabanı işlemlerinde veriler doğrudan dosya üzerine yazılmaz. Önce geçici kopyaya (temp) yazılır, başarılı olursa ana dosya güncellenir (Atomic Save). Çoklu eklemelerde Transaction kullanılır; ortada hata çıkarsa her şey geri alınır (Rollback).
 İzolasyon ve Multi-Tenant (Çoklu Kiracı): Sistem birden fazla müşteriye hizmet verecek şekilde tasarlanmış (SaaS). Veritabanı sorguları kesinlikle tenant_id filtresi (Row Level Security - RLS) ile çalışır.
-Güvenli API Katmanı: Tüm işlemler /api/groups, /api/upload-excel gibi RESTful endpointler üzerinden yürür. Hata kodları standartlaştırılmıştır (Örn: Validasyon hatası 400, Duplicate hatası 409 döner).
+Güvenli API Katmanı: Tüm işlemler /api/v1/groups, /api/v1/upload-excel gibi RESTful endpointler üzerinden yürür. Hata kodları standartlaştırılmıştır (Örn: Validasyon hatası 400, Duplicate hatası 409 döner).
 Webhook & Idempotency: WhatsApp'tan gelen yanıtlar (teslim edildi/okundu) sisteme düşer. Ağ hatasından dolayı aynı bildirim iki kere gelirse, sistem bunu id (webhook_id) üzerinden tanır ve veritabanını bozmadan (Replay Attack koruması) atlar.
 Frontend (Kullanıcı Arayüzü) Mimarisi
 Frontend tamamen "The Sovereign Interface" (Egemen Arayüz) felsefesiyle, üst düzey yöneticiler için bir "dijital komuta merkezi" hissiyatında inşa edilmiştir:

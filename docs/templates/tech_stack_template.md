@@ -7,7 +7,7 @@
 - **Cache/Queue:** [Örn: Redis]
 
 ## 2. Infrastructure & DevOps
-- **Containerization:** [Docker / Sail]
+- **Deployment:** [Hostinger Passenger / PM2]
 - **Hosting/Server:** [Örn: AWS / DigitalOcean / VPS]
 - **CI/CD:** [Github Actions?]
 

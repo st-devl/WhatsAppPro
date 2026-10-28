@@ -170,27 +170,27 @@ Bu faz frontend ve ilerideki entegrasyonlar icin temiz, anlasilir ve geriye uyum
 
 ### 14. Grup API'leri
 
-- [x] `GET /api/groups` aktif gruplari dondurmeye devam edecek.
-- [x] `GET /api/groups` mevcut frontend uyumlulugu icin contacts alanini koruyacak.
-- [x] `POST /api/groups` yeni grup olusturacak.
-- [x] `POST /api/groups` duplicate aktif grup adini engelleyecek.
-- [x] `PUT /api/groups/:id` mevcut toplu kayit davranisini geriye uyumlu koruyacak.
-- [x] `DELETE /api/groups/:id` fiziksel delete yerine soft delete yapacak.
+- [x] `GET /api/v1/groups` aktif gruplari dondurmeye devam edecek.
+- [x] `GET /api/v1/groups` mevcut frontend uyumlulugu icin contacts alanini koruyacak.
+- [x] `POST /api/v1/groups` yeni grup olusturacak.
+- [x] `POST /api/v1/groups` duplicate aktif grup adini engelleyecek.
+- [x] `PUT /api/v1/groups/:id` mevcut toplu kayit davranisini geriye uyumlu koruyacak.
+- [x] `DELETE /api/v1/groups/:id` fiziksel delete yerine soft delete yapacak.
 - [x] Grup silindiginde kampanya hedef listesine dahil edilmeyecek.
 - [x] Grup silindiginde aktif kisileri de soft delete veya grup kapsaminda pasif hale getirilecek.
 
 ### 15. Kisi API'leri
 
-- [x] `POST /api/groups/:groupId/contacts` yeni kisi ekleyecek.
-- [x] `PATCH /api/groups/:groupId/contacts/:contactId` kisi ad, soyad ve telefon guncelleyecek.
-- [x] `DELETE /api/groups/:groupId/contacts/:contactId` kisiyi soft delete yapacak.
+- [x] `POST /api/v1/groups/:groupId/contacts` yeni kisi ekleyecek.
+- [x] `PATCH /api/v1/groups/:groupId/contacts/:contactId` kisi ad, soyad ve telefon guncelleyecek.
+- [x] `DELETE /api/v1/groups/:groupId/contacts/:contactId` kisiyi soft delete yapacak.
 - [x] Kisi ekleme/guncelleme telefon validation ve duplicate kontrolunden gececek.
 - [x] Silinmis kisi normal listeye ve kampanya hedeflerine dahil edilmeyecek.
 - [x] API response formatlari frontend'in kolay guncelleme yapabilecegi sekilde tutarli olacak.
 
 ### 16. Excel Import API
 
-- [x] `POST /api/upload-excel` mevcut endpoint olarak calismaya devam edecek.
+- [x] `POST /api/v1/upload-excel` mevcut endpoint olarak calismaya devam edecek.
 - [x] Excel kolon aliaslari korunacak ve gerekirse genisletilecek.
 - [x] Bos satirlar yok sayilacak.
 - [x] Hatali telefonlu satirlar import raporunda sayi olarak bildirilecek.
@@ -312,10 +312,10 @@ Bu faz veri sayisi arttiginda sistemin sismemesini saglar.
 
 ### 27. Listeleme Performansi
 
-- [x] `GET /api/groups` cok buyuk veri setlerinde sistemi sismirmeyecek sekilde izlenecek.
+- [x] `GET /api/v1/groups` cok buyuk veri setlerinde sistemi sismirmeyecek sekilde izlenecek.
 - [x] Gerekirse gruplar sadece `contact_count` ile dondurulecek, kisi listesi secili grup icin ayrica alinacak.
 - [x] Kisa vadede mevcut frontend uyumlulugu korunacak.
-- [x] Uzun vadede `GET /api/groups/:id/contacts` endpointiyle sayfalama desteklenecek.
+- [x] Uzun vadede `GET /api/v1/groups/:id/contacts` endpointiyle sayfalama desteklenecek.
 - [x] Kisi tablosu buyuk listelerde arama veya pagination ile desteklenecek.
 
 ### 28. Log ve Backup Sisme Kontrolu

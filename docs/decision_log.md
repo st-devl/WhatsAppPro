@@ -4,7 +4,7 @@
 
 Decision: use SQLite through `sql.js` with explicit export-on-write persistence.
 
-Reason: the production host does not support Docker Compose or native Node addon builds. `sql.js` keeps the existing relational schema and migrations while removing GLIBC, symlink, and node-gyp requirements.
+Reason: the production Hostinger Passenger runtime does not support native Node addon builds. `sql.js` keeps the existing relational schema and migrations while removing GLIBC, symlink, and node-gyp requirements.
 
 ## Minimal Modular Frontend
 

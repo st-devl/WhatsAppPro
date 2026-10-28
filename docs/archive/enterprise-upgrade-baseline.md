@@ -44,32 +44,32 @@ Not: Aktif grup/kisi bulunmuyor. Mevcut kayitlar soft-deleted durumda.
 
 Public veya auth oncesi:
 
-- `POST /api/login`
-- `POST /api/logout`
-- `GET /api/check-auth`
+- `POST /api/v1/login`
+- `POST /api/v1/logout`
+- `GET /api/v1/check-auth`
 - `GET /healthz`
 - `GET /login.html`
 
 Auth middleware arkasinda:
 
-- `GET /api/version`
-- `GET /api/runtime-status`
-- `GET /api/templates`
-- `POST /api/templates`
-- `GET /api/groups`
-- `POST /api/groups`
-- `PUT /api/groups/:id`
-- `DELETE /api/groups/:id`
-- `GET /api/groups/:groupId/contacts`
-- `POST /api/groups/:groupId/contacts`
-- `PATCH /api/groups/:groupId/contacts/:contactId`
-- `DELETE /api/groups/:groupId/contacts/:contactId`
-- `POST /api/upload-media`
-- `DELETE /api/upload-media`
-- `POST /api/upload-excel`
-- `GET /api/download-sample`
-- `GET /api/campaign-status`
-- `POST /api/reset-session`
+- `GET /api/v1/version`
+- `GET /api/v1/runtime-status`
+- `GET /api/v1/templates`
+- `POST /api/v1/templates`
+- `GET /api/v1/groups`
+- `POST /api/v1/groups`
+- `PUT /api/v1/groups/:id`
+- `DELETE /api/v1/groups/:id`
+- `GET /api/v1/groups/:groupId/contacts`
+- `POST /api/v1/groups/:groupId/contacts`
+- `PATCH /api/v1/groups/:groupId/contacts/:contactId`
+- `DELETE /api/v1/groups/:groupId/contacts/:contactId`
+- `POST /api/v1/upload-media`
+- `DELETE /api/v1/upload-media`
+- `POST /api/v1/upload-excel`
+- `GET /api/v1/download-sample`
+- `GET /api/v1/campaign-status`
+- `POST /api/v1/reset-session`
 - Static `public/`
 - Static `uploads/`
 
@@ -82,12 +82,12 @@ Auth middleware arkasinda:
 
 ## Frontend Akis Baseline
 
-- Login formu `/api/login` kullanir.
-- Dashboard auth durumunu `/api/check-auth` ile kontrol eder.
-- Gruplar `/api/groups` ile tek seferde contacts dahil yuklenir.
+- Login formu `/api/v1/login` kullanir.
+- Dashboard auth durumunu `/api/v1/check-auth` ile kontrol eder.
+- Gruplar `/api/v1/groups` ile tek seferde contacts dahil yuklenir.
 - Manuel kisi ekleme secili grup varsa tekil contact API'sine gider.
 - Secili grup yoksa liste local draft olarak saklanir.
-- Excel import `/api/upload-excel` ile parse edilir, frontend listeye merge eder.
+- Excel import `/api/v1/upload-excel` ile parse edilir, frontend listeye merge eder.
 - Campaign hedefleri frontend state'inden hesaplanir ve Socket.IO `start-bulk` ile gonderilir.
 - Progress ve loglar Socket.IO `log` eventiyle UI'a basilir.
 

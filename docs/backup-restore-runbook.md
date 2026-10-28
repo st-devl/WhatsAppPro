@@ -10,11 +10,7 @@ Persistent data must live outside the image/repository.
 - Uploads: `whatsapp-engine/uploads`
 - WhatsApp auth session: `whatsapp-engine/auth`
 
-In Docker, mount all declared volumes:
-
-- `/data`
-- `/app/whatsapp-engine/uploads`
-- `/app/whatsapp-engine/auth`
+Hostinger Passenger'da `WHASAPPC_DATA_DIR` uygulama kodunun disinda kalici bir dizine ayarlanmalidir.
 
 ## Migration
 
@@ -28,7 +24,7 @@ The migration command opens the database, applies pending idempotent migrations 
 
 ## Backup
 
-The application creates SQLite backups before risky write/migration operations.
+The application creates SQLite backups before destructive or bulk operations (group/contact deletion, group contact replacement, recipient suppression changes, and user deletion) and before migrations. Routine creates and updates do not create a backup.
 
 Manual backup:
 
@@ -39,6 +35,7 @@ node -e "require('./whatsapp-engine/lib/db').createBackup('manual')"
 Retention:
 
 - `BACKUP_RETENTION_COUNT=30` keeps the newest 30 backup files.
+- `BACKUP_MIN_INTERVAL_MS=600000` throttles non-migration pre-write backups; set it to `0` to back up every destructive or bulk operation. Migration backups are never throttled.
 - Increase this value before large imports or risky migrations.
 - Copy backups to off-host storage before deploying schema changes.
 

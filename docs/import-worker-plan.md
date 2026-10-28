@@ -4,7 +4,7 @@ Excel import bugunku haliyle HTTP request icinde parse edilir. Bu kisa vadede ca
 
 ## Hedef Mimari
 
-- `POST /api/imports` dosyayi alir, dosya imzasini dogrular ve import job olusturur.
+- `POST /api/v1/imports` dosyayi alir, dosya imzasini dogrular ve import job olusturur.
 - Worker `.xlsx` dosyasini parse eder.
 - Import sonucu `imports` tablosunda saklanir: status, total_rows, valid_rows, duplicate_rows, invalid_rows, error.
 - Frontend import progress'i polling veya Socket.IO ile izler.
