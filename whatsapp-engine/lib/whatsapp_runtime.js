@@ -26,6 +26,7 @@ class WhatsAppRuntime {
         this.maxAutoRetries = Number.parseInt(options.maxAutoRetries || '3', 10);
         this.logger = options.logger || componentLogger('whatsapp_runtime');
         this.onSessionInvalidLoop = options.onSessionInvalidLoop || null;
+        this.getSocketConfig = options.getSocketConfig || getSocketConfig;
         this.sock = null;
         this.isConnected = false;
         this.lastQR = null;
@@ -84,13 +85,22 @@ class WhatsAppRuntime {
         this.logger.warn({ tenantId: this.tenantId }, 'whatsapp_session_reset_requested');
         this.isConnected = false;
         this.lastQR = null;
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
         if (this.sock) {
-            try {
-                this.sock.ev.removeAllListeners();
-                this.sock.end();
-            } catch (_) {}
+            const sock = this.sock;
             this.sock = null;
+            try {
+                sock.ev.removeAllListeners();
+                // Telefondaki "Bağlı cihazlar" kaydı da silinsin; bağlantı zaten kopuksa beklemeden geç.
+                if (typeof sock.logout === 'function') {
+                    await Promise.race([sock.logout(), new Promise(resolve => setTimeout(resolve, 3000))]).catch(() => {});
+                }
+                sock.end();
+            } catch (_) {}
         }
+        // Dinleyiciler silindiği için close olayı gelmez; kilidi burada açmazsak yeni init hiç başlamaz.
+        this.initLock = false;
         
         // Baileys asenkron yazma kuyrugunu tamamlasin diye 300 ms bekliyoruz
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -125,7 +135,7 @@ class WhatsAppRuntime {
         }
 
         try {
-            const config = await getSocketConfig(this.sessionPath());
+            const config = await this.getSocketConfig(this.sessionPath());
             this.sock = config.sock;
             config.ev.on('creds.update', config.saveCreds);
             config.ev.on('connection.update', (update) => this.handleConnectionUpdate(update));
@@ -226,7 +236,10 @@ class WhatsAppRuntime {
                 const sessionPath = this.sessionPath();
                 if (fs.existsSync(sessionPath)) fs.removeSync(sessionPath);
                 this.scheduleInit(5000);
-            } else if (reason !== 428) {
+            } else if (reason === 515) {
+                // QR okutulduktan sonra WhatsApp yeniden başlatma ister; bu bir hata değil.
+                this.scheduleInit(500);
+            } else {
                 this.scheduleReconnect();
             }
         }
