@@ -1239,7 +1239,7 @@ function updatePreview() {
         inner.classList.remove('hidden');
         const mediaPath = escapeHtml(mediaFiles[0].path);
         if (mediaFiles[0].mimetype.startsWith('video/')) {
-            inner.innerHTML = `<video src="/${mediaPath}" class="w-full rounded-md max-h-[200px] object-cover" controls></video>`;
+            inner.innerHTML = `<video src="/${mediaPath}" preload="metadata" class="w-full rounded-md max-h-[200px] object-cover" controls></video>`;
         } else {
             inner.innerHTML = `<img src="/${mediaPath}" class="w-full rounded-md object-cover">`;
         }

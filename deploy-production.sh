@@ -11,6 +11,8 @@ DATA_PATH="${DEPLOY_REMOTE_DATA_PATH:-/home/u341720642/domains/yardimet.site/app
 HEALTH_URL="${DEPLOY_REMOTE_HEALTH_URL:-https://yardimet.site/readyz}"
 WATCHDOG_HEALTH_URL="${DEPLOY_REMOTE_WATCHDOG_HEALTH_URL:-https://yardimet.site/healthz}"
 HEALTH_TIMEOUT_SECONDS="${DEPLOY_HEALTH_TIMEOUT_SECONDS:-90}"
+# Passenger'in calistirdigi Node; SSH'taki sistem node'u node:sqlite icermez.
+REMOTE_NODE="${DEPLOY_REMOTE_NODE:-/opt/alt/alt-nodejs22/root/bin/node}"
 CACHE_ROOT="${WHASAPPC_DEPLOY_CACHE:-$HOME/.cache/whasappc-deploy}"
 CACHE_KEEP="${WHASAPPC_DEPLOY_CACHE_KEEP:-3}"
 RUN_TESTS=0
@@ -34,6 +36,7 @@ Defaults:
   DEPLOY_REMOTE_DATA_PATH=/home/u341720642/domains/yardimet.site/app-data
   DEPLOY_REMOTE_HEALTH_URL=https://yardimet.site/readyz
   DEPLOY_REMOTE_WATCHDOG_HEALTH_URL=https://yardimet.site/healthz
+  DEPLOY_REMOTE_NODE=/opt/alt/alt-nodejs22/root/bin/node
   WHASAPPC_DEPLOY_CACHE=~/.cache/whasappc-deploy
 
 Behavior:
@@ -243,6 +246,7 @@ data_path_q="$(shell_quote "$DATA_PATH")"
 health_url_q="$(shell_quote "$HEALTH_URL")"
 watchdog_health_url_q="$(shell_quote "$WATCHDOG_HEALTH_URL")"
 remote_env_artifact_q="$(shell_quote "$remote_env_artifact")"
+remote_node_q="$(shell_quote "$REMOTE_NODE")"
 
 ssh "${ssh_opts[@]}" "$REMOTE_HOST" "set -euo pipefail
 mkdir -p $passenger_path_q $passenger_path_q/tmp $passenger_path_q/node_modules \
@@ -275,6 +279,8 @@ rsync "${rsync_opts[@]}" \
 
 ssh "${ssh_opts[@]}" "$REMOTE_HOST" "set -euo pipefail
 passenger_path=$passenger_path_q
+remote_node=$remote_node_q
+[ -x \"\$remote_node\" ] || remote_node=node
 data_path=$data_path_q
 health_url=$health_url_q
 watchdog_health_url=$watchdog_health_url_q
@@ -481,7 +487,7 @@ test -d \"\$passenger_path/node_modules\"
 touch \"\$passenger_path/tmp/restart.txt\"
 stop_passenger_app
 remove_stale_process_lock
-(cd \"\$passenger_path\" && node scripts/migrate.js apply)
+(cd \"\$passenger_path\" && \"\$remote_node\" scripts/migrate.js apply)
 install_watchdog_cron
 echo 'Remote Passenger deploy staged.'
 "
