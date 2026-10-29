@@ -197,6 +197,7 @@ class WhatsAppRuntime {
             const reason = lastDisconnect?.error?.output?.statusCode;
             this.logger.warn({ tenantId: this.tenantId, reason }, 'whatsapp_connection_closed');
             this.isConnected = false;
+            this.lastQR = null;
             this.status.whatsapp = 'disconnected';
             this.status.lastError = reason ? `WhatsApp bağlantısı kapandı. Kod: ${reason}` : 'WhatsApp bağlantısı kapandı.';
             this.emitToTenant('status', 'disconnected');
@@ -262,6 +263,7 @@ class WhatsAppRuntime {
             this.status.whatsapp = 'paused';
             this.status.lastError = `WhatsApp bağlantısı kurulamadı. Otomatik deneme ${this.maxAutoRetries} denemeden sonra durduruldu.`;
             this.logger.error({ tenantId: this.tenantId, maxAutoRetries: this.maxAutoRetries }, 'whatsapp_reconnect_paused');
+            this.emitToTenant('status', 'paused');
             db.addSystemEvent(this.tenantId, 'reconnect_paused', 'warn',
                 `Otomatik yeniden bağlanma ${this.maxAutoRetries} denemeden sonra durduruldu. Manuel müdahale gerekli.`,
                 { max_auto_retries: this.maxAutoRetries })
@@ -278,6 +280,17 @@ class WhatsAppRuntime {
             maxAutoRetries: this.maxAutoRetries
         }, 'whatsapp_reconnect_scheduled');
         this.scheduleInit(reconnectDelay);
+    }
+
+    wake() {
+        if (!['paused', 'error'].includes(this.status.whatsapp) || this.isConnected || this.initLock) {
+            return false;
+        }
+
+        this.retryCount = 0;
+        this.logger.info({ tenantId: this.tenantId }, 'whatsapp_runtime_woken');
+        this.scheduleInit(200);
+        return true;
     }
 }
 

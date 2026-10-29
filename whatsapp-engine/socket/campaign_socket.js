@@ -16,6 +16,7 @@ function registerCampaignSocket(io, options = {}) {
         const userId = socket.request.session.user.user_id;
         socket.join(runtime.tenantRoom(tenantId));
         socketLogger.info({ socketId: socket.id, tenantId, userId }, 'authenticated_socket_connected');
+        runtime.wake(tenantId);
         socket.emit('status', runtime.connected(tenantId) ? 'connected' : 'disconnected');
         if (!runtime.connected(tenantId) && runtime.getLastQR(tenantId) && runtime.isTenantSupported(tenantId)) socket.emit('qr', runtime.getLastQR(tenantId));
 

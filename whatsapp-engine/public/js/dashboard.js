@@ -525,6 +525,7 @@ function setWhatsAppUiStatus(status, detail = '') {
     const connectionDetail = document.getElementById('connection-detail');
     const qrCanvas = document.getElementById('qr-canvas');
     const qrLoading = document.getElementById('qr-loading');
+    const reconnectButton = document.getElementById('reconnect-whatsapp-btn');
     const connectedCheck = document.getElementById('connected-check');
 
     if (status === 'connected') {
@@ -538,10 +539,51 @@ function setWhatsAppUiStatus(status, detail = '') {
         }
         qrCanvas.classList.add('hidden');
         qrLoading.classList.add('hidden');
+        reconnectButton.classList.add('hidden');
         connectedCheck.classList.remove('hidden');
         connectedCheck.classList.add('flex');
         btn.disabled = false;
         btn.innerHTML = '<span class="material-symbols-outlined text-lg" style="font-variation-settings: \'FILL\' 1;">play_arrow</span> BAŞLAT';
+        return;
+    }
+
+    if (status === 'paused') {
+        indicator.className = 'w-2 h-2 rounded-full bg-slate-400 mr-2';
+        txt.innerText = 'DURAKLATILDI';
+        badge.innerText = 'DURAKLATILDI';
+        badge.className = 'text-slate-500 font-bold text-xs uppercase';
+        if (connectionDetail) {
+            connectionDetail.innerText = 'QR süresi doldu veya bağlantı kurulamadı';
+            connectionDetail.className = 'text-xs font-bold text-slate-500';
+        }
+        qrCanvas.classList.add('hidden');
+        qrLoading.classList.add('hidden');
+        reconnectButton.classList.remove('hidden');
+        reconnectButton.classList.add('flex');
+        connectedCheck.classList.add('hidden');
+        connectedCheck.classList.remove('flex');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-lg">qr_code_2</span> WHATSAPP BAĞLI DEĞİL';
+        return;
+    }
+
+    if (status === 'starting') {
+        indicator.className = 'w-2 h-2 rounded-full bg-slate-400 animate-pulse mr-2';
+        txt.innerText = 'BAĞLANTI BAŞLATILIYOR';
+        badge.innerText = 'BAŞLATILIYOR';
+        badge.className = 'text-slate-500 font-bold text-xs uppercase';
+        if (connectionDetail) {
+            connectionDetail.innerText = 'Yeni QR hazırlanıyor';
+            connectionDetail.className = 'text-xs font-bold text-slate-500';
+        }
+        qrCanvas.classList.add('hidden');
+        qrLoading.classList.remove('hidden');
+        reconnectButton.classList.add('hidden');
+        reconnectButton.classList.remove('flex');
+        connectedCheck.classList.add('hidden');
+        connectedCheck.classList.remove('flex');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-lg">qr_code_2</span> WHATSAPP BAĞLI DEĞİL';
         return;
     }
 
@@ -555,6 +597,8 @@ function setWhatsAppUiStatus(status, detail = '') {
     }
     connectedCheck.classList.add('hidden');
     connectedCheck.classList.remove('flex');
+    reconnectButton.classList.add('hidden');
+    reconnectButton.classList.remove('flex');
     if (detail !== 'QR BEKLENİYOR') qrLoading.classList.remove('hidden');
     btn.disabled = true;
     btn.innerHTML = `<span class="material-symbols-outlined text-lg">qr_code_2</span> ${detail === 'QR BEKLENİYOR' ? 'QR OKUTUN' : 'WHATSAPP BAĞLI DEĞİL'}`;
@@ -567,11 +611,30 @@ async function refreshRuntimeStatus() {
             setWhatsAppUiStatus('connected');
         } else if (status.whatsapp === 'qr') {
             setWhatsAppUiStatus('disconnected', 'QR BEKLENİYOR');
+        } else if (status.whatsapp === 'paused') {
+            setWhatsAppUiStatus('paused');
+        } else if (['starting', 'scheduled'].includes(status.whatsapp)) {
+            setWhatsAppUiStatus('starting');
         } else {
             setWhatsAppUiStatus('disconnected', 'BAĞLI DEĞİL');
         }
     } catch (err) {
         console.error('Runtime durumu alınamadı', err);
+    }
+}
+
+async function reconnectWhatsApp() {
+    const reconnectButton = document.getElementById('reconnect-whatsapp-btn');
+    reconnectButton.disabled = true;
+    try {
+        const result = await fetchJson(`${API_BASE}/reconnect`, { method: 'POST' }, 5000);
+        if (result.woken) setWhatsAppUiStatus('starting');
+        else await refreshRuntimeStatus();
+    } catch (err) {
+        console.error('WhatsApp bağlantısı yeniden başlatılamadı', err);
+        await refreshRuntimeStatus();
+    } finally {
+        reconnectButton.disabled = false;
     }
 }
 
@@ -2241,6 +2304,7 @@ function bindStaticControls() {
     bindClick('preview-next-btn', () => stepPreviewContact(1));
     bindClick('logout-btn', logout);
     bindClick('reset-connection-btn', resetConnection);
+    bindClick('reconnect-whatsapp-btn', reconnectWhatsApp);
     bindClick('open-template-modal-btn', () => showModal('template-modal'));
     bindClick('media-upload-btn', () => byId('media-input')?.click());
     bindClick('create-group-btn', createGroup);

@@ -81,7 +81,8 @@ async function createHarness(options = {}) {
             tenantRoom: tenantId => `tenant:${tenantId}`,
             connected: () => false,
             getLastQR: () => null,
-            isTenantSupported: () => true
+            isTenantSupported: () => true,
+            wake() { return false; }
         },
         campaignService: {
             stopActive: async () => null,

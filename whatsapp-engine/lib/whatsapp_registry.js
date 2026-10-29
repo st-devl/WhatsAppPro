@@ -112,6 +112,11 @@ class WhatsAppRegistry {
         const r = this.get(tenantId);
         if (r) r.resetSession();
     }
+
+    wake(tenantId) {
+        const r = this.get(tenantId);
+        return r ? r.wake() : false;
+    }
 }
 
 module.exports = { WhatsAppRegistry };
