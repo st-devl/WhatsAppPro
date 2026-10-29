@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link href="/css/app.css" rel="stylesheet">
+    <link href="/css/signature.css" rel="stylesheet">
 </head>
 <body class="bg-background min-h-screen flex flex-col overflow-x-hidden">
     <header class="flex justify-between items-center px-4 lg:px-8 py-4 w-full sticky top-0 z-50 backdrop-blur-md bg-[#f7f9fb]/95">
@@ -35,10 +36,11 @@
                 <span id="logout-icon" class="material-symbols-outlined text-sm">logout</span>
                 <span id="logout-label">Çıkış</span>
             </button>
-            <div class="hidden lg:flex bg-primary/5 px-4 py-1.5 rounded-full items-center gap-2 border border-outline-variant/20">
-                <span class="material-symbols-outlined text-sm text-on-tertiary-fixed-variant" style="font-variation-settings: 'FILL' 1;">workspace_premium</span>
-                <span id="sys-version" class="text-[10px] font-bold text-primary tracking-widest uppercase">version yükleniyor</span>
-            </div>
+            <a id="sys-version" href="https://verbisistem.pro" target="_blank" rel="noopener" aria-label="verbisistem.pro sitesine git" title="verbisistem.pro" class="verbisistem-signature verbisistem-signature--header">
+                <span class="verbisistem-signature__label">Geliştiren</span>
+                <span class="verbisistem-signature__name">verbisistem</span>
+                <span class="material-symbols-outlined verbisistem-signature__icon" aria-hidden="true">arrow_outward</span>
+            </a>
             <div class="hidden xl:flex items-center gap-2 bg-primary px-4 py-2 rounded-xl text-white shadow-lg">
                 <span class="material-symbols-outlined text-sm">security</span>
                 <span id="user-role-badge" class="text-xs font-semibold">Enterprise Integrity</span>
@@ -61,12 +63,19 @@
 
     <main class="flex flex-1 min-h-[calc(100dvh-72px)]">
         <aside class="hidden lg:sticky lg:top-[72px] lg:flex lg:max-h-[calc(100dvh-72px)] z-40 flex-col p-4 bg-slate-50 w-80 shadow-xl space-y-6 overflow-y-auto no-scrollbar pb-24">
-            <section class="space-y-4">
-                <div class="flex justify-between items-center px-2">
-                    <h3 id="qr-status-text" class="text-xs font-bold text-on-surface-variant tracking-widest uppercase">WhatsApp Connection</h3>
-                    <span class="material-symbols-outlined text-on-primary-container text-lg">settings_phone</span>
-                </div>
-                <div class="bg-surface-container-lowest p-5 rounded-xl shadow-sm border border-outline-variant/10">
+            <section id="qr-card">
+                <button id="qr-card-toggle" type="button" aria-controls="qr-card-body" aria-expanded="true" class="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1 text-left hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-secondary/20">
+                    <span class="flex min-w-0 items-center gap-2">
+                        <span id="qr-card-status-dot" class="hidden h-2 w-2 shrink-0 rounded-full bg-secondary"></span>
+                        <span id="qr-status-text" class="truncate text-xs font-bold text-on-surface-variant tracking-widest uppercase">WhatsApp bağlantısı</span>
+                    </span>
+                    <span class="flex shrink-0 items-center gap-2">
+                        <span id="qr-card-status-icon" class="material-symbols-outlined text-on-primary-container text-lg">settings_phone</span>
+                        <span id="qr-card-chevron" class="material-symbols-outlined text-on-surface-variant text-lg transition-transform duration-200">expand_more</span>
+                    </span>
+                </button>
+                <div id="qr-card-body" class="mt-4 max-h-[1000px] overflow-hidden opacity-100 transition-[max-height,opacity,margin] duration-200 ease-out">
+                    <div class="bg-surface-container-lowest p-5 rounded-xl shadow-sm border border-outline-variant/10">
                     <div id="qr-box" class="aspect-square bg-white flex items-center justify-center border-2 border-dashed border-slate-200 rounded-lg relative group overflow-hidden">
                         <canvas id="qr-canvas" class="hidden w-44 h-44"></canvas>
                         <div id="qr-loading" class="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-[2px]">
@@ -95,6 +104,7 @@
                             <span class="material-symbols-outlined text-sm">refresh</span>
                             Bağlantıyı Sıfırla
                         </button>
+                    </div>
                     </div>
                 </div>
             </section>
@@ -227,22 +237,33 @@
                     </div>
 
                     <div class="col-span-12 lg:col-span-5 space-y-6">
-                        <div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm space-y-4">
-                            <div class="flex justify-between items-center gap-4">
-                                <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Hedef Gruplar</label>
+                        <div id="campaign-groups-card" class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+                            <button id="campaign-groups-card-toggle" type="button" aria-controls="campaign-groups-card-body" aria-expanded="true" class="flex w-full items-center justify-between gap-4 text-left">
+                                <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Hedef Gruplar</span>
+                                <span class="flex min-w-0 items-center gap-2">
                                 <span id="campaign-selected-count" class="bg-primary/5 px-2 py-1 rounded text-[10px] font-bold text-primary">Toplam 0 numara seçildi</span>
-                            </div>
+                                    <span id="campaign-groups-card-chevron" class="material-symbols-outlined shrink-0 text-on-surface-variant text-lg transition-transform duration-200">expand_more</span>
+                                </span>
+                            </button>
+                            <div id="campaign-groups-card-body" class="mt-4 max-h-[1000px] overflow-hidden opacity-100 transition-[max-height,opacity,margin] duration-200 ease-out">
                             <div id="campaign-group-list" class="space-y-2 max-h-[220px] overflow-y-auto no-scrollbar">
                                 <div class="p-4 rounded-lg bg-surface-container-low text-[10px] font-bold text-slate-400 uppercase tracking-widest">Gruplar yükleniyor...</div>
                             </div>
+                            </div>
                         </div>
 
-                        <div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm space-y-6">
-                            <label class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Hız &amp; Güvenlik Ayarları</label>
+                        <div id="speed-settings-card" class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm">
+                            <button id="speed-settings-card-toggle" type="button" aria-controls="speed-settings-card-body" aria-expanded="true" class="flex w-full items-center justify-between gap-4 text-left">
+                                <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Hız &amp; Güvenlik Ayarları</span>
+                                <span class="flex items-center gap-2">
+                                    <span id="delay-range-label" class="text-xs font-bold text-secondary">20s - 90s</span>
+                                    <span id="speed-settings-card-chevron" class="material-symbols-outlined text-on-surface-variant text-lg transition-transform duration-200">expand_more</span>
+                                </span>
+                            </button>
+                            <div id="speed-settings-card-body" class="mt-6 max-h-[1000px] overflow-hidden opacity-100 transition-[max-height,opacity,margin] duration-200 ease-out">
                             <div class="space-y-4">
                                 <div class="flex justify-between items-center text-xs font-bold text-slate-600">
                                     <span>Gecikme Aralığı (Saniye)</span>
-                                    <span id="delay-range-label" class="text-secondary">20s - 90s</span>
                                 </div>
                                 <div class="grid grid-cols-2 gap-4">
                                     <input id="min-delay" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" placeholder="Min" type="number" value="20">
@@ -255,6 +276,7 @@
                                     </div>
                                     <input id="daily-limit" class="w-full bg-slate-50 border-0 rounded-lg text-sm h-10 px-4 focus:ring-2 focus:ring-secondary/20" type="number" value="250">
                                 </div>
+                            </div>
                             </div>
                         </div>
 

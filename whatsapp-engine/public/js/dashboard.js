@@ -93,6 +93,7 @@ function getSocket() {
     return _socket;
 }
 const unsavedContactsDraftKey = 'whatsappc.unsavedContacts.v1';
+const acknowledgedReleaseRevisionKey = 'whatsappc.acknowledgedReleaseRevision.v1';
 const API_BASE = window.WhasAppCApi.API_BASE;
 const appState = window.WhasAppCState;
 const ui = window.WhasAppCUI;
@@ -104,6 +105,9 @@ let campaignStatusPollInFlight = false;
 let hydratedCampaignLogsForId = null;
 let currentFrontendRevision = null;
 let releaseWatcherTimer = null;
+let pendingReleaseRevision = null;
+let qrCardCollapsible = null;
+let currentWhatsAppStatus = null;
 let selectedContactPhones = new Set();
 let suppressedRecipients = [];
 let suppressedPhoneSet = new Set();
@@ -176,9 +180,10 @@ function renderVersion(versionData = {}) {
     if (!element) return;
     const version = versionData.version || '0.0.0';
     const shortCommit = versionData.short_commit || String(versionData.commit || '').slice(0, 7);
-    element.innerText = shortCommit && shortCommit !== 'unknown'
+    const release = shortCommit && shortCommit !== 'unknown'
         ? `v${version} · ${shortCommit}`
         : `v${version}`;
+    element.title = `verbisistem.pro · ${release}`;
 }
 
 async function fetchVersion() {
@@ -186,15 +191,24 @@ async function fetchVersion() {
 }
 
 async function initReleaseVersion() {
-    const versionData = await fetchVersion().catch(() => ({ version: '0.0.0', commit: 'unknown' }));
-    currentFrontendRevision = releaseRevision(versionData);
-    renderVersion(versionData);
+    try {
+        const versionData = await fetchVersion();
+        currentFrontendRevision = releaseRevision(versionData);
+        if (getAcknowledgedReleaseRevision() === currentFrontendRevision) {
+            clearAcknowledgedReleaseRevision();
+        }
+        renderVersion(versionData);
+    } catch (err) {
+        currentFrontendRevision = null;
+        console.warn('İlk sürüm kontrolü yapılamadı', err);
+    }
 }
 
 function showReleaseUpdate(versionData = {}) {
     const banner = document.getElementById('release-update-banner');
     const text = document.getElementById('release-update-text');
     if (!banner) return;
+    pendingReleaseRevision = releaseRevision(versionData);
     if (text) text.innerText = `Yeni sürüm yayında: v${versionData.version || '0.0.0'}`;
     banner.classList.remove('hidden');
 }
@@ -205,7 +219,19 @@ function startReleaseWatcher() {
         try {
             const versionData = await fetchVersion();
             const nextRevision = releaseRevision(versionData);
-            if (currentFrontendRevision && nextRevision !== currentFrontendRevision) {
+            if (!currentFrontendRevision) {
+                currentFrontendRevision = nextRevision;
+                renderVersion(versionData);
+                if (getAcknowledgedReleaseRevision() === currentFrontendRevision) {
+                    clearAcknowledgedReleaseRevision();
+                }
+                return;
+            }
+            if (nextRevision !== currentFrontendRevision) {
+                if (getAcknowledgedReleaseRevision() === nextRevision) {
+                    currentFrontendRevision = nextRevision;
+                    return;
+                }
                 showReleaseUpdate(versionData);
                 clearInterval(releaseWatcherTimer);
                 releaseWatcherTimer = null;
@@ -214,6 +240,85 @@ function startReleaseWatcher() {
             console.warn('Sürüm kontrolü yapılamadı', err);
         }
     }, 60000);
+}
+
+function getAcknowledgedReleaseRevision() {
+    try {
+        return window.localStorage.getItem(acknowledgedReleaseRevisionKey);
+    } catch (err) {
+        return null;
+    }
+}
+
+function acknowledgeReleaseRevision(revision) {
+    if (!revision) return;
+    try {
+        window.localStorage.setItem(acknowledgedReleaseRevisionKey, revision);
+    } catch (err) {
+        // Depolama erişimi yoksa yenileme yine de sürümün yeni halini yükler.
+    }
+}
+
+function clearAcknowledgedReleaseRevision() {
+    try {
+        window.localStorage.removeItem(acknowledgedReleaseRevisionKey);
+    } catch (err) {
+        // Depolama erişimi yoksa temizleme gerekmiyor.
+    }
+}
+
+function setupCollapsible(cardId, { defaultExpanded = true, storageKey } = {}) {
+    const toggle = byId(`${cardId}-toggle`);
+    const body = byId(`${cardId}-body`);
+    const chevron = byId(`${cardId}-chevron`);
+    if (!toggle || !body || !chevron) return null;
+
+    const expandedMarginClass = ['mt-4', 'mt-6'].find((className) => body.classList.contains(className));
+
+    let expanded = defaultExpanded;
+    if (storageKey) {
+        try {
+            const savedValue = window.localStorage.getItem(storageKey);
+            if (savedValue !== null) expanded = savedValue === 'true';
+        } catch (err) {
+            // Depolama erişilemediğinde varsayılan açık kalır.
+        }
+    }
+
+    const setExpanded = (nextExpanded, { persist = true } = {}) => {
+        expanded = Boolean(nextExpanded);
+        toggle.setAttribute('aria-expanded', String(expanded));
+        body.classList.toggle('max-h-[1000px]', expanded);
+        body.classList.toggle('opacity-100', expanded);
+        body.classList.toggle('max-h-0', !expanded);
+        body.classList.toggle('opacity-0', !expanded);
+        if (expandedMarginClass) {
+            body.classList.toggle(expandedMarginClass, expanded);
+            body.classList.toggle('mt-0', !expanded);
+        }
+        chevron.classList.toggle('rotate-180', expanded);
+        if (storageKey && persist) {
+            try {
+                window.localStorage.setItem(storageKey, String(expanded));
+            } catch (err) {
+                // Kullanıcı tercihi depolanamazsa mevcut oturumdaki durum korunur.
+            }
+        }
+    };
+
+    toggle.addEventListener('click', () => setExpanded(!expanded));
+    setExpanded(expanded, { persist: false });
+    return { setExpanded };
+}
+
+function setupDashboardCollapsibles() {
+    qrCardCollapsible = setupCollapsible('qr-card');
+    setupCollapsible('campaign-groups-card', {
+        storageKey: 'whatsappc.campaignGroupsCardExpanded.v1'
+    });
+    setupCollapsible('speed-settings-card', {
+        storageKey: 'whatsappc.speedSettingsCardExpanded.v1'
+    });
 }
 
 function setActionButton(id, visible) {
@@ -527,10 +632,20 @@ function setWhatsAppUiStatus(status, detail = '') {
     const qrLoading = document.getElementById('qr-loading');
     const reconnectButton = document.getElementById('reconnect-whatsapp-btn');
     const connectedCheck = document.getElementById('connected-check');
+    const qrStatusDot = document.getElementById('qr-card-status-dot');
+    const qrStatusIcon = document.getElementById('qr-card-status-icon');
+
+    const statusChanged = status !== currentWhatsAppStatus;
+    currentWhatsAppStatus = status;
+    if (status !== 'connected' || statusChanged) {
+        qrCardCollapsible?.setExpanded(status !== 'connected', { persist: false });
+    }
+    qrStatusDot?.classList.toggle('hidden', status !== 'connected');
+    qrStatusIcon?.classList.toggle('hidden', status === 'connected');
 
     if (status === 'connected') {
         indicator.className = 'w-2 h-2 rounded-full bg-secondary animate-pulse mr-2';
-        txt.innerText = 'WhatsApp Connection';
+        txt.innerText = 'WhatsApp bağlı';
         badge.innerText = 'CONNECTED';
         badge.className = 'text-secondary font-bold text-xs uppercase';
         if (connectionDetail) {
@@ -2322,7 +2437,10 @@ function bindStaticControls() {
     bindClick('template-save-btn', saveTemplate);
     bindClick('campaign-complete-close-btn', closeCampaignCompleteModal);
     bindClick('mobile-manual-open-btn', openManualContactModal);
-    bindClick('release-refresh-btn', () => window.location.reload());
+    bindClick('release-refresh-btn', () => {
+        acknowledgeReleaseRevision(pendingReleaseRevision);
+        window.location.reload();
+    });
 
     byId('template-select')?.addEventListener('change', event => loadTemplate(event.target.value));
     byId('message')?.addEventListener('input', updatePreview);
@@ -2380,6 +2498,7 @@ function bindDynamicControls() {
 function initializeDashboard() {
     bindStaticControls();
     bindDynamicControls();
+    setupDashboardCollapsibles();
     document.getElementById('clear-list-btn').addEventListener('click', clearList);
     document.getElementById('send-btn').addEventListener('click', () => startCampaign());
     document.getElementById('stop-btn').addEventListener('click', stopCampaign);

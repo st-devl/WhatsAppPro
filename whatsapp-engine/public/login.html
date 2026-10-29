@@ -9,8 +9,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link href="/css/app.css" rel="stylesheet">
+    <link href="/css/signature.css" rel="stylesheet">
 </head>
-<body class="bg-background min-h-screen flex items-center justify-center p-4">
+<body class="bg-background min-h-screen flex flex-col p-4 md:items-center md:justify-center">
     <main class="w-full max-w-[1200px] grid md:grid-cols-12 overflow-hidden bg-surface-container-lowest rounded-xl shadow-[0_32px_64px_-12px_rgba(9,20,38,0.08)] border border-outline-variant/10">
         <section class="hidden md:flex md:col-span-7 bg-primary relative p-12 flex-col justify-between overflow-hidden">
             <div class="absolute inset-0 opacity-20 pointer-events-none" style="background: radial-gradient(circle at 0% 0%, #006c49 0%, transparent 50%), radial-gradient(circle at 100% 100%, #c88000 0%, transparent 50%);"></div>
@@ -78,12 +79,18 @@
         </section>
     </main>
 
-    <footer class="fixed bottom-6 left-1/2 -translate-x-1/2 hidden md:flex items-center gap-6 text-[10px] uppercase tracking-widest font-label text-on-surface-variant/60 pointer-events-none">
-        <span>© 2024 WhasAppC Pro</span>
-        <span class="w-1 h-1 rounded-full bg-outline-variant/40"></span>
-        <span>Secure Session</span>
-        <span class="w-1 h-1 rounded-full bg-outline-variant/40"></span>
-        <span id="login-footer-version">version yükleniyor</span>
+    <footer class="mt-6 text-center text-[10px] font-label tracking-widest text-on-surface-variant/60 md:fixed md:bottom-4 md:left-1/2 md:z-10 md:mt-0 md:-translate-x-1/2">
+        <div class="hidden items-center gap-6 uppercase md:flex">
+            <span>© 2024 WhasAppC Pro</span>
+            <span class="w-1 h-1 rounded-full bg-outline-variant/40"></span>
+            <span>Secure Session</span>
+            <span class="w-1 h-1 rounded-full bg-outline-variant/40"></span>
+            <span id="login-footer-version">version yükleniyor</span>
+        </div>
+        <a href="https://verbisistem.pro" target="_blank" rel="noopener" aria-label="verbisistem.pro sitesine git" class="verbisistem-signature inline-flex items-center gap-1 text-[10px] font-medium normal-case tracking-wide">
+            <span class="verbisistem-signature__label">Geliştiren</span>
+            <span class="verbisistem-signature__name font-semibold">verbisistem</span>
+        </a>
     </footer>
 
     <script>

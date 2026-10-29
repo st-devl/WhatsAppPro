@@ -1,0 +1,97 @@
+.verbisistem-signature {
+    align-items: center;
+    background: #0f172a;
+    border: 1px solid rgba(45, 212, 191, .52);
+    border-radius: 9999px;
+    box-shadow: 0 0 0 1px rgba(45, 212, 191, .10), 0 0 12px rgba(45, 212, 191, .18), inset 0 1px 0 rgba(255, 255, 255, .06);
+    color: inherit;
+    display: inline-flex;
+    font-family: Inter, sans-serif;
+    font-size: 10px;
+    font-weight: 500;
+    gap: .3rem;
+    letter-spacing: .025em;
+    line-height: 1rem;
+    overflow: hidden;
+    padding: .25rem .75rem;
+    position: relative;
+    text-decoration: none;
+    transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+}
+
+.verbisistem-signature__label {
+    color: #94a3b8;
+}
+
+.verbisistem-signature__name {
+    color: #5eead4;
+    font-weight: 600;
+    text-shadow: 0 0 4px rgba(94, 234, 212, .82), 0 0 12px rgba(45, 212, 191, .42), 0 0 22px rgba(56, 217, 150, .24);
+    animation: verbisistem-glow-in .8s ease-out both;
+}
+
+.verbisistem-signature:hover {
+    border-color: rgba(94, 234, 212, .84);
+    box-shadow: 0 0 0 1px rgba(94, 234, 212, .20), 0 0 18px rgba(45, 212, 191, .34), 0 0 30px rgba(56, 217, 150, .15), inset 0 1px 0 rgba(255, 255, 255, .08);
+    transform: translateY(-1px);
+}
+
+.verbisistem-signature:hover .verbisistem-signature__name {
+    text-shadow: 0 0 5px rgba(94, 234, 212, 1), 0 0 15px rgba(45, 212, 191, .64), 0 0 28px rgba(56, 217, 150, .36);
+}
+
+.verbisistem-signature--header::after {
+    animation: verbisistem-shimmer 4.5s ease-in-out infinite;
+    background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .2) 50%, transparent 80%);
+    content: "";
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
+    transform: translateX(-130%);
+}
+
+.verbisistem-signature--header {
+    display: none;
+    font-size: 11px;
+    padding: .35rem .85rem;
+}
+
+.verbisistem-signature--header .verbisistem-signature__icon {
+    font-size: 14px;
+}
+
+.verbisistem-signature__icon {
+    color: #99f6e4;
+    font-size: 13px;
+    line-height: 1;
+}
+
+@keyframes verbisistem-glow-in {
+    0% { opacity: .45; text-shadow: 0 0 1px rgba(94, 234, 212, .2); }
+    55% { opacity: 1; text-shadow: 0 0 5px rgba(94, 234, 212, .95), 0 0 15px rgba(45, 212, 191, .48); }
+    100% { opacity: 1; }
+}
+
+@keyframes verbisistem-shimmer {
+    0%, 70%, 100% { transform: translateX(-130%); }
+    85% { transform: translateX(130%); }
+}
+
+@media (min-width: 768px) {
+    .verbisistem-signature--header {
+        display: inline-flex;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .verbisistem-signature,
+    .verbisistem-signature__name,
+    .verbisistem-signature--header::after {
+        animation: none;
+        transition: none;
+    }
+
+    .verbisistem-signature:hover {
+        transform: none;
+    }
+}
