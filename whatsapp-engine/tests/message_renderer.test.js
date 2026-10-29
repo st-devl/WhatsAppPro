@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
     TemplateRenderError,
+    missingPlaceholders,
     renderTemplate,
     validateTemplate
 } = require('../shared/message_renderer');
@@ -58,4 +59,12 @@ test('drops the space before an empty surname', () => {
 test('renders nothing for a missing or unknown name', () => {
     assert.equal(renderTemplate('Sayın {{ad}} {{soyad}}, Merhaba!', {}).text, 'Sayın, Merhaba!');
     assert.equal(renderTemplate('Sayın {{ad}}', { name: 'Bilinmeyen' }).text, 'Sayın');
+});
+
+test('lists placeholders the contact has no value for', () => {
+    assert.deepEqual(missingPlaceholders('Sayın {{ad}} {{soyad}}', { name: 'Ayşe', surname: '' }), ['soyad']);
+    assert.deepEqual(missingPlaceholders('Sayın {{Ad}}, {{SOYADI}}', { name: ' ', surname: '' }), ['Ad', 'SOYADI']);
+    assert.deepEqual(missingPlaceholders('Sayın {{ad}}', { name: 'Bilinmeyen' }), ['ad']);
+    assert.deepEqual(missingPlaceholders('Merhaba!', {}), []);
+    assert.deepEqual(missingPlaceholders('Sayın {{ad}} {{ad}}', { name: 'Ali' }), []);
 });

@@ -346,6 +346,52 @@ test('message text uses first name for {{ad}} and surname only once', async () =
     assert.deepEqual(sent, ['Sayın Ahmet Yılmaz']);
 });
 
+test('recipients missing a used placeholder are skipped, not sent a half greeting', async () => {
+    const campaignId = 'placeholder-missing-skip';
+    const recipients = [
+        { phone: '905320000096', name: '', surname: 'Kaya' },
+        { phone: '905320000097', name: 'Zeynep', surname: 'Kaya' }
+    ];
+    await createRun(campaignId, recipients);
+    const initialStatus = await db.getCampaignRunStatus(campaignId, ownerEmail, tenantId);
+    const sent = [];
+    const sock = {
+        onWhatsApp: async () => [{ exists: true }],
+        sendPresenceUpdate: async () => {},
+        sendMessage: async (phone, payload) => {
+            sent.push({ phone, text: payload.text });
+        }
+    };
+
+    await sendBulkWithProgress(
+        sock,
+        recipients,
+        'Sayın {{ad}}, Merhaba!',
+        null,
+        [5, 5],
+        [],
+        campaignId,
+        {
+            dailyLimit: 50,
+            tenantId,
+            typingDelayMs: 0,
+            stopPollMs: 10,
+            delayScale: 0,
+            disableNightMode: true,
+            sleep: async () => {},
+            campaignStore: campaignStore(),
+            initialStatus
+        }
+    );
+
+    assert.deepEqual(sent.map(item => item.text), ['Sayın Zeynep, Merhaba!']);
+    const skipped = await campaignPersistenceSnapshot(campaignId, '905320000096');
+    assert.equal(skipped.recipient.status, 'skipped');
+    assert.equal(skipped.recipient.last_error, 'Ad boş');
+    const report = await db.getCampaignReport(campaignId, tenantId);
+    assert.ok(report.skipped_recipients.some(item => item.phone === '905320000096' && item.last_error === 'Ad boş'));
+});
+
 test('finish locks campaign against every restart path', async () => {
     const campaignId = 'finished-restart-lock';
     await createRun(campaignId, [

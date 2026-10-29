@@ -84,6 +84,18 @@
         return options[Math.max(0, Math.min(options.length - 1, index))];
     }
 
+    // Kişide değeri olmayan değişkenler, şablonda yazıldığı haliyle ({{Ad}} → 'Ad').
+    function missingPlaceholders(template, contact = {}) {
+        const normalizedContact = cleanContact(contact);
+        const missing = [];
+        for (const match of String(template || '').matchAll(/{{\s*([^{}]+?)\s*}}/g)) {
+            const token = String(match[1] || '').trim();
+            const renderer = PLACEHOLDERS[placeholderKey(token)];
+            if (renderer && !renderer(normalizedContact) && !missing.includes(token)) missing.push(token);
+        }
+        return missing;
+    }
+
     function renderTemplate(template, contact = {}, options = {}) {
         const validation = validateTemplate(template);
         if (!validation.valid) {
@@ -116,6 +128,7 @@
     return {
         TemplateRenderError,
         validateTemplate,
+        missingPlaceholders,
         renderTemplate,
         placeholders: Object.keys(PLACEHOLDERS)
     };

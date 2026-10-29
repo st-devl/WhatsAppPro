@@ -2,7 +2,7 @@ const recipientManager = require('./recipient_manager');
 const path = require('path');
 const fs = require('fs-extra');
 const crypto = require('crypto');
-const { renderTemplate } = require('../shared/message_renderer');
+const { missingPlaceholders, renderTemplate } = require('../shared/message_renderer');
 const { componentLogger } = require('./logger');
 const { uploadStorageBaseDir } = require('./upload_middleware');
 const { shouldGenerateVideoThumbnail } = require('./media_policy');
@@ -27,6 +27,7 @@ const VALIDATION_STATUS = recipientManager.VALIDATION_STATUS || {
     NOT_FOUND: 'not_found',
     UNKNOWN: 'unknown'
 };
+const STATUS_SKIPPED = 'skipped';
 const STATUS_SKIPPED_COOLDOWN = 'skipped_cooldown';
 const STATUS_NOT_ON_WHATSAPP = 'not_on_whatsapp';
 const STATUS_SUPPRESSED = 'suppressed';
@@ -540,6 +541,36 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
             skippedReport.push({ name: contact.name || '', phone: contact.phone || normalizedForOverride, reason: 'Manuel gönderim dışı' });
             await addLog('warn', logMessage, progressFor(processedCount), {}, { persist: !recorded });
             emitProgress({ phase: 'suppressed' });
+            continue;
+        }
+
+        // Boş değişkenle "Sayın , Merhaba!" gibi yarım hitap gitmesin; kişi atlanır ve raporda görünür.
+        const missingFields = message ? missingPlaceholders(message, contact) : [];
+        if (missingFields.length > 0) {
+            const labels = [...new Set(missingFields.map(field => (/^ad$/i.test(field) ? 'Ad' : 'Soyad')))];
+            const reason = labels.map(label => `${label} boş`).join(', ');
+            messengerLogger.info({ phone: normalizedForOverride, campaignId, tenantId, missingFields }, 'message_skipped_missing_placeholder');
+            const nextProcessedCount = Math.min(totalCount, processedCount + 1);
+            const logMessage = `⏭️ Atlandı (${reason}): ${contact.name || normalizedForOverride}`;
+            const recorded = await recordRecipientResult({
+                contact,
+                status: STATUS_SKIPPED,
+                error: reason,
+                log: {
+                    type: 'warn',
+                    message: logMessage,
+                    progress: progressFor(nextProcessedCount),
+                    metadata: {}
+                }
+            });
+            if (!recorded) {
+                await persist(campaignStore?.markRecipient(campaignId, contact, STATUS_SKIPPED, reason), { critical: true });
+            }
+            skippedCount++;
+            processedCount = nextProcessedCount;
+            skippedReport.push({ name: contact.name || '', phone: contact.phone || normalizedForOverride, reason });
+            await addLog('warn', logMessage, progressFor(processedCount), {}, { persist: !recorded });
+            emitProgress({ phase: 'skipped' });
             continue;
         }
 
