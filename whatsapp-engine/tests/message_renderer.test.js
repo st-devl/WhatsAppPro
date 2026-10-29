@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
     TemplateRenderError,
+    contactsMissingPlaceholders,
     missingPlaceholders,
     renderTemplate,
     validateTemplate
@@ -67,4 +68,20 @@ test('lists placeholders the contact has no value for', () => {
     assert.deepEqual(missingPlaceholders('Sayın {{ad}}', { name: 'Bilinmeyen' }), ['ad']);
     assert.deepEqual(missingPlaceholders('Merhaba!', {}), []);
     assert.deepEqual(missingPlaceholders('Sayın {{ad}} {{ad}}', { name: 'Ali' }), []);
+});
+
+test('lists contacts that are missing values for placeholders used in the template', () => {
+    const contacts = [
+        { phone: '1', name: '', surname: 'Kaya' },
+        { phone: '2', name: 'Ayşe', surname: '' },
+        { phone: '3', name: '', surname: '' },
+        { phone: '4', name: 'Ali', surname: 'Demir' }
+    ];
+
+    assert.deepEqual(contactsMissingPlaceholders('Merhaba {{ad}} {{soyad}}', contacts), [
+        { contact: contacts[0], labels: ['Ad'] },
+        { contact: contacts[1], labels: ['Soyad'] },
+        { contact: contacts[2], labels: ['Ad', 'Soyad'] }
+    ]);
+    assert.deepEqual(contactsMissingPlaceholders('Merhaba!', contacts), []);
 });

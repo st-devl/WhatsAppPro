@@ -2,7 +2,7 @@ const recipientManager = require('./recipient_manager');
 const path = require('path');
 const fs = require('fs-extra');
 const crypto = require('crypto');
-const { missingPlaceholders, renderTemplate } = require('../shared/message_renderer');
+const { contactsMissingPlaceholders, renderTemplate } = require('../shared/message_renderer');
 const { componentLogger } = require('./logger');
 const { uploadStorageBaseDir } = require('./upload_middleware');
 const { shouldGenerateVideoThumbnail } = require('./media_policy');
@@ -545,11 +545,11 @@ async function sendBulkWithProgress(sock, contacts, message, socket, delayRange,
         }
 
         // Boş değişkenle "Sayın , Merhaba!" gibi yarım hitap gitmesin; kişi atlanır ve raporda görünür.
-        const missingFields = message ? missingPlaceholders(message, contact) : [];
-        if (missingFields.length > 0) {
-            const labels = [...new Set(missingFields.map(field => (/^ad$/i.test(field) ? 'Ad' : 'Soyad')))];
+        const missingPlaceholderContact = message ? contactsMissingPlaceholders(message, [contact])[0] : null;
+        if (missingPlaceholderContact) {
+            const { labels } = missingPlaceholderContact;
             const reason = labels.map(label => `${label} boş`).join(', ');
-            messengerLogger.info({ phone: normalizedForOverride, campaignId, tenantId, missingFields }, 'message_skipped_missing_placeholder');
+            messengerLogger.info({ phone: normalizedForOverride, campaignId, tenantId, labels }, 'message_skipped_missing_placeholder');
             const nextProcessedCount = Math.min(totalCount, processedCount + 1);
             const logMessage = `⏭️ Atlandı (${reason}): ${contact.name || normalizedForOverride}`;
             const recorded = await recordRecipientResult({

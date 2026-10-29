@@ -1802,6 +1802,30 @@ async function startCampaign(overrideCooldown = [], options = {}) {
     if (!text && mediaFiles.length === 0) return alert('Mesaj içeriği veya en az bir görsel gereklidir.');
     if (text && !validateMessageTemplateOrShow(text, targetContacts[0] || previewContact())) return;
 
+    if (text && overrideCooldown.length === 0 && !options.cooldownConfirmed) {
+        const missingContacts = messageRenderer.contactsMissingPlaceholders(text, targetContacts);
+        if (missingContacts.length === targetContacts.length) {
+            alert('Seçilen kişilerin hiçbirinde mesajdaki değişkenin değeri yok; gönderilecek kimse kalmadı.');
+            return;
+        }
+        if (missingContacts.length > 0) {
+            const reasonCounts = missingContacts.reduce((counts, { labels }) => {
+                labels.forEach(label => {
+                    counts[label] = (counts[label] || 0) + 1;
+                });
+                return counts;
+            }, {});
+            const reasons = Object.entries(reasonCounts).map(([label, count]) => `${label} boş: ${count}`).join(', ');
+            const people = missingContacts.slice(0, 5).map(({ contact }) => {
+                const name = `${contact.name === 'Bilinmeyen' ? '' : contact.name || ''} ${contact.surname || ''}`.trim();
+                return name || contact.phone;
+            }).filter(Boolean);
+            const remainingCount = targetContacts.length - missingContacts.length;
+            const peopleText = people.length > 0 ? `\nAtlanacak kişiler: ${people.join(', ')}` : '';
+            if (!window.confirm(`${missingContacts.length} kişi atlanacak.\n${reasons}${peopleText}\nBu kişilere mesaj gönderilmeyecek. Kalan ${remainingCount} kişiye gönderim başlatılsın mı?`)) return;
+        }
+    }
+
     // Cooldown penceresinden gelindiyse kontrol tekrarlanmaz; işaretsiz gruplar sunucuda atlanır.
     if (overrideCooldown.length === 0 && !options.cooldownConfirmed) {
         try {

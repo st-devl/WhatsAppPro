@@ -96,6 +96,20 @@
         return missing;
     }
 
+    function placeholderLabel(token) {
+        return placeholderKey(token) === 'ad' ? 'Ad' : 'Soyad';
+    }
+
+    function contactsMissingPlaceholders(template, contacts = []) {
+        if (!Array.isArray(contacts)) return [];
+
+        return contacts.reduce((missingContacts, contact) => {
+            const labels = [...new Set(missingPlaceholders(template, contact).map(placeholderLabel))];
+            if (labels.length > 0) missingContacts.push({ contact, labels });
+            return missingContacts;
+        }, []);
+    }
+
     function renderTemplate(template, contact = {}, options = {}) {
         const validation = validateTemplate(template);
         if (!validation.valid) {
@@ -129,6 +143,7 @@
         TemplateRenderError,
         validateTemplate,
         missingPlaceholders,
+        contactsMissingPlaceholders,
         renderTemplate,
         placeholders: Object.keys(PLACEHOLDERS)
     };
