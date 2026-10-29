@@ -5,6 +5,7 @@ const {
     fetchLatestBaileysVersion
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
+const fs = require('fs');
 const path = require('path');
 const { componentLogger } = require('./logger');
 const { mediaUploadCache, MediaUploadCache } = require('./media_upload_cache');
@@ -15,10 +16,28 @@ const connectionLogger = componentLogger('connection');
 // Reconnect'lerde retry sayaçları ve gönderilen mesajlar kaybolmasın diye oturum başına tutulur.
 const sessionStores = new Map();
 
+// Oturum sıfırlanınca (elle veya 401/440) session klasörü silinir; alıcıların yeniden
+// gönderim istekleri sonra da gelebildiği için gönderilen mesajlar klasörün dışında tutulur.
+function sentMessagesDir(authPath) {
+    const dir = path.join(path.dirname(authPath), 'sent-messages');
+    const legacyDir = path.join(authPath, 'sent-messages');
+    try {
+        const names = fs.readdirSync(legacyDir);
+        fs.mkdirSync(dir, { recursive: true });
+        for (const name of names) {
+            if (!fs.existsSync(path.join(dir, name))) fs.renameSync(path.join(legacyDir, name), path.join(dir, name));
+        }
+        fs.rmSync(legacyDir, { recursive: true, force: true });
+    } catch (err) {
+        if (err.code !== 'ENOENT') connectionLogger.warn({ err }, 'sent_message_store_migration_failed');
+    }
+    return dir;
+}
+
 function getSessionStores(authPath) {
     if (!sessionStores.has(authPath)) {
         sessionStores.set(authPath, {
-            sentMessages: new SentMessageStore({ dir: path.join(authPath, 'sent-messages') }),
+            sentMessages: new SentMessageStore({ dir: sentMessagesDir(authPath) }),
             msgRetryCounterCache: new MediaUploadCache({ ttlMs: 60 * 60 * 1000, maxEntries: 10000 })
         });
     }

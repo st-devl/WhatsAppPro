@@ -61,7 +61,7 @@ test('sent message store ignores unsafe or unknown ids', async () => {
 });
 
 test('socket config answers retry lookups with messages it sent', async () => {
-    const authPath = await tempDir();
+    const authPath = path.join(await tempDir(), 'session');
     let socketOptions;
     const config = await getSocketConfig(authPath, {
         useMultiFileAuthState: async () => ({ state: {}, saveCreds() {} }),
@@ -87,7 +87,7 @@ test('socket config answers retry lookups with messages it sent', async () => {
 });
 
 test('retry counter cache is shared across reconnects of the same session', async () => {
-    const authPath = await tempDir();
+    const authPath = path.join(await tempDir(), 'session');
     const caches = [];
     const options = {
         useMultiFileAuthState: async () => ({ state: {}, saveCreds() {} }),
@@ -101,4 +101,44 @@ test('retry counter cache is shared across reconnects of the same session', asyn
     await getSocketConfig(authPath, options);
 
     assert.equal(caches[0], caches[1]);
+});
+
+function fakeSocketOptions(onCreate) {
+    return {
+        useMultiFileAuthState: async () => ({ state: {}, saveCreds() {} }),
+        fetchLatestBaileysVersion: async () => ({ version: [2, 3000, 1], isLatest: true }),
+        makeWASocket: socketOptions => {
+            onCreate(socketOptions);
+            return {
+                ev: new EventEmitter(),
+                sendMessage: async (jid) => ({ key: { id: 'KEEP1', remoteJid: jid, fromMe: true }, message: videoMessage() })
+            };
+        }
+    };
+}
+
+test('sent messages survive a session reset that removes the session directory', async () => {
+    const authPath = path.join(await tempDir(), 'session');
+    let socketOptions;
+    const options = fakeSocketOptions(o => { socketOptions = o; });
+    const config = await getSocketConfig(authPath, options);
+    await config.sock.sendMessage('905551112233@s.whatsapp.net', { text: 'x' });
+
+    await fs.rm(authPath, { recursive: true, force: true });
+    await getSocketConfig(authPath, options);
+
+    const resent = await socketOptions.getMessage({ id: 'KEEP1' });
+    assert.equal(resent.videoMessage.caption, 'Merhaba');
+});
+
+test('sent messages stored inside the session directory are moved out on startup', async () => {
+    const authPath = path.join(await tempDir(), 'session');
+    await new SentMessageStore({ dir: path.join(authPath, 'sent-messages') }).set('LEGACY1', videoMessage());
+
+    let socketOptions;
+    await getSocketConfig(authPath, fakeSocketOptions(o => { socketOptions = o; }));
+    await fs.rm(authPath, { recursive: true, force: true });
+
+    const resent = await socketOptions.getMessage({ id: 'LEGACY1' });
+    assert.equal(resent.videoMessage.caption, 'Merhaba');
 });
